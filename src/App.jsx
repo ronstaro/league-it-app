@@ -53,8 +53,16 @@ const enrichPlayers = (players, feed) => {
   const gW={}, gL={};
   players.forEach(p => { gW[p.id]=0; gL[p.id]=0; });
   feed.forEach(m => {
-    (m.winnerIds||[]).forEach(id => { gW[id]=(gW[id]||0)+countGames(m.sets,"w"); });
-    (m.loserIds ||[]).forEach(id => { gL[id]=(gL[id]||0)+countGames(m.sets,"l"); });
+    // Winner scores "w" side, but also loses "l" side games
+    (m.winnerIds||[]).forEach(id => {
+      gW[id]=(gW[id]||0)+countGames(m.sets,"w");
+      gL[id]=(gL[id]||0)+countGames(m.sets,"l");
+    });
+    // Loser scores "l" side, but also loses "w" side games
+    (m.loserIds||[]).forEach(id => {
+      gW[id]=(gW[id]||0)+countGames(m.sets,"l");
+      gL[id]=(gL[id]||0)+countGames(m.sets,"w");
+    });
   });
   return players.map(p => ({ ...p, gamesWon:gW[p.id]||0, gamesLost:gL[p.id]||0 }));
 };
@@ -70,7 +78,8 @@ const derivePlayerStats = (players, feed) => {
     (m.winnerIds||[]).forEach(id => {
       if (!map[id]) return;
       map[id].wins++;
-      map[id].gamesWon += countGames(m.sets, "w");
+      map[id].gamesWon  += countGames(m.sets, "w");
+      map[id].gamesLost += countGames(m.sets, "l"); // mini-games the winner conceded
       if (isClutch) map[id].clutchWins++;
       map[id].streak = map[id].streak >= 0 ? map[id].streak + 1 : 1;
       map[id].bestStreak = Math.max(map[id].bestStreak, map[id].streak);
@@ -78,7 +87,8 @@ const derivePlayerStats = (players, feed) => {
     (m.loserIds||[]).forEach(id => {
       if (!map[id]) return;
       map[id].losses++;
-      map[id].gamesLost += countGames(m.sets, "l");
+      map[id].gamesWon  += countGames(m.sets, "l"); // mini-games the loser scored
+      map[id].gamesLost += countGames(m.sets, "w");
       map[id].streak = map[id].streak <= 0 ? map[id].streak - 1 : -1;
     });
   });
@@ -183,10 +193,10 @@ function PBtn({children,onClick,disabled=false}) {
 }
 
 /* ── STANDINGS TABLE — shared by Home + League ── */
+// players are expected to be pre-enriched (from derivePlayerStats) — gamesWon/gamesLost already set
 function StandingsTable({players, feed = []}) {
   if (!players || players.length === 0) return <div className="text-center p-10 opacity-30">No players in league yet</div>;
-  const rows     = useMemo(()=>byWins(players),[players]);
-  const enriched = useMemo(()=>enrichPlayers(players, feed),[players, feed]);
+  const rows = useMemo(()=>byWins(players),[players]);
   const COL = "34px 1fr 52px 40px 40px 72px";
   const HDRS = ["#","PLAYER","W/L","W%","CLTH","MINI-GAMES"];
   return (
@@ -205,7 +215,6 @@ function StandingsTable({players, feed = []}) {
       {rows.map((p,i)=>{
         const r      = i+1;
         const md     = medal(r);
-        const ep     = enriched.find(e=>e.id===p.id) || {gamesWon:0,gamesLost:0};
         const winPct = p.totalPlayed>0 ? Math.round(p.wins/p.totalPlayed*100) : 0;
         const pctC   = winPct>=60?N:winPct>=40?"#FFB830":"#FF3355";
         return (
@@ -232,7 +241,7 @@ function StandingsTable({players, feed = []}) {
             </div>
             <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:pctC}}>{winPct}%</div>
             <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:"#3B8EFF"}}>{p.clutchWins||0}</div>
-            <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:600,color:"rgba(255,255,255,.65)"}}>{ep.gamesWon} – {ep.gamesLost}</div>
+            <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:600,color:"rgba(255,255,255,.65)"}}>{p.gamesWon||0} – {p.gamesLost||0}</div>
           </div>
         );
       })}
@@ -913,14 +922,32 @@ function StatsTab({players,feed}) {
 }
 
 /* ── LEAGUE TAB ── */
-function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlayer,onRemovePlayer,leagueId,ownerId,user,onDeleteLeague}) {
+function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlayer,onRemovePlayer,leagueId,ownerId,user,onDeleteLeague,squadPhotoUrl=null,onSquadPhotoUpdate=null}) {
   const [editing,          setEditing]          = useState(false);
   const [draft,            setDraft]            = useState(rules);
   const [confirm,          setConfirm]          = useState(false);
   const [confirmDelete,    setConfirmDelete]    = useState(false);
   const [copied,           setCopied]           = useState(false);
 
-  const isOwner = user?.id && ownerId && user.id === ownerId;
+  // Show delete button if user is the owner, OR if owner_id is not set (migration pending — assume creator)
+  const isOwner = user?.id && (!ownerId || user.id === ownerId);
+
+  const squadFileRef = useRef(null);
+  const [squadUploading, setSquadUploading] = useState(false);
+  const handleSquadPhotoChange = useCallback(async e => {
+    const file = e.target.files?.[0];
+    if (!file || !leagueId) return;
+    setSquadUploading(true);
+    try {
+      const path = `league-${leagueId}`;
+      await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+      const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
+      await supabase.from("leagues").update({ image_url: publicUrl }).eq("id", leagueId);
+      onSquadPhotoUpdate?.(publicUrl);
+    } catch {}
+    setSquadUploading(false);
+    e.target.value = "";
+  }, [leagueId, onSquadPhotoUpdate]);
 
   const handleShare = useCallback(async () => {
     const url = `https://league-it-app.vercel.app/join/${leagueId}`;
@@ -944,10 +971,28 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
   return (
     <div className="px-5 pt-5 pb-2">
       <ST>📸 Squad Photo</ST>
-      <div className="rounded-[20px] mb-6 flex flex-col items-center justify-center gap-3 cursor-pointer hover:brightness-110 transition-all"
-        style={{background:"rgba(255,255,255,.03)",border:"2px dashed rgba(255,255,255,.12)",minHeight:130}}>
-        <Camera size={28} style={{color:"rgba(255,255,255,.2)"}}/>
-        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:16,letterSpacing:"2px",color:"rgba(255,255,255,.25)"}}>ADD SQUAD PHOTO</div>
+      <div className="rounded-[20px] mb-6 relative overflow-hidden cursor-pointer hover:brightness-110 transition-all"
+        style={{background:"rgba(255,255,255,.03)",border:"2px dashed rgba(255,255,255,.12)",minHeight:130}}
+        onClick={()=>squadFileRef.current?.click()}>
+        <input ref={squadFileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleSquadPhotoChange}/>
+        {squadPhotoUrl ? (
+          <>
+            <img src={squadPhotoUrl} alt="Squad" style={{width:"100%",maxHeight:200,objectFit:"cover",display:"block"}}/>
+            <div className="absolute bottom-0 inset-x-0 flex items-center justify-center py-2"
+              style={{background:"rgba(0,0,0,.55)"}}>
+              <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:700,color:"rgba(255,255,255,.7)",letterSpacing:"1px"}}>
+                {squadUploading?"UPLOADING...":"TAP TO CHANGE PHOTO"}
+              </span>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-3" style={{minHeight:130}}>
+            <Camera size={28} style={{color:"rgba(255,255,255,.2)"}}/>
+            <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:16,letterSpacing:"2px",color:"rgba(255,255,255,.25)"}}>
+              {squadUploading?"UPLOADING...":"ADD SQUAD PHOTO"}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Real Standings Table here too */}
@@ -1095,13 +1140,14 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
 }
 
 /* ── PROFILE TAB ── */
-function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null}) {
+function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,onAvatarUpdate=null}) {
   const enriched  = useMemo(()=>enrichPlayers(players,feed),[players,feed]);
   const me        = players.find(p=>p.isMe);
   const meE       = enriched.find(p=>p.isMe);
   const displayName = profile?.display_name || user?.user_metadata?.full_name || me?.name || "Player";
   const [editName, setEditName] = useState(false);
   const [draftName,setDraftName] = useState(displayName);
+  const avatarUrl = profile?.avatar_url || user?.user_metadata?.avatar_url || null;
   const rows      = useMemo(()=>byWins(players),[players]);
   const myRank    = rows.findIndex(p=>p.isMe)+1;
   const wr        = pct(me.wins,me.losses);
@@ -1112,6 +1158,23 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null}) 
   const [quote, setQuote] = useState("I came for trophies, not prisoners.");
   const [editQ, setEditQ] = useState(false);
   const [draftQ,setDraftQ]= useState(quote);
+
+  const avatarFileRef = useRef(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const handleAvatarChange = useCallback(async e => {
+    const file = e.target.files?.[0];
+    if (!file || !user?.id) return;
+    setAvatarUploading(true);
+    try {
+      const path = `profile-${user.id}`;
+      await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+      const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
+      await supabase.from("profiles").update({ avatar_url: publicUrl }).eq("user_id", user.id);
+      onAvatarUpdate?.(publicUrl);
+    } catch {}
+    setAvatarUploading(false);
+    e.target.value = "";
+  }, [user, onAvatarUpdate]);
 
   const skills = useMemo(()=>[
     {l:"Clutch",      v:Math.min(99,Math.round(50+wr/2+(me.streak>0?me.streak*3:0))),c:N},
@@ -1163,21 +1226,29 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null}) 
               transition={{duration:1.8,repeat:Infinity}}/>}
           </motion.button>
         </motion.div>
-        {/* Avatar */}
+        {/* Avatar — tap to upload */}
         <motion.div {...sg(1)} className="flex justify-center mb-5">
-          <div className="relative">
+          <div className="relative cursor-pointer" onClick={()=>avatarFileRef.current?.click()}>
+            <input ref={avatarFileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleAvatarChange}/>
             <motion.div
               animate={ready?{boxShadow:["0 0 0 0 rgba(170,255,0,.4)","0 0 0 16px rgba(170,255,0,0)","0 0 0 0 rgba(170,255,0,0)"]}:{}}
               transition={{duration:2.5,repeat:Infinity}}
               className="w-24 h-24 rounded-full overflow-hidden flex items-center justify-center font-black"
-              style={user?.user_metadata?.avatar_url
+              style={avatarUrl
                 ? {border:`3px solid ${N}55`}
                 : {background:`linear-gradient(135deg,${N},#7DC900)`,color:"#000",fontFamily:"'Bebas Neue',sans-serif",fontSize:30,letterSpacing:"2px"}}>
-              {user?.user_metadata?.avatar_url
-                ? <img src={user.user_metadata.avatar_url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+              {avatarUrl
+                ? <img src={avatarUrl} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                 : me.initials
               }
             </motion.div>
+            <div className="absolute bottom-0 right-0 w-7 h-7 rounded-full flex items-center justify-center"
+              style={{background:`linear-gradient(135deg,${N},#7DC900)`,border:"2px solid #0A0A0A"}}>
+              {avatarUploading
+                ? <div style={{width:10,height:10,borderRadius:"50%",border:"2px solid #000",borderTopColor:"transparent",animation:"spin 0.7s linear infinite"}}/>
+                : <Camera size={12} color="#000"/>
+              }
+            </div>
           </div>
         </motion.div>
         {/* Name + stats */}
@@ -1369,7 +1440,7 @@ function BottomNav({active,onChange}) {
 }
 
 /* ── ROOT ── */
-function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, leagueId = null, leagueName = "MY LEAGUE", user = null, onBack = null, ownerId = null, onDeleteLeague = null, profile = null, onProfileUpdate = null }) {
+function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, leagueId = null, leagueName = "MY LEAGUE", user = null, onBack = null, ownerId = null, onDeleteLeague = null, profile = null, onProfileUpdate = null, squadPhotoUrl = null, onSquadPhotoUpdate = null, onAvatarUpdate = null }) {
   const [activeTab,setActiveTab] = useState("home");
   const [players,  setPlayers]   = useState(initialPlayers);
   const [feed,     setFeed]      = useState(initialFeed);
@@ -1484,8 +1555,8 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
   const content = {
     home:    <HomeTab    players={enrichedPlayers} feed={feed} onEditFeed={handleEdit}/>,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed}/>,
-    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague}/>,
-    profile: <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={onProfileUpdate}/>,
+    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate}/>,
+    profile: <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={onProfileUpdate} onAvatarUpdate={onAvatarUpdate}/>,
   };
 
   return (
@@ -1518,8 +1589,8 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
                   <div style={{fontSize:9,color:"#C1FF00",fontFamily:"'DM Sans',sans-serif",letterSpacing:"2px",fontWeight:800,marginTop:2,textShadow:"0 0 10px rgba(193,255,0,.4)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{leagueName}</div>
                 </div>
               </div>
-              {user?.user_metadata?.avatar_url
-                ? <img src={user.user_metadata.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" style={{border:`2px solid ${N}44`}}/>
+              {(profile?.avatar_url || user?.user_metadata?.avatar_url)
+                ? <img src={profile?.avatar_url || user.user_metadata.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" style={{border:`2px solid ${N}44`}}/>
                 : <div className="flex items-center justify-center rounded-full w-9 h-9 text-[11px] font-black flex-shrink-0"
                     style={{background:`linear-gradient(135deg,${N},#7DC900)`,color:"#000",fontFamily:"'DM Sans',sans-serif"}}>
                     {(profile?.display_name||user?.user_metadata?.full_name||user?.email||"YO").trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join("")}
@@ -3405,7 +3476,7 @@ export default function Root() {
       const { data: pRows } = await supabase.from("players").select("league_id").eq("user_id", uid);
       if (!pRows?.length) { setLeagues([]); return; }
       const ids = [...new Set(pRows.map(r => r.league_id))];
-      const { data: lRows } = await supabase.from("leagues").select("id,name,sport,settings,created_at,owner_id").in("id", ids);
+      const { data: lRows } = await supabase.from("leagues").select("id,name,sport,settings,created_at,owner_id,image_url").in("id", ids);
       setLeagues(lRows || []);
     } catch {
       setLeagues([]);
@@ -3456,6 +3527,7 @@ export default function Root() {
         initialPlayers: (pData || []).map(r => rowToPlayer(r, user?.id)),
         initialFeed:    (mData || []).map(m => ({ id: m.id, ...m.score })),
         ownerId:        league.owner_id || null,
+        squadPhotoUrl:  league.image_url || null,
       });
       setPhase("app");
     } catch {
@@ -3556,6 +3628,14 @@ export default function Root() {
     }
   }, [user]);
 
+  const handleUpdateSquadPhoto = useCallback((url) => {
+    setActiveData(prev => prev ? { ...prev, squadPhotoUrl: url } : prev);
+  }, []);
+
+  const handleUpdateAvatar = useCallback((url) => {
+    setProfile(prev => ({ ...(prev || {}), avatar_url: url }));
+  }, []);
+
   const handleSignOut = useCallback(() => supabase.auth.signOut(), []);
 
   const handleBack = useCallback(() => {
@@ -3611,6 +3691,9 @@ export default function Root() {
       onDeleteLeague={handleDeleteLeague}
       profile={profile}
       onProfileUpdate={handleUpdateDisplayName}
+      squadPhotoUrl={activeData.squadPhotoUrl}
+      onSquadPhotoUpdate={handleUpdateSquadPhoto}
+      onAvatarUpdate={handleUpdateAvatar}
     />
   );
   if (phase === "wizard") return (
