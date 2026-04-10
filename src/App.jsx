@@ -876,16 +876,32 @@ function StatsTab({players,feed}) {
 }
 
 /* ── LEAGUE TAB ── */
-function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlayer,onRemovePlayer}) {
-  const [editing,setEditing] = useState(false);
-  const [draft,  setDraft]   = useState(rules);
-  const [confirm,setConfirm] = useState(false);
+function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlayer,onRemovePlayer,leagueId,ownerId,user,onDeleteLeague}) {
+  const [editing,          setEditing]          = useState(false);
+  const [draft,            setDraft]            = useState(rules);
+  const [confirm,          setConfirm]          = useState(false);
+  const [confirmDelete,    setConfirmDelete]    = useState(false);
+  const [copied,           setCopied]           = useState(false);
+
+  const isOwner = user?.id && ownerId && user.id === ownerId;
+
+  const handleShare = useCallback(async () => {
+    const url = `https://league-it-app.vercel.app/join/${leagueId}`;
+    if (navigator.share) {
+      try { await navigator.share({ title: "Join my League-It league!", text: "You've been invited 🏆", url }); }
+      catch {} // user cancelled
+    } else {
+      navigator.clipboard?.writeText(url).catch(() => {});
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }
+  }, [leagueId]);
 
   const TOOLS = [
-    {Icon:Settings, bg:`linear-gradient(135deg,${N},#7DC900)`, bdr:"rgba(170,255,0,.22)", lbl:"Edit Rules",           sub:"Modify format, scoring, season",    arr:N,        fn:()=>setEditing(true)},
-    {Icon:UserPlus, bg:"linear-gradient(135deg,#3B8EFF,#1a6be0)",bdr:"rgba(59,142,255,.22)",lbl:"Add / Invite Players",sub:"Share invite link or add member",   arr:"#3B8EFF", fn:onAddPlayer},
-    {Icon:UserMinus,bg:"linear-gradient(135deg,#FFB830,#E08A00)",bdr:"rgba(255,184,48,.22)",lbl:"Remove Players",      sub:"Remove a member this season",        arr:"#FFB830", fn:onRemovePlayer},
-    {Icon:RotateCcw,bg:"linear-gradient(135deg,#FF3355,#C0143C)",bdr:"rgba(255,51,85,.22)", lbl:"Reset Season",        sub:"Clear all stats and start fresh",    arr:"#FF3355", fn:()=>setConfirm(true)},
+    {Icon:Settings,  bg:`linear-gradient(135deg,${N},#7DC900)`,        bdr:"rgba(170,255,0,.22)",    lbl:"Edit Rules",       sub:"Modify format, scoring, season",  arr:N,         fn:()=>setEditing(true)},
+    {Icon:UserPlus,  bg:"linear-gradient(135deg,#3B8EFF,#1a6be0)",     bdr:"rgba(59,142,255,.22)",   lbl:"Add Player",       sub:"Add a new member to the league",   arr:"#3B8EFF", fn:onAddPlayer},
+    {Icon:UserMinus, bg:"linear-gradient(135deg,#FFB830,#E08A00)",     bdr:"rgba(255,184,48,.22)",   lbl:"Remove Players",   sub:"Remove a member this season",      arr:"#FFB830", fn:onRemovePlayer},
+    {Icon:RotateCcw, bg:"linear-gradient(135deg,#FF3355,#C0143C)",     bdr:"rgba(255,51,85,.22)",    lbl:"Reset Season",     sub:"Clear all stats and start fresh",  arr:"#FF3355", fn:()=>setConfirm(true)},
   ];
 
   return (
@@ -935,7 +951,28 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
         )}
       </div>
 
-      {/* 4 Admin buttons including Invite + Remove */}
+      {/* Invite Friends */}
+      <ST>🔗 Invite Friends</ST>
+      <motion.button whileHover={{scale:1.015,y:-2}} whileTap={{scale:.97}}
+        onClick={handleShare}
+        className="flex items-center gap-3 rounded-[18px] px-4 py-4 w-full mb-6 text-left"
+        style={{background:"rgba(170,255,0,.05)",border:`1px solid rgba(170,255,0,.3)`,cursor:"pointer"}}>
+        <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0"
+          style={{background:`linear-gradient(135deg,${N},#7DC900)`}}>
+          <MessageCircle size={18} color="#000"/>
+        </div>
+        <div className="flex-1">
+          <div style={{fontSize:13,fontWeight:800,color:"#fff",fontFamily:"'DM Sans',sans-serif"}}>
+            {copied ? "Link Copied! 🎉" : "Invite Friends"}
+          </div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.38)",fontFamily:"'DM Sans',sans-serif"}}>
+            Share the join link via any app
+          </div>
+        </div>
+        <ChevronRight size={16} style={{color:N,flexShrink:0}}/>
+      </motion.button>
+
+      {/* Admin Tools */}
       <ST>⚙️ Admin Tools</ST>
       <div className="flex flex-col gap-3 mb-6">
         {TOOLS.map(({Icon,bg,bdr,lbl,sub,arr,fn})=>(
@@ -952,6 +989,23 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
             <ChevronRight size={16} style={{color:arr,flexShrink:0}}/>
           </button>
         ))}
+
+        {/* Delete League — owner only */}
+        {isOwner&&(
+          <button onClick={()=>setConfirmDelete(true)}
+            className="flex items-center gap-3 rounded-[18px] px-4 py-4 hover:brightness-110 transition-all text-left"
+            style={{background:"rgba(255,51,85,.04)",border:"1px solid rgba(255,51,85,.3)",cursor:"pointer"}}>
+            <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0"
+              style={{background:"linear-gradient(135deg,#FF3355,#C0143C)"}}>
+              <X size={18} color="#fff"/>
+            </div>
+            <div className="flex-1">
+              <div style={{fontSize:13,fontWeight:800,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>Delete League</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,.38)",fontFamily:"'DM Sans',sans-serif"}}>Permanently remove this league</div>
+            </div>
+            <ChevronRight size={16} style={{color:"#FF3355",flexShrink:0}}/>
+          </button>
+        )}
       </div>
 
       <AnimatePresence>
@@ -975,16 +1029,42 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
             </motion.div>
           </motion.div>
         )}
+
+        {confirmDelete&&(
+          <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+            className="fixed inset-0 z-50 flex items-center justify-center px-6"
+            style={{background:"rgba(0,0,0,.88)",backdropFilter:"blur(14px)"}}
+            onClick={e=>{if(e.target===e.currentTarget)setConfirmDelete(false);}}>
+            <motion.div initial={{scale:.88,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:.88,opacity:0}}
+              transition={{type:"spring",stiffness:360,damping:28}}
+              className="w-full rounded-[24px] p-6" style={{maxWidth:340,background:"#131820",border:"1.5px solid rgba(255,51,85,.5)"}}>
+              <div className="text-4xl text-center mb-4">🗑️</div>
+              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:24,letterSpacing:"2px",color:"#FF3355",textAlign:"center",marginBottom:8}}>Delete League?</div>
+              <p style={{fontSize:13,color:"rgba(255,255,255,.45)",lineHeight:1.65,textAlign:"center",fontFamily:"'DM Sans',sans-serif",marginBottom:20}}>
+                This will permanently delete the league, all players, and all match history. This cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button onClick={()=>setConfirmDelete(false)} className="flex-1 rounded-[16px] py-3.5 font-bold text-sm"
+                  style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",color:"rgba(255,255,255,.65)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cancel</button>
+                <button onClick={()=>{onDeleteLeague?.();setConfirmDelete(false);}} className="flex-1 rounded-[16px] py-3.5 font-bold text-sm"
+                  style={{background:"linear-gradient(135deg,#FF3355,#C0143C)",color:"#fff",border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Delete Forever</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
 }
 
 /* ── PROFILE TAB ── */
-function ProfileTab({players,feed,user=null}) {
+function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null}) {
   const enriched  = useMemo(()=>enrichPlayers(players,feed),[players,feed]);
   const me        = players.find(p=>p.isMe);
   const meE       = enriched.find(p=>p.isMe);
+  const displayName = profile?.display_name || user?.user_metadata?.full_name || me?.name || "Player";
+  const [editName, setEditName] = useState(false);
+  const [draftName,setDraftName] = useState(displayName);
   const rows      = useMemo(()=>byWins(players),[players]);
   const myRank    = rows.findIndex(p=>p.isMe)+1;
   const wr        = pct(me.wins,me.losses);
@@ -1065,7 +1145,25 @@ function ProfileTab({players,feed,user=null}) {
         </motion.div>
         {/* Name + stats */}
         <motion.div {...sg(2)} className="text-center px-5 mb-4">
-          <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:36,letterSpacing:"3px",color:"#fff",lineHeight:1,marginBottom:2}}>{user?.user_metadata?.full_name||me.name}</div>
+          {editName?(
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <input autoFocus value={draftName} onChange={e=>setDraftName(e.target.value)} maxLength={32}
+                onKeyDown={e=>{
+                  if(e.key==="Enter"&&draftName.trim()){onProfileUpdate?.(draftName.trim());setEditName(false);}
+                  if(e.key==="Escape")setEditName(false);
+                }}
+                className="rounded-[12px] px-3 py-2 text-center outline-none"
+                style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"2px",background:"rgba(255,255,255,.06)",border:`1.5px solid ${N}66`,color:"#fff",caretColor:N,width:"100%",maxWidth:220}}/>
+              <button onClick={()=>{if(draftName.trim()){onProfileUpdate?.(draftName.trim());setEditName(false);}}}
+                className="rounded-[12px] px-3 py-2 font-bold text-xs flex-shrink-0"
+                style={{background:`linear-gradient(135deg,${N},#7DC900)`,color:"#000",border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Save</button>
+            </div>
+          ):(
+            <div className="flex items-center justify-center gap-2 mb-2 cursor-pointer" onClick={()=>{setDraftName(displayName);setEditName(true);}}>
+              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:36,letterSpacing:"3px",color:"#fff",lineHeight:1}}>{displayName}</div>
+              <Edit2 size={14} style={{color:"rgba(255,255,255,.3)",flexShrink:0,marginTop:4}}/>
+            </div>
+          )}
           {user?.email&&<div style={{fontSize:11,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginBottom:4}}>{user.email}</div>}
           <div className="flex items-center justify-center gap-3 mb-3">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold"
@@ -1234,7 +1332,7 @@ function BottomNav({active,onChange}) {
 }
 
 /* ── ROOT ── */
-function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, leagueId = null, leagueName = "MY LEAGUE", user = null, onBack = null }) {
+function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, leagueId = null, leagueName = "MY LEAGUE", user = null, onBack = null, ownerId = null, onDeleteLeague = null, profile = null, onProfileUpdate = null }) {
   const [activeTab,setActiveTab] = useState("home");
   const [players,  setPlayers]   = useState(initialPlayers);
   const [feed,     setFeed]      = useState(initialFeed);
@@ -1368,8 +1466,8 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
   const content = {
     home:    <HomeTab    players={players} feed={feed} onEditFeed={handleEdit}/>,
     stats:   <StatsTab   players={players} feed={feed}/>,
-    league:  <LeagueTab  players={players} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer}/>,
-    profile: <ProfileTab players={players} feed={feed} user={user}/>,
+    league:  <LeagueTab  players={players} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague}/>,
+    profile: <ProfileTab players={players} feed={feed} user={user} profile={profile} onProfileUpdate={onProfileUpdate}/>,
   };
 
   return (
@@ -1406,7 +1504,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
                 ? <img src={user.user_metadata.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" style={{border:`2px solid ${N}44`}}/>
                 : <div className="flex items-center justify-center rounded-full w-9 h-9 text-[11px] font-black flex-shrink-0"
                     style={{background:`linear-gradient(135deg,${N},#7DC900)`,color:"#000",fontFamily:"'DM Sans',sans-serif"}}>
-                    {(user?.user_metadata?.full_name||user?.email||"YO").trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join("")}
+                    {(profile?.display_name||user?.user_metadata?.full_name||user?.email||"YO").trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join("")}
                   </div>
               }
             </div>
@@ -3259,17 +3357,37 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
 // ROOT
 // ─────────────────────────────────────────────
 export default function Root() {
-  const [phase,      setPhase]      = useState("loading"); // "loading"|"login"|"hub"|"wizard"|"app"
-  const [user,       setUser]       = useState(null);
-  const [leagues,    setLeagues]    = useState([]);
-  const [activeData, setActiveData] = useState(null); // { leagueId, leagueName, initialPlayers, initialFeed }
+  const [phase,         setPhase]         = useState("loading");
+  const [user,          setUser]          = useState(null);
+  const [leagues,       setLeagues]       = useState([]);
+  const [activeData,    setActiveData]    = useState(null);
+  const [profile,       setProfile]       = useState(null);
+  const [pendingJoinId, setPendingJoinId] = useState(null);
+
+  // ── Detect /join/<id> URL on first mount ──────────────────────────────────
+  useEffect(() => {
+    const m = window.location.pathname.match(/^\/join\/([^/]+)$/);
+    if (m) {
+      sessionStorage.setItem("league_it_join_id", m[1]);
+      window.history.replaceState({}, "", "/");
+    }
+  }, []);
+
+  const loadProfile = useCallback(async (uid) => {
+    try {
+      const { data } = await supabase.from("profiles").select("*").eq("user_id", uid).maybeSingle();
+      setProfile(data || null);
+    } catch {
+      setProfile(null);
+    }
+  }, []);
 
   const loadLeagues = useCallback(async (uid) => {
     try {
       const { data: pRows } = await supabase.from("players").select("league_id").eq("user_id", uid);
       if (!pRows?.length) { setLeagues([]); return; }
       const ids = [...new Set(pRows.map(r => r.league_id))];
-      const { data: lRows } = await supabase.from("leagues").select("id,name,sport,settings,created_at").in("id", ids);
+      const { data: lRows } = await supabase.from("leagues").select("id,name,sport,settings,created_at,owner_id").in("id", ids);
       setLeagues(lRows || []);
     } catch {
       setLeagues([]);
@@ -3278,7 +3396,6 @@ export default function Root() {
 
   // Auth listener — single source of truth, handles initial session + changes
   useEffect(() => {
-    // Fallback: if Supabase never fires within 3 s (e.g. incognito / cookie block), go to login
     const fallback = setTimeout(() => {
       setPhase(prev => prev === "loading" ? "login" : prev);
     }, 3000);
@@ -3287,27 +3404,27 @@ export default function Root() {
       clearTimeout(fallback);
       if (session?.user) {
         setUser(session.user);
-        await loadLeagues(session.user.id);
-        const intent = sessionStorage.getItem("league_it_intent");
-        if (intent === "create") {
+        await Promise.all([loadLeagues(session.user.id), loadProfile(session.user.id)]);
+        const joinId  = sessionStorage.getItem("league_it_join_id");
+        const intent  = sessionStorage.getItem("league_it_intent");
+        if (joinId) {
+          sessionStorage.removeItem("league_it_join_id");
+          setPendingJoinId(joinId);
+          setPhase("hub");
+        } else if (intent === "create") {
           sessionStorage.removeItem("league_it_intent");
           setPhase("wizard");
         } else {
           setPhase("hub");
         }
       } else {
-        setUser(null);
-        setLeagues([]);
-        setActiveData(null);
+        setUser(null); setLeagues([]); setActiveData(null); setProfile(null);
         setPhase("login");
       }
     });
 
-    return () => {
-      clearTimeout(fallback);
-      subscription.unsubscribe();
-    };
-  }, [loadLeagues]);
+    return () => { clearTimeout(fallback); subscription.unsubscribe(); };
+  }, [loadLeagues, loadProfile]);
 
   const handleEnterLeague = useCallback(async (league) => {
     try {
@@ -3320,6 +3437,7 @@ export default function Root() {
         leagueName:     league.name.toUpperCase(),
         initialPlayers: (pData || []).map(r => rowToPlayer(r, user?.id)),
         initialFeed:    (mData || []).map(m => ({ id: m.id, ...m.score })),
+        ownerId:        league.owner_id || null,
       });
       setPhase("app");
     } catch {
@@ -3327,27 +3445,50 @@ export default function Root() {
     }
   }, [user]);
 
+  // ── Process pending join after enter is available ─────────────────────────
+  useEffect(() => {
+    if (!pendingJoinId || !user) return;
+    (async () => {
+      try {
+        const { data: league } = await supabase.from("leagues").select("*").eq("id", pendingJoinId).maybeSingle();
+        if (!league) { setPendingJoinId(null); return; }
+        const { data: existing } = await supabase.from("players").select("id")
+          .eq("league_id", pendingJoinId).eq("user_id", user.id).maybeSingle();
+        if (!existing) {
+          const dn = profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
+          const ini = dn.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join("");
+          await supabase.from("players").insert({
+            league_id: league.id, user_id: user.id, name: dn, is_me: false,
+            stats: { initials:ini, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:"🏸", mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
+          });
+          await loadLeagues(user.id);
+        }
+        setPendingJoinId(null);
+        await handleEnterLeague(league);
+      } catch {
+        setPendingJoinId(null);
+      }
+    })();
+  }, [pendingJoinId, user]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleCreateLeague = useCallback(async (name, sport) => {
     if (!user) return;
     try {
       const { data: leagueRow, error } = await supabase.from("leagues")
-        .insert({ name, sport, settings: { leagueCode: generateCode() } })
+        .insert({ name, sport, settings: { leagueCode: generateCode() }, owner_id: user.id })
         .select().single();
       if (error || !leagueRow) return;
-      const displayName = user.user_metadata?.full_name || user.email || "Player";
+      const displayName = profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
       const initials    = displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join("");
       await supabase.from("players").insert({
-        league_id: leagueRow.id,
-        user_id:   user.id,
-        name:      displayName,
-        is_me:     true,
-        stats:     { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:"🏸", mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
+        league_id: leagueRow.id, user_id: user.id, name: displayName, is_me: true,
+        stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:"🏸", mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
       });
       await loadLeagues(user.id);
     } catch {
       // network error — silently ignore
     }
-  }, [user, loadLeagues]);
+  }, [user, profile, loadLeagues]);
 
   const handleJoinLeague = useCallback(async (code) => {
     if (!user) return { error: "Not logged in" };
@@ -3358,23 +3499,46 @@ export default function Root() {
       const { data: existing } = await supabase.from("players").select("id")
         .eq("league_id", league.id).eq("user_id", user.id).maybeSingle();
       if (existing) return { error: "You're already in this league" };
-      const displayName = user.user_metadata?.full_name || user.email || "Player";
+      const displayName = profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
       const initials    = displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join("");
       await supabase.from("players").insert({
-        league_id: league.id,
-        user_id:   user.id,
-        name:      displayName,
-        is_me:     false,
-        stats:     { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:"🏸", mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
+        league_id: league.id, user_id: user.id, name: displayName, is_me: false,
+        stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:"🏸", mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
       });
       await loadLeagues(user.id);
       return { success: true };
     } catch {
       return { error: "Network error — please try again" };
     }
-  }, [user, loadLeagues]);
+  }, [user, profile, loadLeagues]);
 
-  const handleSignOut  = useCallback(() => supabase.auth.signOut(), []);
+  const handleDeleteLeague = useCallback(async () => {
+    if (!activeData?.leagueId || !user) return;
+    try {
+      await supabase.from("matches").delete().eq("league_id", activeData.leagueId);
+      await supabase.from("players").delete().eq("league_id", activeData.leagueId);
+      await supabase.from("leagues").delete().eq("id", activeData.leagueId);
+      setActiveData(null);
+      setPhase("hub");
+      await loadLeagues(user.id);
+    } catch {
+      // silently fail — user stays in app
+    }
+  }, [activeData, user, loadLeagues]);
+
+  const handleUpdateDisplayName = useCallback(async (newName) => {
+    if (!user || !newName.trim()) return;
+    try {
+      const { data } = await supabase.from("profiles")
+        .upsert({ user_id: user.id, display_name: newName.trim(), updated_at: new Date().toISOString() }, { onConflict: "user_id" })
+        .select().single();
+      setProfile(data);
+    } catch {
+      // silently fail
+    }
+  }, [user]);
+
+  const handleSignOut = useCallback(() => supabase.auth.signOut(), []);
 
   const handleBack = useCallback(() => {
     setActiveData(null);
@@ -3390,29 +3554,27 @@ export default function Root() {
       const sportLabel  = customSportName?.trim() || sportData?.label || "Sport";
       const sportEmoji  = sport === "custom_sport" ? "🏗️" : (sportData?.emoji || "🏸");
       const { data: leagueRow, error } = await supabase.from("leagues")
-        .insert({ name, sport: sportLabel, settings: { leagueCode, format, points, customRules } })
+        .insert({ name, sport: sportLabel, settings: { leagueCode, format, points, customRules }, owner_id: user.id })
         .select().single();
       if (error || !leagueRow) return;
-      const displayName = adminName.trim() || user.user_metadata?.full_name || user.email || "Player";
+      const displayName = adminName.trim() || profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
       const initials    = displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join("");
       const { data: pRow } = await supabase.from("players").insert({
-        league_id: leagueRow.id,
-        user_id:   user.id,
-        name:      displayName,
-        is_me:     true,
-        stats:     { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport: sportEmoji, mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
+        league_id: leagueRow.id, user_id: user.id, name: displayName, is_me: true,
+        stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport: sportEmoji, mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
       }).select().single();
       setActiveData({
         leagueId:       leagueRow.id,
         leagueName:     name.toUpperCase(),
         initialPlayers: pRow ? [rowToPlayer(pRow, user.id)] : [],
         initialFeed:    [],
+        ownerId:        user.id,
       });
       setPhase("app");
     } catch (err) {
       console.error("Failed to create league:", err);
     }
-  }, [user]);
+  }, [user, profile]);
 
   if (phase === "loading") return (
     <div style={{background:"#0A0A0A",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -3427,6 +3589,10 @@ export default function Root() {
       leagueName={activeData.leagueName}
       user={user}
       onBack={handleBack}
+      ownerId={activeData.ownerId}
+      onDeleteLeague={handleDeleteLeague}
+      profile={profile}
+      onProfileUpdate={handleUpdateDisplayName}
     />
   );
   if (phase === "wizard") return (
@@ -3447,7 +3613,6 @@ export default function Root() {
       onSignOut={handleSignOut}
     />
   );
-  // login phase — show full wizard landing with Google sign-in
   return (
     <LeagueItOnboarding
       initialStep={0}
