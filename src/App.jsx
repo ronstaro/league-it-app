@@ -58,6 +58,43 @@ const enrichPlayers = (players, feed) => {
   });
   return players.map(p => ({ ...p, gamesWon:gW[p.id]||0, gamesLost:gL[p.id]||0 }));
 };
+
+// Derive ALL player stats (wins/losses/streak/clutchWins/etc.) from match history.
+// This is the source of truth — no need to write computed stats back to the DB.
+const derivePlayerStats = (players, feed) => {
+  const map = {};
+  players.forEach(p => { map[p.id] = { wins:0, losses:0, streak:0, bestStreak:0, clutchWins:0, gamesWon:0, gamesLost:0 }; });
+  const chronological = [...feed].reverse(); // oldest→newest so streak accumulates correctly
+  chronological.forEach(m => {
+    const isClutch = (m.sets||[]).some(s => { const {w,l}=parseMG(s); return w>6||(Math.min(w,l)>=5&&w-l===2); });
+    (m.winnerIds||[]).forEach(id => {
+      if (!map[id]) return;
+      map[id].wins++;
+      map[id].gamesWon += countGames(m.sets, "w");
+      if (isClutch) map[id].clutchWins++;
+      map[id].streak = map[id].streak >= 0 ? map[id].streak + 1 : 1;
+      map[id].bestStreak = Math.max(map[id].bestStreak, map[id].streak);
+    });
+    (m.loserIds||[]).forEach(id => {
+      if (!map[id]) return;
+      map[id].losses++;
+      map[id].gamesLost += countGames(m.sets, "l");
+      map[id].streak = map[id].streak <= 0 ? map[id].streak - 1 : -1;
+    });
+  });
+  return players.map(p => ({
+    ...p,
+    wins:        map[p.id]?.wins        || 0,
+    losses:      map[p.id]?.losses      || 0,
+    streak:      map[p.id]?.streak      || 0,
+    bestStreak:  map[p.id]?.bestStreak  || 0,
+    clutchWins:  map[p.id]?.clutchWins  || 0,
+    totalPlayed: (map[p.id]?.wins||0) + (map[p.id]?.losses||0),
+    gamesWon:    map[p.id]?.gamesWon    || 0,
+    gamesLost:   map[p.id]?.gamesLost   || 0,
+  }));
+};
+
 const byWins = ps => [...ps].sort((a,b) => b.wins-a.wins || a.losses-b.losses);
 const medal  = r => r===1?{e:"🥇",c:"#FFD700"}:r===2?{e:"🥈",c:"#C0C0C0"}:r===3?{e:"🥉",c:"#CD7F32"}:null;
 
@@ -1344,35 +1381,14 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
   const [showRemovePlayer,setShowRemovePlayer]= useState(false);
 
 
-  const sortedPlayers = useMemo(()=>byWins(players),[players]);
+  // Derive all stats from match history — single source of truth
+  const enrichedPlayers = useMemo(()=>derivePlayerStats(players, feed),[players, feed]);
+  const sortedPlayers   = useMemo(()=>byWins(enrichedPlayers),[enrichedPlayers]);
 
-  const handleSubmit = useCallback(({winners,losers,sets,editId})=>{
+  const handleSubmit = useCallback(async ({winners,losers,sets,editId})=>{
     const filled=sets.filter(s=>s.w!==""&&s.l!=="").map(s=>`${s.w}–${s.l}`);
     if (!filled.length) return;
     const ts=nowTs();
-
-    const isClutch = filled.some(s=>{
-      const {w,l}=parseMG(s);
-      return w>6 || (Math.min(w,l)>=5 && w-l===2);
-    });
-
-    // Pre-compute updated stats so we can reuse them for both local state and Supabase
-    const updatedStats = {};
-    players.forEach(p=>{
-      const isW=winners.includes(p.id), isL=losers.includes(p.id);
-      if(!isW&&!isL) return;
-      const ns=isW?(p.streak>=0?p.streak+1:1):(p.streak<=0?p.streak-1:-1);
-      updatedStats[p.id]={
-        wins:        isW?p.wins+1:p.wins,
-        losses:      isL?p.losses+1:p.losses,
-        totalPlayed: p.totalPlayed+(editId?0:1),
-        streak:      ns,
-        clutchWins:  isW&&isClutch?(p.clutchWins||0)+1:(p.clutchWins||0),
-        bestStreak:  Math.max(p.bestStreak||0, ns>0?ns:0),
-      };
-    });
-
-    setPlayers(prev=>prev.map(p=>updatedStats[p.id]?{...p,...updatedStats[p.id]}:p));
 
     const wPlayers=winners.map(id=>players.find(p=>p.id===id)).filter(Boolean);
     const lPlayers=losers.map(id=>players.find(p=>p.id===id)).filter(Boolean);
@@ -1381,23 +1397,25 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
     const loserStr =lPlayers.map(p=>p.name).join(" & ");
     const matchId  =editId||crypto.randomUUID();
     const entry={id:matchId,winner:winnerStr,winnerIds:winners,loser:loserStr,loserIds:losers,sets:filled,sport:wPlayers[0].sport,dateStr:ts.dateStr,timeStr:ts.timeStr,xp:110};
+
+    // Optimistic update — standings recalculate instantly from feed via derivePlayerStats
     setFeed(prev=>editId?prev.map(m=>m.id===editId?entry:m):[entry,...prev]);
 
-    // ── Supabase (fire-and-forget) ──────────────────────────────
+    // Persist to Supabase (awaited — matches table is the source of truth for standings)
     if (leagueId) {
-      supabase.from("matches").upsert({
-        id:        matchId,
-        league_id: leagueId,
-        winner_id: winners[0],
-        loser_id:  losers[0],
-        score:     { sets:filled, winnerIds:winners, loserIds:losers, winner:winnerStr, loser:loserStr, sport:wPlayers[0]?.sport, dateStr:ts.dateStr, timeStr:ts.timeStr, xp:110 },
-        date:      new Date().toISOString(),
-      }).catch(() => {});
-      Object.entries(updatedStats).forEach(([pid, delta])=>{
-        const p=players.find(pl=>pl.id===pid);
-        if(!p) return;
-        supabase.from("players").update({ stats: playerToStats({...p,...delta}) }).eq("id", pid).catch(() => {});
-      });
+      try {
+        await supabase.from("matches").upsert({
+          id:        matchId,
+          league_id: leagueId,
+          winner_id: winners[0],
+          loser_id:  losers[0],
+          score:     { sets:filled, winnerIds:winners, loserIds:losers, winner:winnerStr, loser:loserStr, sport:wPlayers[0]?.sport, dateStr:ts.dateStr, timeStr:ts.timeStr, xp:110 },
+          date:      new Date().toISOString(),
+        });
+      } catch {
+        // Revert optimistic feed update on failure
+        setFeed(prev=>editId?prev:prev.filter(m=>m.id!==matchId));
+      }
     }
   },[players, leagueId]);
 
@@ -1464,10 +1482,10 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
   },[]);
 
   const content = {
-    home:    <HomeTab    players={players} feed={feed} onEditFeed={handleEdit}/>,
-    stats:   <StatsTab   players={players} feed={feed}/>,
-    league:  <LeagueTab  players={players} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague}/>,
-    profile: <ProfileTab players={players} feed={feed} user={user} profile={profile} onProfileUpdate={onProfileUpdate}/>,
+    home:    <HomeTab    players={enrichedPlayers} feed={feed} onEditFeed={handleEdit}/>,
+    stats:   <StatsTab   players={enrichedPlayers} feed={feed}/>,
+    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague}/>,
+    profile: <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={onProfileUpdate}/>,
   };
 
   return (
