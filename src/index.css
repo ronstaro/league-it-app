@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #0A0A0A;
+}
+
+::-webkit-scrollbar {
+  display: none;
+}
+
+input, button, textarea {
+  -webkit-tap-highlight-color: transparent;
+}
