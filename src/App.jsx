@@ -3856,17 +3856,21 @@ export default function Root() {
   const handleCreateLeague = useCallback(async (name, sport) => {
     if (!user) return;
     try {
-      const code = generateCode();
-      const { data: leagueRow, error } = await supabase.from("leagues")
-        .insert({ name, sport, join_code: code, settings: { leagueCode: code }, owner_id: user.id })
-        .select().single();
-      if (error || !leagueRow) return;
-      const displayName = profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
-      const initials    = displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join("");
-      await supabase.from("players").insert({
-        league_id: leagueRow.id, user_id: user.id, name: displayName, is_me: true,
-        stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:"🏸", mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
+      const code      = generateCode();
+      const leagueId  = crypto.randomUUID();
+      // Insert without .select() — RLS SELECT may block the row back even when INSERT succeeds
+      const { error: leagueErr } = await supabase.from("leagues").insert({
+        id: leagueId, name, sport, join_code: code,
+        settings: { leagueCode: code }, owner_id: user.id,
       });
+      if (leagueErr) return;
+      const displayName = profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
+      const initials    = displayName.trim().split(/\s+/).map(w => w[0]?.toUpperCase() || "").slice(0, 2).join("");
+      await supabase.from("players").insert({
+        id: crypto.randomUUID(), league_id: leagueId, user_id: user.id,
+        name: displayName, is_me: true,
+        stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:"🏸", mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
+      }).catch(() => {});
       await loadLeagues(user.id);
     } catch {
       // network error — silently ignore
@@ -3947,78 +3951,64 @@ export default function Root() {
 
   const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, format, points, customSportName, customRules, leagueCode }) => {
     if (!user) throw new Error("Not logged in");
-    const raceTimeout = ms => new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms));
 
-    const name       = leagueName.trim() || "My League";
-    const sportData  = SPORTS.find(s => s.id === sport);
-    const sportLabel = customSportName?.trim() || sportData?.label || "Sport";
-    const sportEmoji = sport === "custom_sport" ? "🏗️" : (sportData?.emoji || "🏸");
+    const name        = leagueName?.trim() || "My League";
+    const sportData   = SPORTS.find(s => s.id === sport);
+    const sportLabel  = customSportName?.trim() || sportData?.label || "Sport";
+    const sportEmoji  = sport === "custom_sport" ? "🏗️" : (sportData?.emoji || "🏸");
+    const displayName = adminName?.trim() || profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
+    const initials    = displayName.trim().split(/\s+/).map(w => w[0]?.toUpperCase() || "").slice(0, 2).join("") || "??";
+    // Generate IDs client-side — never depend on Supabase returning the row back
+    // (RLS SELECT policy may block the row even after a successful INSERT)
+    const leagueId = crypto.randomUUID();
+    const playerId  = crypto.randomUUID();
+    const code      = leagueCode || generateCode();
 
-    // ── Step 1: League insert (only place we allow a throw — league not yet created) ──
-    let leagueRow;
-    try {
-      const { data: rowFull, error: errFull } = await Promise.race([
-        supabase.from("leagues")
-          .insert({ name, sport: sportLabel, join_code: leagueCode, settings: { leagueCode, format, points, customRules }, owner_id: user.id })
-          .select().single(),
-        raceTimeout(12000),
-      ]);
-      if (errFull) {
-        // join_code column doesn't exist yet — retry without it
-        if (errFull.message?.includes("join_code") || errFull.code === "PGRST204" || errFull.code === "42703") {
-          const { data: rowBase, error: errBase } = await Promise.race([
-            supabase.from("leagues")
-              .insert({ name, sport: sportLabel, settings: { leagueCode, format, points, customRules }, owner_id: user.id })
-              .select().single(),
-            raceTimeout(12000),
-          ]);
-          if (errBase || !rowBase) throw new Error(errBase?.message || "Failed to create league");
-          leagueRow = rowBase;
-        } else {
-          throw new Error(errFull.message || "Failed to create league");
-        }
+    // ── Step 1: League insert — only step allowed to throw (league not yet created) ──
+    const { error: leagueErr } = await supabase.from("leagues").insert({
+      id:        leagueId,
+      name,
+      sport:     sportLabel,
+      join_code: code,
+      settings:  { leagueCode: code, format, points, customRules },
+      owner_id:  user.id,
+    });
+    if (leagueErr) {
+      // join_code column missing in DB — retry without it
+      if (leagueErr.message?.includes("join_code") || leagueErr.code === "42703") {
+        const { error: retryErr } = await supabase.from("leagues").insert({
+          id: leagueId, name, sport: sportLabel,
+          settings: { leagueCode: code, format, points, customRules }, owner_id: user.id,
+        });
+        if (retryErr) throw new Error(retryErr.message || "Failed to create league");
       } else {
-        leagueRow = rowFull;
+        throw new Error(leagueErr.message || "Failed to create league");
       }
-      if (!leagueRow) throw new Error("Failed to create league — no data returned");
-    } catch (e) {
-      // Re-throw only for the league insert phase — user can retry safely
-      throw e;
     }
 
-    // ── Step 2: Player insert — non-fatal; failure must not block the redirect ──
-    let pRow = null;
-    try {
-      const { data } = await Promise.race([
-        supabase.from("players").insert({
-          league_id: leagueRow.id, user_id: user.id, name:
-            adminName.trim() || profile?.display_name || user.user_metadata?.full_name || user.email || "Player",
-          is_me: true,
-          stats: {
-            initials: (adminName.trim() || user.user_metadata?.full_name || "??")
-              .split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join(""),
-            wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat",
-            sport: sportEmoji, mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0,
-          },
-        }).select().single(),
-        raceTimeout(10000),
-      ]);
-      pRow = data;
-    } catch { /* non-fatal — redirect anyway; player row will sync on next load */ }
+    // ── Step 2: Player insert — non-fatal, swallow any error ──
+    const playerStats = {
+      initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat",
+      sport: sportEmoji, mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0,
+    };
+    await supabase.from("players").insert({
+      id: playerId, league_id: leagueId, user_id: user.id,
+      name: displayName, is_me: true, stats: playerStats,
+    }).catch(() => {});
 
-    // ── Step 3: State update + redirect — never throw past this point ──
+    // ── Step 3: Redirect — built entirely from known local data, no Supabase response needed ──
     try {
       setActiveData({
-        leagueId:       leagueRow.id,
+        leagueId,
         leagueName:     name.toUpperCase(),
-        initialPlayers: pRow ? [rowToPlayer(pRow, user.id)] : [],
+        initialPlayers: [{ id: playerId, name: displayName, isMe: true, ...playerStats }],
         initialFeed:    [],
         ownerId:        user.id,
-        joinCode:       leagueRow.join_code || leagueCode,
+        joinCode:       code,
       });
       setPhase("app");
     } catch {
-      // Absolute fallback: league exists in DB — reload hub so user sees it in My Leagues
+      // Last-resort: go to hub — new league will appear in My Leagues list
       await loadLeagues(user.id).catch(() => {});
       setPhase("hub");
     }
