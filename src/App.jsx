@@ -115,7 +115,23 @@ const medal  = r => r===1?{e:"🥇",c:"#FFD700"}:r===2?{e:"🥈",c:"#C0C0C0"}:r=
 const INIT_PLAYERS = [];
 const INIT_FEED = [];
 
-const INIT_RULES = {format:"Best of 3 Mini-Games",scoring:"6 pts/game, win by 2.",sport:"Padel",seasonYear:2025};
+const INIT_RULES = {format:"",scoring:"",sport:"",seasonYear:new Date().getFullYear()};
+
+// Convert the league row (sport column + settings JSON) to the rules shape used by the UI
+function settingsToRules(leagueSport, settings) {
+  const s = settings || {};
+  const formatMap = { single:"Single Set", best3:"Best of 3", points:`${s.points||21} Points`, custom_logic:"Custom Rules" };
+  const fmt = formatMap[s.format] || (typeof s.format === "string" && s.format) || "";
+  const scoring = s.format === "points"
+    ? `First to ${s.points||21} points`
+    : (s.customRules?.trim() || "");
+  return {
+    sport:      leagueSport || "",
+    format:     fmt,
+    scoring,
+    seasonYear: s.seasonYear || new Date().getFullYear(),
+  };
+}
 
 /* ── MICRO ATOMS ── */
 const GridBg = () => (
@@ -1149,7 +1165,12 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
             </div>
           </div>
         ):(
-          [["🏸","Sport",rules.sport],["🎯","Format",rules.format],["📋","Scoring",rules.scoring],["🏆","Season",`Season ${rules.seasonYear}`]].map(([ic,lb,vl])=>(
+          [
+            ["🏸","Sport",      rules.sport   || "Standard Rules"],
+            ["🎯","Format",     rules.format  || "Standard Rules"],
+            ["📋","Scoring",    rules.scoring || "Standard Rules"],
+            ["🏆","Season",     `Season ${rules.seasonYear || new Date().getFullYear()}`],
+          ].map(([ic,lb,vl])=>(
             <div key={lb} className="flex items-start gap-3 mb-4">
               <span style={{fontSize:18,flexShrink:0,marginTop:1}}>{ic}</span>
               <div>
@@ -1576,11 +1597,11 @@ function BottomNav({active,onChange}) {
 }
 
 /* ── ROOT ── */
-function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, leagueId = null, leagueName = "MY LEAGUE", user = null, onBack = null, ownerId = null, onDeleteLeague = null, profile = null, onProfileUpdate = null, squadPhotoUrl = null, onSquadPhotoUpdate = null, onAvatarUpdate = null, joinCode = null }) {
+function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, initialRules = null, leagueId = null, leagueName = "MY LEAGUE", user = null, onBack = null, ownerId = null, onDeleteLeague = null, profile = null, onProfileUpdate = null, squadPhotoUrl = null, onSquadPhotoUpdate = null, onAvatarUpdate = null, joinCode = null }) {
   const [activeTab,setActiveTab] = useState("home");
   const [players,  setPlayers]   = useState(initialPlayers);
   const [feed,     setFeed]      = useState(initialFeed);
-  const [rules,    setRules]     = useState(INIT_RULES);
+  const [rules,    setRules]     = useState(initialRules || INIT_RULES);
   const [showLog,         setShowLog]         = useState(false);
   const [editMatch,       setEditMatch]       = useState(null);
   const [showAddPlayer,   setShowAddPlayer]   = useState(false);
@@ -3820,6 +3841,7 @@ export default function Root() {
         ownerId:        league.owner_id || null,
         squadPhotoUrl:  league.image_url || null,
         joinCode:       league.join_code || league.settings?.leagueCode || null,
+        initialRules:   settingsToRules(league.sport, league.settings),
       });
       setPhase("app");
     } catch {
@@ -4050,6 +4072,7 @@ export default function Root() {
     <LeagueItApp
       initialPlayers={activeData.initialPlayers}
       initialFeed={activeData.initialFeed}
+      initialRules={activeData.initialRules}
       leagueId={activeData.leagueId}
       leagueName={activeData.leagueName}
       user={user}
