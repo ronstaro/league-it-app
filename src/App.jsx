@@ -872,9 +872,6 @@ function StatsTab({players,feed}) {
                   fontFamily:"'DM Sans',sans-serif",
                   overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
                 }}>{p.name}</div>
-                <div style={{fontSize:9,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:1}}>
-                  {p.wins}W {p.losses}L
-                </div>
               </div>
             </motion.button>
           ))}
