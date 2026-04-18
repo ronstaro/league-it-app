@@ -3496,17 +3496,47 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
           {/* Welcome + content */}
           <div style={{padding:"20px 20px 0",flex:1,overflowY:"auto"}}>
             <div style={{fontSize:12,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",fontWeight:700,letterSpacing:"1.5px",marginBottom:3}}>WELCOME BACK</div>
-            <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:30,letterSpacing:"2px",color:"#fff",lineHeight:1,marginBottom:24}}>
+            <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:30,letterSpacing:"2px",color:"#fff",lineHeight:1,marginBottom:20}}>
               {displayName.split(" ")[0].toUpperCase()}
+            </div>
+
+            {/* Action buttons — create / join */}
+            <div className="flex flex-col gap-3 mb-6">
+              <motion.button whileHover={{scale:1.01,y:-1}} whileTap={{scale:.98}}
+                onClick={onCreateWizard}
+                className="w-full flex items-center rounded-[18px] px-5 py-4 gap-4"
+                style={{background:`linear-gradient(135deg,${N}1A,${N}0A)`,border:`1px solid ${N}55`,cursor:"pointer"}}>
+                <div className="flex items-center justify-center w-10 h-10 rounded-[12px] flex-shrink-0" style={{background:`${N}22`}}>
+                  <Plus size={20} style={{color:N}}/>
+                </div>
+                <div className="flex-1 text-left">
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,color:N,lineHeight:1}}>Create League</div>
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.35)",marginTop:3}}>Start a new league from scratch</div>
+                </div>
+                <ChevronRight size={18} style={{color:`${N}88`,flexShrink:0}}/>
+              </motion.button>
+              <motion.button whileHover={{scale:1.01,y:-1}} whileTap={{scale:.98}}
+                onClick={()=>{setShowJoin(true);setJoinErr("");}}
+                className="w-full flex items-center rounded-[18px] px-5 py-4 gap-4"
+                style={{background:"rgba(59,142,255,.08)",border:"1px solid rgba(59,142,255,.35)",cursor:"pointer"}}>
+                <div className="flex items-center justify-center w-10 h-10 rounded-[12px] flex-shrink-0" style={{background:"rgba(59,142,255,.15)"}}>
+                  <Hash size={20} style={{color:"#3B8EFF"}}/>
+                </div>
+                <div className="flex-1 text-left">
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,color:"#3B8EFF",lineHeight:1}}>Join by Code</div>
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.35)",marginTop:3}}>Enter an invite code to join</div>
+                </div>
+                <ChevronRight size={18} style={{color:"rgba(59,142,255,.5)",flexShrink:0}}/>
+              </motion.button>
             </div>
 
             {/* League list */}
             <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginBottom:12}}>MY LEAGUES</div>
             {leagues.length === 0 ? (
-              <div className="rounded-[20px] py-12 text-center mb-6" style={{background:"rgba(255,255,255,.02)",border:"1px dashed rgba(255,255,255,.1)"}}>
+              <div className="rounded-[20px] py-10 text-center mb-6" style={{background:"rgba(255,255,255,.02)",border:"1px dashed rgba(255,255,255,.1)"}}>
                 <div style={{fontSize:28,marginBottom:8}}>🏆</div>
                 <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:18,letterSpacing:"2px",color:"rgba(255,255,255,.2)",marginBottom:6}}>NO LEAGUES YET</div>
-                <div style={{fontSize:12,color:"rgba(255,255,255,.25)",fontFamily:"'DM Sans',sans-serif"}}>Create one or join with a code below</div>
+                <div style={{fontSize:12,color:"rgba(255,255,255,.25)",fontFamily:"'DM Sans',sans-serif"}}>Create one or join with a code above</div>
               </div>
             ) : (
               <div className="flex flex-col gap-3 mb-6">
@@ -3551,30 +3581,11 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
 
             {/* Did You Know? */}
             {didYouKnow && (
-              <div className="rounded-[20px] p-4 mb-6" style={{background:`linear-gradient(135deg,rgba(170,255,0,.06),rgba(170,255,0,.02))`,border:`1px solid rgba(170,255,0,.2)`}}>
+              <div className="rounded-[20px] p-4 mb-8" style={{background:`linear-gradient(135deg,rgba(170,255,0,.06),rgba(170,255,0,.02))`,border:`1px solid rgba(170,255,0,.2)`}}>
                 <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(170,255,0,.6)",fontFamily:"'DM Sans',sans-serif",marginBottom:6}}>DID YOU KNOW?</div>
                 <div style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.8)",fontFamily:"'DM Sans',sans-serif",lineHeight:1.5}}>{didYouKnow}</div>
               </div>
             )}
-
-            {/* Action buttons — create / join */}
-            <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginBottom:12}}>LEAGUES</div>
-            <div className="grid grid-cols-2 gap-3 mb-8">
-              <motion.button whileHover={{scale:1.02,y:-2}} whileTap={{scale:.97}}
-                onClick={onCreateWizard}
-                className="flex flex-col items-center justify-center rounded-[18px] py-5 gap-2"
-                style={{background:`linear-gradient(135deg,${N}18,${N}08)`,border:`1px solid ${N}44`,cursor:"pointer"}}>
-                <Plus size={22} style={{color:N}}/>
-                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:800,color:N}}>Create League</span>
-              </motion.button>
-              <motion.button whileHover={{scale:1.02,y:-2}} whileTap={{scale:.97}}
-                onClick={()=>{setShowJoin(true);setJoinErr("");}}
-                className="flex flex-col items-center justify-center rounded-[18px] py-5 gap-2"
-                style={{background:"rgba(59,142,255,.1)",border:"1px solid rgba(59,142,255,.3)",cursor:"pointer"}}>
-                <Hash size={22} style={{color:"#3B8EFF"}}/>
-                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:800,color:"#3B8EFF"}}>Join by Code</span>
-              </motion.button>
-            </div>
           </div>
         </div>
       </div>
