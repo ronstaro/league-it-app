@@ -71,7 +71,7 @@ const enrichPlayers = (players, feed) => {
 // This is the source of truth — no need to write computed stats back to the DB.
 const derivePlayerStats = (players, feed) => {
   const map = {};
-  players.forEach(p => { map[p.id] = { wins:0, losses:0, streak:0, bestStreak:0, clutchWins:0, gamesWon:0, gamesLost:0 }; });
+  players.forEach(p => { map[p.id] = { wins:0, losses:0, streak:0, bestStreak:0, clutchWins:0, gamesWon:0, gamesLost:0, comebacks:0 }; });
   const chronological = [...feed].reverse(); // oldest→newest so streak accumulates correctly
   chronological.forEach(m => {
     const isClutch = (m.sets||[]).some(s => { const {w,l}=parseMG(s); return w>6||(Math.min(w,l)>=5&&w-l===2); });
@@ -81,6 +81,7 @@ const derivePlayerStats = (players, feed) => {
       map[id].gamesWon  += countGames(m.sets, "w");
       map[id].gamesLost += countGames(m.sets, "l"); // mini-games the winner conceded
       if (isClutch) map[id].clutchWins++;
+      if (m.isComeback) map[id].comebacks++;
       map[id].streak = map[id].streak >= 0 ? map[id].streak + 1 : 1;
       map[id].bestStreak = Math.max(map[id].bestStreak, map[id].streak);
     });
@@ -99,6 +100,7 @@ const derivePlayerStats = (players, feed) => {
     streak:      map[p.id]?.streak      || 0,
     bestStreak:  map[p.id]?.bestStreak  || 0,
     clutchWins:  map[p.id]?.clutchWins  || 0,
+    comebacks:   map[p.id]?.comebacks   || 0,
     totalPlayed: (map[p.id]?.wins||0) + (map[p.id]?.losses||0),
     gamesWon:    map[p.id]?.gamesWon    || 0,
     gamesLost:   map[p.id]?.gamesLost   || 0,
@@ -197,8 +199,8 @@ function PBtn({children,onClick,disabled=false}) {
 function StandingsTable({players, feed = []}) {
   if (!players || players.length === 0) return <div className="text-center p-10 opacity-30">No players in league yet</div>;
   const rows = useMemo(()=>byWins(players),[players]);
-  const COL = "34px 1fr 52px 40px 40px 72px";
-  const HDRS = ["#","PLAYER","W/L","W%","CLTH","MINI-GAMES"];
+  const COL = "34px 1fr 52px 40px 40px 34px 72px";
+  const HDRS = ["#","PLAYER","W/L","W%","CLTH","CB","MINI-GAMES"];
   return (
     <div className="rounded-[22px] overflow-hidden mb-6" style={{border:"1px solid rgba(255,255,255,.07)"}}>
       <div className="grid px-3 py-2.5 gap-1"
@@ -241,6 +243,7 @@ function StandingsTable({players, feed = []}) {
             </div>
             <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:pctC}}>{winPct}%</div>
             <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:"#3B8EFF"}}>{p.clutchWins||0}</div>
+            <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:"#FFB830"}}>{p.comebacks||0}</div>
             <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:600,color:"rgba(255,255,255,.65)"}}>{p.gamesWon||0} – {p.gamesLost||0}</div>
           </div>
         );
@@ -289,6 +292,7 @@ function FeedCard({m,onEdit,players=[]}) {
                 style={{fontFamily:"'JetBrains Mono',monospace",background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",color:"rgba(255,255,255,.65)"}}>{s}</span>
             ))}
             <span style={{fontSize:9,color:"rgba(255,255,255,.22)",fontWeight:600,marginLeft:2}}>{totalMG} Mini-Games</span>
+            {m.isComeback&&<span style={{fontSize:8,fontWeight:900,letterSpacing:"0.8px",color:"#FFB830",background:"rgba(255,184,48,.12)",border:"1px solid rgba(255,184,48,.35)",borderRadius:4,padding:"1px 5px",fontFamily:"'DM Sans',sans-serif"}}>⚡ COMEBACK</span>}
           </div>
         </div>
         <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
@@ -316,12 +320,13 @@ function FeedCard({m,onEdit,players=[]}) {
 
 /* ── LOG MATCH MODAL ── */
 function LogModal({players, onClose, onSubmit, prefill=null}) {
-  const [step,    setStep]  = useState(0);
-  const [winners, setW]     = useState(prefill?.winnerIds||[]);
-  const [losers,  setL]     = useState(prefill?.loserIds ||[]);
-  const [sets,    setSets]  = useState(
+  const [step,       setStep]      = useState(0);
+  const [winners,    setW]         = useState(prefill?.winnerIds||[]);
+  const [losers,     setL]         = useState(prefill?.loserIds ||[]);
+  const [sets,       setSets]      = useState(
     prefill?.sets?.map(s=>{const[a,b]=s.split(/[–\-]/);return{w:a||"",l:b||""};}) || [{w:"",l:""}]
   );
+  const [isComeback, setIsComeback] = useState(prefill?.isComeback||false);
 
   const canGo  = winners.length>0 && losers.length>0;
   const hasAny = sets.some(s=>s.w!==""&&s.l!=="");
@@ -333,7 +338,7 @@ function LogModal({players, onClose, onSubmit, prefill=null}) {
   const upd = (i,side,v) => setSets(p=>p.map((s,ix)=>ix===i?{...s,[side]:v}:s));
   const submit = () => {
     setStep(2);
-    setTimeout(()=>{onSubmit({winners,losers,sets,editId:prefill?.id});onClose();},1500);
+    setTimeout(()=>{onSubmit({winners,losers,sets,editId:prefill?.id,isComeback});onClose();},1500);
   };
 
   return (
@@ -489,6 +494,21 @@ function LogModal({players, onClose, onSubmit, prefill=null}) {
                     + Add Mini-Game {sets.length+1}
                   </button>
                 )}
+
+                {/* Comeback toggle */}
+                <button onClick={()=>setIsComeback(v=>!v)}
+                  className="flex items-center gap-3 w-full rounded-[14px] px-4 py-3 mt-3 text-left transition-all"
+                  style={{background:isComeback?"rgba(255,184,48,.08)":"rgba(255,255,255,.03)",border:`1.5px solid ${isComeback?"rgba(255,184,48,.5)":"rgba(255,255,255,.08)"}`,cursor:"pointer"}}>
+                  <div className="w-5 h-5 rounded-[5px] flex items-center justify-center flex-shrink-0"
+                    style={{background:isComeback?"rgba(255,184,48,.9)":"rgba(255,255,255,.08)",border:`1px solid ${isComeback?"transparent":"rgba(255,255,255,.2)"}`}}>
+                    {isComeback&&<Check size={12} color="#000" strokeWidth={3}/>}
+                  </div>
+                  <div className="flex-1">
+                    <div style={{fontSize:12,fontWeight:700,color:isComeback?"#FFB830":"rgba(255,255,255,.55)",fontFamily:"'DM Sans',sans-serif"}}>Was this a comeback?</div>
+                    <div style={{fontSize:10,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif",marginTop:1}}>Winner came back from being behind</div>
+                  </div>
+                  {isComeback&&<span style={{fontSize:16}}>⚡</span>}
+                </button>
               </motion.div>
             )}
 
@@ -564,10 +584,8 @@ function LogModal({players, onClose, onSubmit, prefill=null}) {
 function HomeTab({players,feed,onEditFeed}) {
   const [showAll,setShowAll] = useState(false);
   // MVP = highest wins
-  const mvp     = useMemo(()=>players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:{name:"No Players",wins:0,losses:0},[players]);
-  const injured = useMemo(()=>players.length>0?[...players].sort((a,b)=>a.totalPlayed-b.totalPlayed)[0]:{name:"No Players",totalPlayed:0},[players]);
-  const clutch  = useMemo(()=>players.length>0?[...players].sort((a,b)=>(b.clutchWins||0)-(a.clutchWins||0))[0]:{name:"No Players",clutchWins:0},[players]);
-  const streak  = useMemo(()=>players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:{name:"No Players",bestStreak:0},[players]);
+  const mvp    = useMemo(()=>players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:{name:"No Players",wins:0,losses:0},[players]);
+  const streak = useMemo(()=>players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:{name:"No Players",bestStreak:0},[players]);
   const visible = showAll ? feed : feed.slice(0,5);
 
   return (
@@ -575,7 +593,7 @@ function HomeTab({players,feed,onEditFeed}) {
       <ST>📊 Standings</ST>
       <StandingsTable players={players} feed={feed}/>
 
-      {/* MVP + Injured — 2-col grid below standings */}
+      {/* MVP + Streak — 2-col grid below standings */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         <div className="rounded-[20px] p-4 relative overflow-hidden" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,215,0,.22)"}}>
           <div className="absolute inset-0 pointer-events-none" style={{background:"linear-gradient(135deg,rgba(255,215,0,.05),transparent 60%)"}}/>
@@ -585,13 +603,13 @@ function HomeTab({players,feed,onEditFeed}) {
           <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:30,letterSpacing:"2px",color:"rgba(255,215,0,.9)",lineHeight:1}}>{mvp.wins}</div>
           <div style={{fontSize:9,fontWeight:700,color:"rgba(255,215,0,.5)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>WINS</div>
         </div>
-        <div className="rounded-[20px] p-4 relative overflow-hidden" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,51,85,.2)"}}>
-          <div className="absolute inset-0 pointer-events-none" style={{background:"linear-gradient(135deg,rgba(255,51,85,.05),transparent 60%)"}}/>
-          <span className="text-[22px] mb-1 block">🩹</span>
-          <div style={{fontSize:9,fontWeight:800,letterSpacing:"1.5px",color:"rgba(255,51,85,.8)",fontFamily:"'DM Sans',sans-serif",marginBottom:3}}>THE INJURED ONE</div>
-          <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:17,color:"#fff",marginBottom:2}}>{injured.name}</div>
-          <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:30,letterSpacing:"2px",color:"rgba(255,51,85,.9)",lineHeight:1}}>{injured.totalPlayed}</div>
-          <div style={{fontSize:9,fontWeight:700,color:"rgba(255,51,85,.5)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>{injured.totalPlayed===0?"NO MATCHES":"MATCHES"}</div>
+        <div className="rounded-[20px] p-4 relative overflow-hidden" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(170,255,0,.2)"}}>
+          <div className="absolute inset-0 pointer-events-none" style={{background:"linear-gradient(135deg,rgba(170,255,0,.05),transparent 60%)"}}/>
+          <span className="text-[22px] mb-1 block">🔥</span>
+          <div style={{fontSize:9,fontWeight:800,letterSpacing:"1.5px",color:"rgba(170,255,0,.8)",fontFamily:"'DM Sans',sans-serif",marginBottom:3}}>SUPER STREAK</div>
+          <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:17,color:"#fff",marginBottom:2}}>{streak.name}</div>
+          <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:30,letterSpacing:"2px",color:N,lineHeight:1}}>{streak.bestStreak||0}</div>
+          <div style={{fontSize:9,fontWeight:700,color:"rgba(170,255,0,.5)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>WIN STREAK</div>
         </div>
       </div>
 
@@ -634,22 +652,26 @@ function StatsTab({players,feed}) {
     const FALLBACK = {name:"N/A",wins:0,losses:0,gamesWon:0,gamesLost:0,totalPlayed:0,mvTrend:[0,0,0,0,0,0,0],partners:{}};
     const me   = enriched.find(p=>p.isMe) || FALLBACK;
     const totG = (me.gamesWon+me.gamesLost)||1;
-    const mW   = players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:FALLBACK;
-    const mP   = players.length>0?[...players].sort((a,b)=>b.totalPlayed-a.totalPlayed)[0]:FALLBACK;
-    const mL   = players.length>0?[...players].sort((a,b)=>b.losses-a.losses)[0]:FALLBACK;
-    const mGM     = enriched.length>0?[...enriched].sort((a,b)=>b.gamesWon-a.gamesWon)[0]:FALLBACK;
-    const mGL     = enriched.length>0?[...enriched].sort((a,b)=>b.gamesLost-a.gamesLost)[0]:FALLBACK;
-    const mClutch = players.length>0?[...players].sort((a,b)=>(b.clutchWins||0)-(a.clutchWins||0))[0]:FALLBACK;
-    const mStreak = players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:FALLBACK;
+    const mW        = players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:FALLBACK;
+    const mP        = players.length>0?[...players].sort((a,b)=>b.totalPlayed-a.totalPlayed)[0]:FALLBACK;
+    const mL        = players.length>0?[...players].sort((a,b)=>b.losses-a.losses)[0]:FALLBACK;
+    const mLeast    = players.length>0?[...players].sort((a,b)=>a.totalPlayed-b.totalPlayed)[0]:FALLBACK;
+    const mGM       = enriched.length>0?[...enriched].sort((a,b)=>b.gamesWon-a.gamesWon)[0]:FALLBACK;
+    const mGL       = enriched.length>0?[...enriched].sort((a,b)=>b.gamesLost-a.gamesLost)[0]:FALLBACK;
+    const mClutch   = players.length>0?[...players].sort((a,b)=>(b.clutchWins||0)-(a.clutchWins||0))[0]:FALLBACK;
+    const mStreak   = players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:FALLBACK;
+    const mComeback = players.length>0?[...players].sort((a,b)=>(b.comebacks||0)-(a.comebacks||0))[0]:FALLBACK;
     const barC = pc=>pc>=70?`linear-gradient(90deg,${N},#7DC900)`:pc>=50?"linear-gradient(90deg,#FFB830,#E08A00)":"linear-gradient(90deg,#FF3355,#C0143C)";
     const ALL_AWARDS = [
-      {icon:"🏆",lbl:"THE WINNER",        lc:"rgba(170,255,0,.7)",   sc:N,         bdr:"rgba(170,255,0,.2)",   p:mW,      bigNum:mW.wins,                unit:"WINS",        stat:`${pct(mW.wins,mW.losses)}% win rate`,       hasTrend:true},
-      {icon:"⚡",lbl:"CLUTCH PLAYER",     lc:"rgba(59,142,255,.7)",  sc:"#3B8EFF", bdr:"rgba(59,142,255,.2)",  p:mClutch, bigNum:mClutch.clutchWins||0,  unit:"CLUTCH WINS", stat:`Tight-score wins`,                           hasTrend:false},
-      {icon:"🔥",lbl:"SUPER STREAK",      lc:"rgba(170,255,0,.7)",   sc:N,         bdr:"rgba(170,255,0,.2)",   p:mStreak, bigNum:mStreak.bestStreak||0,  unit:"WIN STREAK",  stat:`Best consecutive wins`,                      hasTrend:false},
-      {icon:"⚙️",lbl:"THE GRINDER",       lc:"rgba(255,184,48,.7)",  sc:"#FFB830", bdr:"rgba(255,184,48,.2)",  p:mP,      bigNum:mP.totalPlayed,         unit:"MATCHES",     stat:`Most matches played`,                        hasTrend:true},
-      {icon:"💀",lbl:"PROFESSIONAL LOSER",lc:"rgba(255,51,85,.7)",   sc:"#FF3355", bdr:"rgba(255,51,85,.2)",   p:mL,      bigNum:mL.losses,              unit:"LOSSES",      stat:`Most losses on record`,                      hasTrend:true},
-      {icon:"🎯",lbl:"GAME MASTER",       lc:"rgba(59,142,255,.7)",  sc:"#3B8EFF", bdr:"rgba(59,142,255,.2)",  p:mGM,     bigNum:mGM.gamesWon,           unit:"MINI-GAMES",  stat:`${mGM.gamesWon} mini-games won`,             hasTrend:true},
-      {icon:"🩹",lbl:"THE VICTIM",        lc:"rgba(170,85,255,.7)",  sc:"#AA55FF", bdr:"rgba(170,85,255,.2)",  p:mGL,     bigNum:mGL.gamesLost,          unit:"GAMES LOST",  stat:`${mGL.gamesLost} mini-games lost`,           hasTrend:true},
+      {icon:"🏆",lbl:"THE WINNER",        lc:"rgba(170,255,0,.7)",   sc:N,         bdr:"rgba(170,255,0,.2)",   p:mW,        bigNum:mW.wins,                   unit:"WINS",        stat:`${pct(mW.wins,mW.losses)}% win rate`,       hasTrend:true},
+      {icon:"⚡",lbl:"CLUTCH PLAYER",     lc:"rgba(59,142,255,.7)",  sc:"#3B8EFF", bdr:"rgba(59,142,255,.2)",  p:mClutch,   bigNum:mClutch.clutchWins||0,     unit:"CLUTCH WINS", stat:`Tight-score wins`,                           hasTrend:false},
+      {icon:"🔥",lbl:"SUPER STREAK",      lc:"rgba(170,255,0,.7)",   sc:N,         bdr:"rgba(170,255,0,.2)",   p:mStreak,   bigNum:mStreak.bestStreak||0,     unit:"WIN STREAK",  stat:`Best consecutive wins`,                      hasTrend:false},
+      {icon:"👑",lbl:"COMEBACK KING",     lc:"rgba(255,184,48,.7)",  sc:"#FFB830", bdr:"rgba(255,184,48,.2)",  p:mComeback, bigNum:mComeback.comebacks||0,    unit:"COMEBACKS",   stat:`Most comeback victories`,                    hasTrend:false},
+      {icon:"⚙️",lbl:"THE GRINDER",       lc:"rgba(255,184,48,.7)",  sc:"#FFB830", bdr:"rgba(255,184,48,.2)",  p:mP,        bigNum:mP.totalPlayed,            unit:"MATCHES",     stat:`Most matches played`,                        hasTrend:true},
+      {icon:"💀",lbl:"PROFESSIONAL LOSER",lc:"rgba(255,51,85,.7)",   sc:"#FF3355", bdr:"rgba(255,51,85,.2)",   p:mL,        bigNum:mL.losses,                 unit:"LOSSES",      stat:`Most losses on record`,                      hasTrend:true},
+      {icon:"🩹",lbl:"THE INJURED ONE",   lc:"rgba(255,107,53,.7)",  sc:"#FF6B35", bdr:"rgba(255,107,53,.2)",  p:mLeast,    bigNum:mLeast.totalPlayed,        unit:"MATCHES",     stat:`${mLeast.totalPlayed===0?"Hasn't played yet":"Fewest matches played"}`, hasTrend:false},
+      {icon:"🎯",lbl:"GAME MASTER",       lc:"rgba(59,142,255,.7)",  sc:"#3B8EFF", bdr:"rgba(59,142,255,.2)",  p:mGM,       bigNum:mGM.gamesWon,              unit:"MINI-GAMES",  stat:`${mGM.gamesWon} mini-games won`,             hasTrend:true},
+      {icon:"💔",lbl:"THE VICTIM",        lc:"rgba(170,85,255,.7)",  sc:"#AA55FF", bdr:"rgba(170,85,255,.2)",  p:mGL,       bigNum:mGL.gamesLost,             unit:"GAMES LOST",  stat:`${mGL.gamesLost} mini-games lost`,           hasTrend:true},
     ];
     const partners = me.partners
       ? Object.entries(me.partners).map(([id,p])=>({pp:players.find(x=>x.id===Number(id)),pc:Math.round(p*100)})).filter(x=>x.pp).sort((a,b)=>b.pc-a.pc)
@@ -737,6 +759,23 @@ function StatsTab({players,feed}) {
         }
       });
       return { w, l };
+    }, [rival, me, feed]);
+
+    // ── Mini-Games Balance (total games won/lost in H2H matches) ──
+    const mgBalance = useMemo(() => {
+      if (!rival || !me) return { my: 0, their: 0 };
+      let my = 0, their = 0;
+      (feed || []).forEach(m => {
+        const wIds = m.winnerIds || [];
+        const lIds = m.loserIds  || [];
+        const meW  = wIds.includes(me.id),   meL  = lIds.includes(me.id);
+        const rivW = wIds.includes(rival.id), rivL = lIds.includes(rival.id);
+        if ((meW || meL) && (rivW || rivL)) {
+          if (meW) { my += countGames(m.sets,"w"); their += countGames(m.sets,"l"); }
+          else     { my += countGames(m.sets,"l"); their += countGames(m.sets,"w"); }
+        }
+      });
+      return { my, their };
     }, [rival, me, feed]);
 
     const total = h2h ? h2h.w + h2h.l : 0;
@@ -853,6 +892,22 @@ function StatsTab({players,feed}) {
                   <span style={{fontSize:10,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif"}}>{total} match{total !== 1 ? "es" : ""}</span>
                   <span style={{fontSize:10,fontWeight:700,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>{total ? `${tp}%` : "—"}</span>
                 </div>
+
+                {/* Mini-Games Balance */}
+                {(mgBalance.my + mgBalance.their) > 0 && (
+                  <div className="flex items-center justify-between mt-4 rounded-[12px] px-4 py-3"
+                    style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.07)"}}>
+                    <div className="text-center">
+                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"1px",lineHeight:1,color:N}}>{mgBalance.my}</div>
+                      <div style={{fontSize:8,fontWeight:700,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>YOUR GAMES</div>
+                    </div>
+                    <div style={{fontSize:9,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.2)",fontFamily:"'DM Sans',sans-serif"}}>MINI-GAMES</div>
+                    <div className="text-center">
+                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"1px",lineHeight:1,color:"#FF3355"}}>{mgBalance.their}</div>
+                      <div style={{fontSize:8,fontWeight:700,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>THEIR GAMES</div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* ── Verdict ── */}
@@ -873,11 +928,12 @@ function StatsTab({players,feed}) {
               )}
 
               {/* ── Stats chips ── */}
-              <div className="grid grid-cols-3 gap-2 mb-4">
+              <div className="grid grid-cols-4 gap-2 mb-4">
                 {[
                   { l:"WIN RATE", v: total ? `${yp}%` : "—",                                       c: yp >= 50 ? N : "#FF3355"           },
                   { l:"MATCHES",  v: total,                                                          c: "rgba(255,255,255,.7)"             },
                   { l:"BALANCE",  v: h2h.w > h2h.l ? `+${h2h.w-h2h.l}` : h2h.w < h2h.l ? `-${h2h.l-h2h.w}` : "0", c: h2h.w >= h2h.l ? N : "#FF3355" },
+                  { l:"MG TOTAL", v: (mgBalance.my + mgBalance.their) > 0 ? `${mgBalance.my}–${mgBalance.their}` : "—", c: mgBalance.my >= mgBalance.their ? N : "#FF3355" },
                 ].map(s => (
                   <div key={s.l} className="text-center rounded-[12px] py-3 px-2" style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.07)"}}>
                     <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"1px",lineHeight:1,color:s.c,marginBottom:4}}>{s.v}</div>
@@ -1488,7 +1544,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
   const enrichedPlayers = useMemo(()=>derivePlayerStats(players, feed),[players, feed]);
   const sortedPlayers   = useMemo(()=>byWins(enrichedPlayers),[enrichedPlayers]);
 
-  const handleSubmit = useCallback(async ({winners,losers,sets,editId})=>{
+  const handleSubmit = useCallback(async ({winners,losers,sets,editId,isComeback=false})=>{
     const filled=sets.filter(s=>s.w!==""&&s.l!=="").map(s=>`${s.w}–${s.l}`);
     if (!filled.length) return;
     const ts=nowTs();
@@ -1499,7 +1555,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
     const winnerStr=wPlayers.map(p=>p.name).join(" & ");
     const loserStr =lPlayers.map(p=>p.name).join(" & ");
     const matchId  =editId||crypto.randomUUID();
-    const entry={id:matchId,winner:winnerStr,winnerIds:winners,loser:loserStr,loserIds:losers,sets:filled,sport:wPlayers[0].sport,dateStr:ts.dateStr,timeStr:ts.timeStr,xp:110};
+    const entry={id:matchId,winner:winnerStr,winnerIds:winners,loser:loserStr,loserIds:losers,sets:filled,sport:wPlayers[0].sport,dateStr:ts.dateStr,timeStr:ts.timeStr,xp:110,isComeback:!!isComeback};
 
     // Optimistic update — standings recalculate instantly from feed via derivePlayerStats
     setFeed(prev=>editId?prev.map(m=>m.id===editId?entry:m):[entry,...prev]);
@@ -1508,12 +1564,13 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
     if (leagueId) {
       try {
         await supabase.from("matches").upsert({
-          id:        matchId,
-          league_id: leagueId,
-          winner_id: winners[0],
-          loser_id:  losers[0],
-          score:     { sets:filled, winnerIds:winners, loserIds:losers, winner:winnerStr, loser:loserStr, sport:wPlayers[0]?.sport, dateStr:ts.dateStr, timeStr:ts.timeStr, xp:110 },
-          date:      new Date().toISOString(),
+          id:          matchId,
+          league_id:   leagueId,
+          winner_id:   winners[0],
+          loser_id:    losers[0],
+          is_comeback: !!isComeback,
+          score:       { sets:filled, winnerIds:winners, loserIds:losers, winner:winnerStr, loser:loserStr, sport:wPlayers[0]?.sport, dateStr:ts.dateStr, timeStr:ts.timeStr, xp:110, isComeback:!!isComeback },
+          date:        new Date().toISOString(),
         });
       } catch {
         // Revert optimistic feed update on failure
@@ -1588,7 +1645,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
     home:    <HomeTab    players={enrichedPlayers} feed={feed} onEditFeed={handleEdit}/>,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode}/>,
-    profile: <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={onProfileUpdate} onAvatarUpdate={onAvatarUpdate}/>,
+    profile: <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate}/>,
   };
 
   return (
@@ -3729,11 +3786,14 @@ export default function Root() {
 
   const handleUpdateDisplayName = useCallback(async (newName) => {
     if (!user || !newName.trim()) return;
+    const trimmed = newName.trim();
     try {
       const { data } = await supabase.from("profiles")
-        .upsert({ user_id: user.id, display_name: newName.trim(), updated_at: new Date().toISOString() }, { onConflict: "user_id" })
+        .upsert({ user_id: user.id, display_name: trimmed, updated_at: new Date().toISOString() }, { onConflict: "user_id" })
         .select().single();
       setProfile(data);
+      // Keep players table in sync — every row owned by this user gets the new name
+      await supabase.from("players").update({ name: trimmed }).eq("user_id", user.id);
     } catch {
       // silently fail
     }
