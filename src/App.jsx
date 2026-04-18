@@ -922,7 +922,31 @@ function StatsTab({players,feed}) {
 }
 
 /* ── LEAGUE TAB ── */
-function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlayer,onRemovePlayer,leagueId,ownerId,user,onDeleteLeague,squadPhotoUrl=null,onSquadPhotoUpdate=null}) {
+function JoinCodeCard({ code }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard?.writeText(code).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
+  return (
+    <div className="rounded-[20px] p-4 mb-6" style={{background:`linear-gradient(135deg,rgba(170,255,0,.08),rgba(170,255,0,.03))`,border:`1.5px solid rgba(170,255,0,.3)`}}>
+      <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.4)",fontFamily:"'DM Sans',sans-serif",marginBottom:10}}>SHARE THIS CODE TO INVITE PLAYERS</div>
+      <div className="flex items-center justify-between gap-3">
+        <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:34,fontWeight:700,letterSpacing:"8px",color:N,textShadow:"0 0 24px rgba(170,255,0,.5)"}}>{code}</div>
+        <motion.button whileTap={{scale:.93}} onClick={handleCopy}
+          className="flex items-center gap-1.5 rounded-[12px] px-3 py-2"
+          style={{background:copied?"rgba(170,255,0,.18)":"rgba(170,255,0,.1)",border:`1px solid rgba(170,255,0,.${copied?5:3})`,cursor:"pointer",transition:"all .2s"}}>
+          <Copy size={14} style={{color:N}}/>
+          <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:800,color:N}}>{copied?"Copied!":"Copy"}</span>
+        </motion.button>
+      </div>
+      <div style={{fontSize:11,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:8}}>Players enter this code in "Join by Code" to join your league</div>
+    </div>
+  );
+}
+
+function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlayer,onRemovePlayer,leagueId,ownerId,user,onDeleteLeague,squadPhotoUrl=null,onSquadPhotoUpdate=null,joinCode=null}) {
   const [editing,          setEditing]          = useState(false);
   const [draft,            setDraft]            = useState(rules);
   const [confirm,          setConfirm]          = useState(false);
@@ -1053,6 +1077,14 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
         </div>
         <ChevronRight size={16} style={{color:N,flexShrink:0}}/>
       </motion.button>
+
+      {/* Join Code */}
+      {joinCode && (
+        <>
+          <ST>🔑 League Join Code</ST>
+          <JoinCodeCard code={joinCode} />
+        </>
+      )}
 
       {/* Admin Tools */}
       <ST>⚙️ Admin Tools</ST>
@@ -1440,7 +1472,7 @@ function BottomNav({active,onChange}) {
 }
 
 /* ── ROOT ── */
-function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, leagueId = null, leagueName = "MY LEAGUE", user = null, onBack = null, ownerId = null, onDeleteLeague = null, profile = null, onProfileUpdate = null, squadPhotoUrl = null, onSquadPhotoUpdate = null, onAvatarUpdate = null }) {
+function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, leagueId = null, leagueName = "MY LEAGUE", user = null, onBack = null, ownerId = null, onDeleteLeague = null, profile = null, onProfileUpdate = null, squadPhotoUrl = null, onSquadPhotoUpdate = null, onAvatarUpdate = null, joinCode = null }) {
   const [activeTab,setActiveTab] = useState("home");
   const [players,  setPlayers]   = useState(initialPlayers);
   const [feed,     setFeed]      = useState(initialFeed);
@@ -1555,7 +1587,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
   const content = {
     home:    <HomeTab    players={enrichedPlayers} feed={feed} onEditFeed={handleEdit}/>,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed}/>,
-    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate}/>,
+    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode}/>,
     profile: <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={onProfileUpdate} onAvatarUpdate={onAvatarUpdate}/>,
   };
 
@@ -1761,7 +1793,7 @@ const PT_PRESETS = [11, 15, 21];
 
 function generateCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
 // ─────────────────────────────────────────────
@@ -3305,10 +3337,50 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
   const [joinCode,   setJoinCode]   = useState("");
   const [joinErr,    setJoinErr]    = useState("");
   const [saving,     setSaving]     = useState(false);
+  const [lastMatch,  setLastMatch]  = useState(null);
+  const [hubStats,   setHubStats]   = useState(null);
 
   const displayName = user?.user_metadata?.full_name || user?.email || "Player";
   const avatarUrl   = user?.user_metadata?.avatar_url;
   const initials    = displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join("");
+
+  // Fetch last match + hub stats across all leagues
+  useEffect(() => {
+    if (!leagues.length || !user) return;
+    const ids = leagues.map(l => l.id);
+    (async () => {
+      try {
+        const { data: playerRows } = await supabase.from("players").select("id,league_id").in("league_id", ids).eq("user_id", user.id);
+        const playerIds = (playerRows || []).map(p => p.id);
+        if (!playerIds.length) return;
+        const { data: matches } = await supabase.from("matches").select("*").in("league_id", ids).order("date", { ascending: false }).limit(50);
+        if (!matches?.length) return;
+        const userMatches = matches.filter(m => playerIds.includes(m.winner_id) || playerIds.includes(m.loser_id));
+        if (!userMatches.length) return;
+        const lm = userMatches[0];
+        const lgName = leagues.find(l => l.id === lm.league_id)?.name || "League";
+        const isWin  = playerIds.includes(lm.winner_id);
+        setLastMatch({ winner: lm.score?.winner || "?", loser: lm.score?.loser || "?", sets: lm.score?.sets || [], dateStr: lm.score?.dateStr || lm.date?.slice(0,10) || "?", isWin, lgName });
+        const now = new Date();
+        const thisMonthCount = userMatches.filter(m => { const d = new Date(m.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); }).length;
+        let streak = 0;
+        for (const m of userMatches) { if (playerIds.includes(m.winner_id)) streak++; else break; }
+        setHubStats({ total: userMatches.length, thisMonth: thisMonthCount, winStreak: streak, leagueCount: leagues.length });
+      } catch {}
+    })();
+  }, [leagues, user]);
+
+  const didYouKnow = useMemo(() => {
+    if (!hubStats) return null;
+    const pool = [];
+    if (hubStats.winStreak >= 3) pool.push(`You're on a ${hubStats.winStreak}-match win streak! 🔥`);
+    else if (hubStats.winStreak === 2) pool.push(`Two wins in a row — keep it going! ⚡`);
+    if (hubStats.thisMonth > 0) pool.push(`You've played ${hubStats.thisMonth} match${hubStats.thisMonth>1?"es":""} this month 📅`);
+    if (hubStats.total >= 10) pool.push(`${hubStats.total} matches logged — you're a regular! 🏆`);
+    if (hubStats.leagueCount > 1) pool.push(`You're competing in ${hubStats.leagueCount} leagues simultaneously 🎯`);
+    if (!pool.length && hubStats.total > 0) pool.push(`${hubStats.total} total match${hubStats.total>1?"es":""} logged across all leagues`);
+    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  }, [hubStats]);
 
   const handleJoin = async () => {
     if (!joinCode.trim()) return;
@@ -3356,33 +3428,17 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
             <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:30,letterSpacing:"2px",color:"#fff",lineHeight:1,marginBottom:24}}>
               {displayName.split(" ")[0].toUpperCase()}
             </div>
-            {/* Action buttons */}
-            <div className="grid grid-cols-2 gap-3 mb-6">
-              <motion.button whileHover={{scale:1.02,y:-2}} whileTap={{scale:.97}}
-                onClick={onCreateWizard}
-                className="flex flex-col items-center justify-center rounded-[18px] py-5 gap-2"
-                style={{background:`linear-gradient(135deg,${N}18,${N}08)`,border:`1px solid ${N}44`,cursor:"pointer"}}>
-                <Plus size={22} style={{color:N}}/>
-                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:800,color:N}}>Create League</span>
-              </motion.button>
-              <motion.button whileHover={{scale:1.02,y:-2}} whileTap={{scale:.97}}
-                onClick={()=>{setShowJoin(true);setJoinErr("");}}
-                className="flex flex-col items-center justify-center rounded-[18px] py-5 gap-2"
-                style={{background:"rgba(59,142,255,.1)",border:"1px solid rgba(59,142,255,.3)",cursor:"pointer"}}>
-                <Hash size={22} style={{color:"#3B8EFF"}}/>
-                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:800,color:"#3B8EFF"}}>Join by Code</span>
-              </motion.button>
-            </div>
+
             {/* League list */}
             <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginBottom:12}}>MY LEAGUES</div>
             {leagues.length === 0 ? (
-              <div className="rounded-[20px] py-12 text-center" style={{background:"rgba(255,255,255,.02)",border:"1px dashed rgba(255,255,255,.1)"}}>
+              <div className="rounded-[20px] py-12 text-center mb-6" style={{background:"rgba(255,255,255,.02)",border:"1px dashed rgba(255,255,255,.1)"}}>
                 <div style={{fontSize:28,marginBottom:8}}>🏆</div>
                 <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:18,letterSpacing:"2px",color:"rgba(255,255,255,.2)",marginBottom:6}}>NO LEAGUES YET</div>
-                <div style={{fontSize:12,color:"rgba(255,255,255,.25)",fontFamily:"'DM Sans',sans-serif"}}>Create one or join with a code</div>
+                <div style={{fontSize:12,color:"rgba(255,255,255,.25)",fontFamily:"'DM Sans',sans-serif"}}>Create one or join with a code below</div>
               </div>
             ) : (
-              <div className="flex flex-col gap-3 pb-8">
+              <div className="flex flex-col gap-3 mb-6">
                 {leagues.map(lg => (
                   <motion.div key={lg.id} whileHover={{scale:1.015,y:-2}} whileTap={{scale:.98}}
                     onClick={()=>onEnter(lg)}
@@ -3400,6 +3456,54 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
                 ))}
               </div>
             )}
+
+            {/* My Last Match */}
+            {lastMatch && (
+              <div className="rounded-[20px] p-4 mb-4" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
+                <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginBottom:10}}>MY LAST MATCH</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div style={{fontSize:13,fontWeight:800,color:"#fff",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                      {lastMatch.winner} <span style={{color:"rgba(255,255,255,.3)"}}>vs</span> {lastMatch.loser}
+                    </div>
+                    <div style={{fontSize:11,color:"rgba(255,255,255,.4)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>
+                      {lastMatch.sets.join("  ")} · {lastMatch.lgName}
+                    </div>
+                    <div style={{fontSize:10,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>{lastMatch.dateStr}</div>
+                  </div>
+                  <div className="rounded-[10px] px-3 py-1.5 flex-shrink-0" style={{background:lastMatch.isWin?"rgba(170,255,0,.12)":"rgba(255,51,85,.1)",border:`1px solid ${lastMatch.isWin?"rgba(170,255,0,.3)":"rgba(255,51,85,.25)"}`}}>
+                    <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:800,color:lastMatch.isWin?N:"#FF3355"}}>{lastMatch.isWin?"WIN":"LOSS"}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Did You Know? */}
+            {didYouKnow && (
+              <div className="rounded-[20px] p-4 mb-6" style={{background:`linear-gradient(135deg,rgba(170,255,0,.06),rgba(170,255,0,.02))`,border:`1px solid rgba(170,255,0,.2)`}}>
+                <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(170,255,0,.6)",fontFamily:"'DM Sans',sans-serif",marginBottom:6}}>DID YOU KNOW?</div>
+                <div style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.8)",fontFamily:"'DM Sans',sans-serif",lineHeight:1.5}}>{didYouKnow}</div>
+              </div>
+            )}
+
+            {/* Action buttons — create / join */}
+            <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginBottom:12}}>LEAGUES</div>
+            <div className="grid grid-cols-2 gap-3 mb-8">
+              <motion.button whileHover={{scale:1.02,y:-2}} whileTap={{scale:.97}}
+                onClick={onCreateWizard}
+                className="flex flex-col items-center justify-center rounded-[18px] py-5 gap-2"
+                style={{background:`linear-gradient(135deg,${N}18,${N}08)`,border:`1px solid ${N}44`,cursor:"pointer"}}>
+                <Plus size={22} style={{color:N}}/>
+                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:800,color:N}}>Create League</span>
+              </motion.button>
+              <motion.button whileHover={{scale:1.02,y:-2}} whileTap={{scale:.97}}
+                onClick={()=>{setShowJoin(true);setJoinErr("");}}
+                className="flex flex-col items-center justify-center rounded-[18px] py-5 gap-2"
+                style={{background:"rgba(59,142,255,.1)",border:"1px solid rgba(59,142,255,.3)",cursor:"pointer"}}>
+                <Hash size={22} style={{color:"#3B8EFF"}}/>
+                <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:800,color:"#3B8EFF"}}>Join by Code</span>
+              </motion.button>
+            </div>
           </div>
         </div>
       </div>
@@ -3476,7 +3580,7 @@ export default function Root() {
       const { data: pRows } = await supabase.from("players").select("league_id").eq("user_id", uid);
       if (!pRows?.length) { setLeagues([]); return; }
       const ids = [...new Set(pRows.map(r => r.league_id))];
-      const { data: lRows } = await supabase.from("leagues").select("id,name,sport,settings,created_at,owner_id,image_url").in("id", ids);
+      const { data: lRows } = await supabase.from("leagues").select("id,name,sport,settings,created_at,owner_id,image_url,join_code").in("id", ids);
       setLeagues(lRows || []);
     } catch {
       setLeagues([]);
@@ -3528,6 +3632,7 @@ export default function Root() {
         initialFeed:    (mData || []).map(m => ({ id: m.id, ...m.score })),
         ownerId:        league.owner_id || null,
         squadPhotoUrl:  league.image_url || null,
+        joinCode:       league.join_code || league.settings?.leagueCode || null,
       });
       setPhase("app");
     } catch {
@@ -3564,8 +3669,9 @@ export default function Root() {
   const handleCreateLeague = useCallback(async (name, sport) => {
     if (!user) return;
     try {
+      const code = generateCode();
       const { data: leagueRow, error } = await supabase.from("leagues")
-        .insert({ name, sport, settings: { leagueCode: generateCode() }, owner_id: user.id })
+        .insert({ name, sport, join_code: code, settings: { leagueCode: code }, owner_id: user.id })
         .select().single();
       if (error || !leagueRow) return;
       const displayName = profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
@@ -3583,8 +3689,13 @@ export default function Root() {
   const handleJoinLeague = useCallback(async (code) => {
     if (!user) return { error: "Not logged in" };
     try {
-      const { data: allLeagues } = await supabase.from("leagues").select("*");
-      const league = allLeagues?.find(l => l.settings?.leagueCode === code);
+      // Primary lookup — dedicated join_code column (fast, indexed)
+      let { data: league } = await supabase.from("leagues").select("*").eq("join_code", code).maybeSingle();
+      // Fallback — legacy leagues whose code lives in settings JSON
+      if (!league) {
+        const { data: allLeagues } = await supabase.from("leagues").select("*");
+        league = allLeagues?.find(l => l.settings?.leagueCode === code) || null;
+      }
       if (!league) return { error: "League not found — check the code" };
       const { data: existing } = await supabase.from("players").select("id")
         .eq("league_id", league.id).eq("user_id", user.id).maybeSingle();
@@ -3652,7 +3763,7 @@ export default function Root() {
       const sportLabel  = customSportName?.trim() || sportData?.label || "Sport";
       const sportEmoji  = sport === "custom_sport" ? "🏗️" : (sportData?.emoji || "🏸");
       const { data: leagueRow, error } = await supabase.from("leagues")
-        .insert({ name, sport: sportLabel, settings: { leagueCode, format, points, customRules }, owner_id: user.id })
+        .insert({ name, sport: sportLabel, join_code: leagueCode, settings: { leagueCode, format, points, customRules }, owner_id: user.id })
         .select().single();
       if (error || !leagueRow) return;
       const displayName = adminName.trim() || profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
@@ -3667,6 +3778,7 @@ export default function Root() {
         initialPlayers: pRow ? [rowToPlayer(pRow, user.id)] : [],
         initialFeed:    [],
         ownerId:        user.id,
+        joinCode:       leagueCode,
       });
       setPhase("app");
     } catch (err) {
@@ -3694,6 +3806,7 @@ export default function Root() {
       squadPhotoUrl={activeData.squadPhotoUrl}
       onSquadPhotoUpdate={handleUpdateSquadPhoto}
       onAvatarUpdate={handleUpdateAvatar}
+      joinCode={activeData.joinCode}
     />
   );
   if (phase === "wizard") return (
