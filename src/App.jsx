@@ -3989,31 +3989,15 @@ export default function Root() {
     }
 
     // ── Step 2: Player insert — non-fatal, swallow any error ──
-    const playerStats = {
-      initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat",
-      sport: sportEmoji, mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0,
-    };
     await supabase.from("players").insert({
       id: playerId, league_id: leagueId, user_id: user.id,
-      name: displayName, is_me: true, stats: playerStats,
+      name: displayName, is_me: true,
+      stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:sportEmoji, mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
     }).catch(() => {});
 
-    // ── Step 3: Redirect — built entirely from known local data, no Supabase response needed ──
-    try {
-      setActiveData({
-        leagueId,
-        leagueName:     name.toUpperCase(),
-        initialPlayers: [{ id: playerId, name: displayName, isMe: true, ...playerStats }],
-        initialFeed:    [],
-        ownerId:        user.id,
-        joinCode:       code,
-      });
-      setPhase("app");
-    } catch {
-      // Last-resort: go to hub — new league will appear in My Leagues list
-      await loadLeagues(user.id).catch(() => {});
-      setPhase("hub");
-    }
+    // ── Step 3: Reload leagues from DB then go to hub — guaranteed sync, no local state guessing ──
+    await loadLeagues(user.id).catch(() => {});
+    setPhase("hub");
   }, [user, profile, loadLeagues]);
 
   if (phase === "loading") return (
