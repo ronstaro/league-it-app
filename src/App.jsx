@@ -3947,56 +3947,82 @@ export default function Root() {
 
   const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, format, points, customSportName, customRules, leagueCode }) => {
     if (!user) throw new Error("Not logged in");
-    const timeout = ms => new Promise((_, rej) => setTimeout(() => rej(new Error("Request timed out — please try again")), ms));
+    const raceTimeout = ms => new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms));
 
     const name       = leagueName.trim() || "My League";
     const sportData  = SPORTS.find(s => s.id === sport);
     const sportLabel = customSportName?.trim() || sportData?.label || "Sport";
     const sportEmoji = sport === "custom_sport" ? "🏗️" : (sportData?.emoji || "🏸");
 
-    // Try insert with join_code; fall back without it if the column doesn't exist yet
+    // ── Step 1: League insert (only place we allow a throw — league not yet created) ──
     let leagueRow;
-    const insertWithCode = supabase
-      .from("leagues")
-      .insert({ name, sport: sportLabel, join_code: leagueCode, settings: { leagueCode, format, points, customRules }, owner_id: user.id })
-      .select().single();
-    const { data: rowFull, error: errFull } = await Promise.race([insertWithCode, timeout(12000)]);
-    if (errFull) {
-      // If the error is about the join_code column not existing, retry without it
-      if (errFull.message?.includes("join_code") || errFull.code === "PGRST204" || errFull.code === "42703") {
-        const insertBase = supabase
-          .from("leagues")
-          .insert({ name, sport: sportLabel, settings: { leagueCode, format, points, customRules }, owner_id: user.id })
-          .select().single();
-        const { data: rowBase, error: errBase } = await Promise.race([insertBase, timeout(12000)]);
-        if (errBase || !rowBase) throw new Error(errBase?.message || "Failed to create league");
-        leagueRow = rowBase;
+    try {
+      const { data: rowFull, error: errFull } = await Promise.race([
+        supabase.from("leagues")
+          .insert({ name, sport: sportLabel, join_code: leagueCode, settings: { leagueCode, format, points, customRules }, owner_id: user.id })
+          .select().single(),
+        raceTimeout(12000),
+      ]);
+      if (errFull) {
+        // join_code column doesn't exist yet — retry without it
+        if (errFull.message?.includes("join_code") || errFull.code === "PGRST204" || errFull.code === "42703") {
+          const { data: rowBase, error: errBase } = await Promise.race([
+            supabase.from("leagues")
+              .insert({ name, sport: sportLabel, settings: { leagueCode, format, points, customRules }, owner_id: user.id })
+              .select().single(),
+            raceTimeout(12000),
+          ]);
+          if (errBase || !rowBase) throw new Error(errBase?.message || "Failed to create league");
+          leagueRow = rowBase;
+        } else {
+          throw new Error(errFull.message || "Failed to create league");
+        }
       } else {
-        throw new Error(errFull.message || "Failed to create league");
+        leagueRow = rowFull;
       }
-    } else {
-      leagueRow = rowFull;
+      if (!leagueRow) throw new Error("Failed to create league — no data returned");
+    } catch (e) {
+      // Re-throw only for the league insert phase — user can retry safely
+      throw e;
     }
-    if (!leagueRow) throw new Error("Failed to create league — no data returned");
 
-    const displayName = adminName.trim() || profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
-    const initials    = displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join("");
-    const playerInsert = supabase.from("players").insert({
-      league_id: leagueRow.id, user_id: user.id, name: displayName, is_me: true,
-      stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport: sportEmoji, mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
-    }).select().single();
-    const { data: pRow } = await Promise.race([playerInsert, timeout(12000)]);
+    // ── Step 2: Player insert — non-fatal; failure must not block the redirect ──
+    let pRow = null;
+    try {
+      const { data } = await Promise.race([
+        supabase.from("players").insert({
+          league_id: leagueRow.id, user_id: user.id, name:
+            adminName.trim() || profile?.display_name || user.user_metadata?.full_name || user.email || "Player",
+          is_me: true,
+          stats: {
+            initials: (adminName.trim() || user.user_metadata?.full_name || "??")
+              .split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join(""),
+            wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat",
+            sport: sportEmoji, mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0,
+          },
+        }).select().single(),
+        raceTimeout(10000),
+      ]);
+      pRow = data;
+    } catch { /* non-fatal — redirect anyway; player row will sync on next load */ }
 
-    setActiveData({
-      leagueId:       leagueRow.id,
-      leagueName:     name.toUpperCase(),
-      initialPlayers: pRow ? [rowToPlayer(pRow, user.id)] : [],
-      initialFeed:    [],
-      ownerId:        user.id,
-      joinCode:       leagueRow.join_code || leagueCode,
-    });
-    setPhase("app");
-  }, [user, profile]);
+    // ── Step 3: State update + redirect — never throw past this point ──
+    try {
+      setActiveData({
+        leagueId:       leagueRow.id,
+        leagueName:     name.toUpperCase(),
+        initialPlayers: pRow ? [rowToPlayer(pRow, user.id)] : [],
+        initialFeed:    [],
+        ownerId:        user.id,
+        joinCode:       leagueRow.join_code || leagueCode,
+      });
+      setPhase("app");
+    } catch {
+      // Absolute fallback: league exists in DB — reload hub so user sees it in My Leagues
+      await loadLeagues(user.id).catch(() => {});
+      setPhase("hub");
+    }
+  }, [user, profile, loadLeagues]);
 
   if (phase === "loading") return (
     <div style={{background:"#0A0A0A",height:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
