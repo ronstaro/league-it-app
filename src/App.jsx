@@ -199,14 +199,17 @@ function PBtn({children,onClick,disabled=false}) {
 function StandingsTable({players, feed = []}) {
   if (!players || players.length === 0) return <div className="text-center p-10 opacity-30">No players in league yet</div>;
   const rows = useMemo(()=>byWins(players),[players]);
-  const COL = "34px 1fr 52px 40px 40px 34px 72px";
-  const HDRS = ["#","PLAYER","W/L","W%","CLTH","CB","MINI-GAMES"];
+  // Columns: rank | player name (flex) | W/L | W% | CLT | CB | MG W–L
+  // Tighter right-side columns free up ~44 px for the name vs the old layout.
+  // No initials avatar — the name column now owns the full 1fr width.
+  const COL = "28px 1fr 48px 34px 26px 26px 58px";
+  const HDRS = ["#","PLAYER","W/L","W%","CLT","CB","MG W–L"];
   return (
     <div className="rounded-[22px] overflow-hidden mb-6" style={{border:"1px solid rgba(255,255,255,.07)"}}>
       <div className="grid px-3 py-2.5 gap-1"
         style={{gridTemplateColumns:COL,background:"rgba(255,255,255,.04)",borderBottom:"1px solid rgba(255,255,255,.07)"}}>
         {HDRS.map((h,i)=>(
-          <span key={i} style={{fontSize:8,fontWeight:800,letterSpacing:"1.2px",color:"rgba(255,255,255,.28)",textAlign:i>1?"center":"left",fontFamily:"'DM Sans',sans-serif"}}>{h}</span>
+          <span key={i} style={{fontSize:8,fontWeight:800,letterSpacing:"1px",color:"rgba(255,255,255,.28)",textAlign:i>1?"center":"left",fontFamily:"'DM Sans',sans-serif"}}>{h}</span>
         ))}
       </div>
       {rows.length===0&&(
@@ -222,29 +225,40 @@ function StandingsTable({players, feed = []}) {
         return (
           <div key={p.id} className="grid px-3 py-3 items-center gap-1 hover:brightness-110 transition-all"
             style={{gridTemplateColumns:COL,borderBottom:i<rows.length-1?"1px solid rgba(255,255,255,.05)":"none",background:p.isMe?"rgba(170,255,0,.04)":"transparent"}}>
-            <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:md?16:20,color:md?md.c:"rgba(255,255,255,.25)"}}>{md?md.e:r}</div>
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0" style={{background:pg(p),color:"#000"}}>{p.initials}</div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1 flex-wrap">
-                  <span className="font-bold text-[12px] truncate" style={{color:"#fff",fontFamily:"'DM Sans',sans-serif"}}>{p.name}</span>
-                  {p.isMe&&<span style={{fontSize:7,fontWeight:900,background:N,color:"#000",padding:"1px 4px",borderRadius:3,flexShrink:0}}>ME</span>}
-                </div>
-                <div className="flex items-center gap-1 mt-0.5">
-                  {p.trend==="up"  &&<TrendingUp   size={8} style={{color:N}}/>}
-                  {p.trend==="down"&&<TrendingDown  size={8} style={{color:"#FF3355"}}/>}
-                  {p.trend==="flat"&&<Minus         size={8} style={{color:"rgba(255,255,255,.28)"}}/>}
-                  <span style={{fontSize:8,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif"}}>{p.totalPlayed} played</span>
-                </div>
+
+            {/* Rank */}
+            <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:md?15:19,color:md?md.c:"rgba(255,255,255,.25)",lineHeight:1}}>{md?md.e:r}</div>
+
+            {/* Name — owns the full 1fr; no avatar stealing space */}
+            <div className="min-w-0">
+              <div style={{display:"flex",alignItems:"center",gap:5,minWidth:0}}>
+                <span style={{
+                  fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,
+                  color:"#fff",overflow:"hidden",textOverflow:"ellipsis",
+                  whiteSpace:"nowrap",flex:1,minWidth:0,
+                }}>{p.name}</span>
+                {p.isMe&&<span style={{fontSize:7,fontWeight:900,background:N,color:"#000",padding:"1px 4px",borderRadius:3,flexShrink:0,lineHeight:"14px"}}>ME</span>}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:3,marginTop:2}}>
+                {p.trend==="up"  &&<TrendingUp   size={8} style={{color:N,flexShrink:0}}/>}
+                {p.trend==="down"&&<TrendingDown  size={8} style={{color:"#FF3355",flexShrink:0}}/>}
+                {p.trend==="flat"&&<Minus         size={8} style={{color:"rgba(255,255,255,.25)",flexShrink:0}}/>}
+                <span style={{fontSize:8,color:"rgba(255,255,255,.25)",fontFamily:"'DM Sans',sans-serif"}}>{p.totalPlayed} played</span>
               </div>
             </div>
+
+            {/* W/L */}
             <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700}}>
-              <span style={{color:N}}>{p.wins}</span><span style={{color:"rgba(255,255,255,.2)"}}>/</span><span style={{color:"#FF3355"}}>{p.losses}</span>
+              <span style={{color:N}}>{p.wins}</span><span style={{color:"rgba(255,255,255,.18)"}}>/</span><span style={{color:"#FF3355"}}>{p.losses}</span>
             </div>
-            <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:pctC}}>{winPct}%</div>
-            <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:"#3B8EFF"}}>{p.clutchWins||0}</div>
-            <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:700,color:"#FFB830"}}>{p.comebacks||0}</div>
-            <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:600,color:"rgba(255,255,255,.65)"}}>{p.gamesWon||0} – {p.gamesLost||0}</div>
+            {/* W% */}
+            <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:pctC}}>{winPct}%</div>
+            {/* CLT */}
+            <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:"#3B8EFF"}}>{p.clutchWins||0}</div>
+            {/* CB */}
+            <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:"#FFB830"}}>{p.comebacks||0}</div>
+            {/* MG W–L */}
+            <div className="text-center" style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,fontWeight:600,color:"rgba(255,255,255,.6)",letterSpacing:"-0.3px"}}>{p.gamesWon||0}–{p.gamesLost||0}</div>
           </div>
         );
       })}
