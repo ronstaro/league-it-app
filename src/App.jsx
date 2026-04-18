@@ -3614,6 +3614,16 @@ export default function Root() {
   const [profile,       setProfile]       = useState(null);
   const [pendingJoinId, setPendingJoinId] = useState(null);
 
+  // ── Hard 5-second loading timeout — completely independent from the auth
+  //    effect so it can NEVER be cancelled by auth re-subscriptions or errors.
+  //    If the app is still on "loading" after 5 s, show the error screen.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setPhase(prev => prev === "loading" ? "timedout" : prev);
+    }, 5000);
+    return () => clearTimeout(t);
+  }, []);
+
   // ── Detect /join/<id> URL on first mount ──────────────────────────────────
   useEffect(() => {
     const m = window.location.pathname.match(/^\/join\/([^/]+)$/);
@@ -3659,12 +3669,7 @@ export default function Root() {
 
   // Auth listener — single source of truth, handles initial session + changes
   useEffect(() => {
-    const fallback = setTimeout(() => {
-      setPhase(prev => prev === "loading" ? "login" : prev);
-    }, 6000);
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      clearTimeout(fallback);
       try {
         if (session?.user) {
           setUser(session.user);
@@ -3695,7 +3700,7 @@ export default function Root() {
       }
     });
 
-    return () => { clearTimeout(fallback); subscription.unsubscribe(); };
+    return () => { subscription.unsubscribe(); };
   }, [loadLeagues, loadProfile]);
 
   const handleEnterLeague = useCallback(async (league) => {
@@ -3869,10 +3874,52 @@ export default function Root() {
   }, [user, profile]);
 
   if (phase === "loading") return (
-    <div style={{background:"#0A0A0A",height:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <div style={{color:"#AAFF00",fontFamily:"'Bebas Neue',sans-serif",fontSize:28,letterSpacing:6}}>LOADING...</div>
+    <div style={{background:"#0A0A0A",height:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
+      <div style={{color:"#AAFF00",fontFamily:"'Bebas Neue',sans-serif",fontSize:32,letterSpacing:6,textShadow:"0 0 30px rgba(170,255,0,.4)"}}>LEAGUE-IT</div>
+      <div style={{display:"flex",gap:6}}>
+        {[0,1,2].map(i=>(
+          <div key={i} style={{
+            width:7,height:7,borderRadius:"50%",background:"#AAFF00",
+            animation:`pulse 1.2s ease-in-out ${i*0.2}s infinite`,
+            opacity:0.8,
+          }}/>
+        ))}
+      </div>
+      <style>{`@keyframes pulse{0%,100%{transform:scale(.6);opacity:.3}50%{transform:scale(1);opacity:1}}`}</style>
     </div>
   );
+
+  if (phase === "timedout") return (
+    <div style={{background:"#0A0A0A",height:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"0 32px",textAlign:"center",gap:0}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;600;700;800&display=swap');
+        *,*::before,*::after{box-sizing:border-box;}
+      `}</style>
+      <div style={{fontSize:44,marginBottom:16}}>📡</div>
+      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:34,letterSpacing:"3px",color:"#fff",marginBottom:8}}>
+        CONNECTION <span style={{color:"#FF3355"}}>TIMED OUT</span>
+      </div>
+      <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,.45)",lineHeight:1.65,maxWidth:280,marginBottom:32}}>
+        Couldn't reach the server after 5 seconds.<br/>
+        Check your internet connection and try again.
+      </div>
+      <button
+        onClick={() => window.location.reload()}
+        style={{
+          fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:15,
+          background:"linear-gradient(135deg,#AAFF00,#7DC900)",
+          color:"#000",border:"none",borderRadius:18,
+          padding:"14px 36px",cursor:"pointer",letterSpacing:"0.5px",
+          boxShadow:"0 8px 28px rgba(170,255,0,.35)",
+        }}>
+        Try Again
+      </button>
+      <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.2)",marginTop:20}}>
+        If this keeps happening, check the Supabase dashboard.
+      </div>
+    </div>
+  );
+
   if (phase === "app" && activeData) return (
     <LeagueItApp
       initialPlayers={activeData.initialPlayers}
