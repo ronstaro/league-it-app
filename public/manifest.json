@@ -1,0 +1,16 @@
+{
+  "name": "League-It",
+  "short_name": "League-It",
+  "description": "Your sports league, your rules.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0A0A0A",
+  "theme_color": "#AAFF00",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
