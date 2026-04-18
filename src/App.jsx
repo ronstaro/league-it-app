@@ -1297,6 +1297,37 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
 }
 
 /* ── PROFILE TAB ── */
+const XP_LEVELS = [
+  {level:1,min:0,    max:499,   label:"Rookie"},
+  {level:2,min:500,  max:1199,  label:"Contender"},
+  {level:3,min:1200, max:2499,  label:"Competitor"},
+  {level:4,min:2500, max:4499,  label:"Veteran"},
+  {level:5,min:4500, max:7499,  label:"Elite"},
+  {level:6,min:7500, max:11999, label:"Champion"},
+  {level:7,min:12000,max:Infinity,label:"Legend"},
+];
+function calcLevel(xp) {
+  const cur = [...XP_LEVELS].reverse().find(l=>xp>=l.min) || XP_LEVELS[0];
+  const next = XP_LEVELS.find(l=>l.level===cur.level+1) || null;
+  const pct  = next ? Math.min(100,Math.round((xp-cur.min)/(next.min-cur.min)*100)) : 100;
+  return {cur, next, pct};
+}
+function calcOVR(wins,losses,totalPlayed,clutchWins,comebacks,winRate) {
+  if (totalPlayed===0) return 0;
+  const winComp    = (winRate/100)*50;
+  const expComp    = Math.min(totalPlayed,60)/60*25;
+  const clutchComp = Math.min((clutchWins||0)+(comebacks||0),15)/15*24;
+  return Math.min(99, Math.max(1, Math.round(winComp+expComp+clutchComp)));
+}
+function styleTitle(wins,comebacks,winRate,totalPlayed) {
+  const cbRate = wins>0?(comebacks||0)/wins:0;
+  if (cbRate>0.2)     return {title:"The Comeback King", icon:"👑", color:"#FFB830"};
+  if (winRate>=80)    return {title:"The Dominator",     icon:"💀", color:"#FF3355"};
+  if (totalPlayed>=50)return {title:"The Veteran",       icon:"🎖️", color:"#3B8EFF"};
+  if (wins>=10)       return {title:"The Contender",     icon:"⚔️", color:N};
+  return               {title:"The Challenger",          icon:"🔰", color:"rgba(255,255,255,.5)"};
+}
+
 function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,onAvatarUpdate=null}) {
   const enriched  = useMemo(()=>enrichPlayers(players,feed),[players,feed]);
   const me        = players.find(p=>p.isMe);
@@ -1308,8 +1339,16 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
   const rows      = useMemo(()=>byWins(players),[players]);
   const myRank    = rows.findIndex(p=>p.isMe)+1;
   const wr        = pct(me.wins,me.losses);
-  const mv        = (me.wins*.5+meE.gamesWon*.1).toFixed(1);
   const myMatches = useMemo(()=>feed.filter(m=>(m.winnerIds||[]).includes(me.id)||(m.loserIds||[]).includes(me.id)),[feed,me.id]);
+
+  // ── Gamification ──────────────────────────────────────────────────────────
+  const totalXP = useMemo(()=>myMatches.reduce((acc,m)=>{
+    const isWin=(m.winnerIds||[]).includes(me.id);
+    return acc+(isWin?100:25)+(isWin&&m.isComeback?75:0);
+  },0),[myMatches,me.id]);
+  const lvlData   = useMemo(()=>calcLevel(totalXP),[totalXP]);
+  const ovr       = useMemo(()=>calcOVR(me.wins,me.losses,me.totalPlayed,me.clutchWins,me.comebacks,wr),[me,wr]);
+  const dnaTitle  = useMemo(()=>styleTitle(me.wins,me.comebacks,wr,me.totalPlayed),[me,wr]);
 
   const [ready, setReady] = useState(true);
   const [quote, setQuote] = useState("I came for trophies, not prisoners.");
@@ -1342,7 +1381,6 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
 
   // Trophies
   const mvpPlayer  = useMemo(()=>[...players].sort((a,b)=>b.wins-a.wins)[0],[players]);
-  // Mini-Game Champion uses live gamesWon tallied from feed via parseMG
   const mgChampion = useMemo(()=>[...enriched].sort((a,b)=>b.gamesWon-a.gamesWon)[0],[enriched]);
   const isMVP      = mvpPlayer.id===me.id;
   const isMGChamp  = mgChampion.id===me.id;
@@ -1354,12 +1392,12 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
   const sg = i=>({initial:{opacity:0,y:18},animate:{opacity:1,y:0},transition:{delay:.08+i*.07,type:"spring",stiffness:260,damping:22}});
 
   const badges = [
-    {i:"🔥",l:"Win Streak",   s:"5 in a row",    earned:me.streak>=5,    bc:"rgba(170,255,0,.15)", bb:"rgba(170,255,0,.35)"},
-    {i:"👑",l:"Comeback King",s:"Trailed, won",   earned:true,            bc:"rgba(255,184,48,.12)",bb:"rgba(255,184,48,.35)"},
-    {i:"⚡",l:"The Killer",   s:"Bagel victory",  earned:true,            bc:"rgba(255,51,85,.12)", bb:"rgba(255,51,85,.35)"},
-    {i:"📈",l:"Serial Winner",s:"+7 wins",        earned:me.wins>=7,      bc:"rgba(59,142,255,.12)",bb:"rgba(59,142,255,.35)"},
-    {i:"🎯",l:"Sniper",       s:"High accuracy",  earned:wr>=50,          bc:"rgba(170,85,255,.12)",bb:"rgba(170,85,255,.35)"},
-    {i:"🛡️",l:"Iron Wall",   s:"Lost <20 games",  earned:meE.gamesLost<20,bc:"rgba(0,229,204,.12)", bb:"rgba(0,229,204,.35)"},
+    {i:"🔥",l:"Win Streak",   s:"5 in a row",          earned:me.streak>=5,                        bc:"rgba(170,255,0,.15)", bb:"rgba(170,255,0,.35)"},
+    {i:"👑",l:"Comeback King",s:"CB > 20% of wins",     earned:(me.wins>0&&(me.comebacks||0)/me.wins>0.2),bc:"rgba(255,184,48,.12)",bb:"rgba(255,184,48,.35)"},
+    {i:"💀",l:"The Dominator",s:"Win rate ≥ 80%",       earned:wr>=80,                              bc:"rgba(255,51,85,.12)", bb:"rgba(255,51,85,.35)"},
+    {i:"📈",l:"Serial Winner",s:"10+ wins",             earned:me.wins>=10,                         bc:"rgba(59,142,255,.12)",bb:"rgba(59,142,255,.35)"},
+    {i:"🎖️",l:"The Veteran",  s:"50+ matches",         earned:me.totalPlayed>=50,                  bc:"rgba(170,85,255,.12)",bb:"rgba(170,85,255,.35)"},
+    {i:"🛡️",l:"Iron Wall",   s:"Lost < 20 mini-games", earned:meE.gamesLost<20,                    bc:"rgba(0,229,204,.12)", bb:"rgba(0,229,204,.35)"},
   ];
 
   return (
@@ -1430,19 +1468,41 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
             </div>
           )}
           {user?.email&&<div style={{fontSize:11,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginBottom:4}}>{user.email}</div>}
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold"
-              style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.12)",color:"rgba(255,255,255,.6)",fontFamily:"'DM Sans',sans-serif"}}>{rankLabel} Ranked</span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold"
-              style={{background:"rgba(170,255,0,.1)",border:"1px solid rgba(170,255,0,.3)",color:N,fontFamily:"'DM Sans',sans-serif"}}>💰 {mv}M MV</span>
+          {/* OVR + Level + Rank row */}
+          <div className="flex items-center justify-center gap-2 mb-4">
+            {/* OVR — the big number */}
+            <div className="flex flex-col items-center justify-center rounded-[14px] px-4 py-2.5"
+              style={{background:`linear-gradient(135deg,${N}22,${N}0A)`,border:`1px solid ${N}55`,minWidth:64}}>
+              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:30,letterSpacing:"2px",color:N,lineHeight:1}}>{ovr}</div>
+              <div style={{fontSize:8,fontWeight:900,letterSpacing:"2px",color:`${N}99`,fontFamily:"'DM Sans',sans-serif",marginTop:1}}>OVR</div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold"
+                style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.12)",color:"rgba(255,255,255,.6)",fontFamily:"'DM Sans',sans-serif"}}>{rankLabel} Ranked</span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold"
+                style={{background:"rgba(170,255,0,.08)",border:`1px solid ${N}33`,color:N,fontFamily:"'DM Sans',sans-serif"}}>LVL {lvlData.cur.level} · {lvlData.cur.label}</span>
+            </div>
           </div>
-          <div className="flex justify-center gap-5">
-            {[{v:`${me.wins}W`,l:"WINS",c:N},{v:`${me.losses}L`,l:"LOSSES",c:"#FF3355"},{v:`${wr}%`,l:"WIN RATE",c:"#FFB830"}].map(s=>(
+          <div className="flex justify-center gap-5 mb-3">
+            {[{v:`${me.wins}W`,l:"WINS",c:N},{v:`${me.losses}L`,l:"LOSSES",c:"#FF3355"},{v:`${wr}%`,l:"WIN RATE",c:"#FFB830"},{v:`${totalXP.toLocaleString()}`,l:"TOTAL XP",c:"#AA55FF"}].map(s=>(
               <div key={s.l} className="text-center">
-                <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"1px",color:s.c,lineHeight:1}}>{s.v}</div>
-                <div style={{fontSize:9,fontWeight:700,letterSpacing:"1px",color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>{s.l}</div>
+                <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:20,letterSpacing:"1px",color:s.c,lineHeight:1}}>{s.v}</div>
+                <div style={{fontSize:8,fontWeight:700,letterSpacing:"1px",color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>{s.l}</div>
               </div>
             ))}
+          </div>
+          {/* XP progress bar */}
+          <div className="mx-5">
+            <div className="flex justify-between mb-1">
+              <span style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",letterSpacing:"1px"}}>XP PROGRESS</span>
+              <span style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>
+                {lvlData.next ? `${(lvlData.next.min-totalXP).toLocaleString()} XP to LVL ${lvlData.next.level}` : "MAX LEVEL"}
+              </span>
+            </div>
+            <div className="w-full rounded-full overflow-hidden" style={{height:6,background:"rgba(255,255,255,.08)"}}>
+              <motion.div initial={{width:0}} animate={{width:`${lvlData.pct}%`}} transition={{duration:1,ease:"easeOut",delay:.3}}
+                style={{height:"100%",borderRadius:9999,background:`linear-gradient(90deg,${N},#7DC900)`}}/>
+            </div>
           </div>
         </motion.div>
         {/* Quote */}
@@ -1473,6 +1533,15 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
         <motion.div {...sg(4)}>
           <ST>🧬 Player DNA</ST>
           <div className="rounded-[20px] p-4 mb-6" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
+            {/* Style Title */}
+            <div className="flex items-center gap-3 rounded-[14px] px-4 py-3 mb-5"
+              style={{background:"rgba(255,255,255,.04)",border:`1px solid ${dnaTitle.color}44`}}>
+              <span style={{fontSize:22,flexShrink:0}}>{dnaTitle.icon}</span>
+              <div>
+                <div style={{fontSize:9,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",marginBottom:2}}>PLAYER STYLE</div>
+                <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:20,letterSpacing:"1.5px",color:dnaTitle.color,lineHeight:1}}>{dnaTitle.title}</div>
+              </div>
+            </div>
             {skills.map(s=>(
               <div key={s.l} className="mb-4">
                 <div className="flex justify-between mb-2">
