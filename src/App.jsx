@@ -6,7 +6,7 @@ import {
   Minus, Clock, Home, BarChart2, Users, User, Edit2,
   Camera, Settings, RotateCcw, UserPlus, UserMinus,
   ChevronLeft, Trophy, Zap, Target, Hash, Copy,
-  MessageCircle, LayoutDashboard, Crown, Sparkles, ArrowRight,
+  MessageCircle, LayoutDashboard, Crown, Sparkles, ArrowRight, Trash2,
 } from "lucide-react";
 
 const supabase = createClient(
@@ -267,7 +267,8 @@ function StandingsTable({players, feed = []}) {
 }
 
 /* ── FEED CARD ── */
-function FeedCard({m,onEdit,players=[]}) {
+function FeedCard({m,onEdit,onDelete,canDelete=false,players=[]}) {
+  const [confirmDel, setConfirmDel] = useState(false);
   const totalMG = useMemo(()=>(m.sets||[]).reduce((a,s)=>{const{w,l}=parseMG(s);return a+w+l;},0),[m.sets]);
   // Derive display names from winnerIds/loserIds when players are available (supports doubles),
   // fall back to stored m.winner / m.loser strings for seed data compatibility.
@@ -288,7 +289,7 @@ function FeedCard({m,onEdit,players=[]}) {
   return (
     <motion.div layout initial={{opacity:0,y:6}} animate={{opacity:1,y:0}}
       className="rounded-[20px] overflow-hidden mb-3"
-      style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
+      style={{background:"rgba(255,255,255,.03)",border:confirmDel?"1px solid rgba(255,51,85,.3)":"1px solid rgba(255,255,255,.08)",transition:"border-color .2s"}}>
       <div className="flex items-start gap-3 px-4 pt-4 pb-3">
         <div className="flex items-center justify-center rounded-[11px] text-xl flex-shrink-0"
           style={{width:38,height:38,background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.09)",marginTop:1}}>
@@ -311,13 +312,49 @@ function FeedCard({m,onEdit,players=[]}) {
         </div>
         <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
           <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:N,fontWeight:700}}>+{m.xp}XP</span>
-          <button onClick={()=>onEdit(m)}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-bold hover:opacity-80"
-            style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",color:"rgba(255,255,255,.45)",fontFamily:"'DM Sans',sans-serif"}}>
-            <Edit2 size={9}/> Edit
-          </button>
+          {!confirmDel && (
+            <div className="flex items-center gap-1">
+              <button onClick={()=>onEdit(m)}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-bold hover:opacity-80"
+                style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",color:"rgba(255,255,255,.45)",fontFamily:"'DM Sans',sans-serif"}}>
+                <Edit2 size={9}/> Edit
+              </button>
+              {canDelete && (
+                <button onClick={()=>setConfirmDel(true)}
+                  className="flex items-center justify-center w-[26px] h-[22px] rounded-lg hover:opacity-80"
+                  style={{background:"rgba(255,51,85,.08)",border:"1px solid rgba(255,51,85,.25)",cursor:"pointer"}}>
+                  <Trash2 size={9} style={{color:"#FF3355"}}/>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
+      {/* Inline delete confirmation */}
+      <AnimatePresence>
+        {confirmDel && (
+          <motion.div initial={{opacity:0,height:0}} animate={{opacity:1,height:"auto"}} exit={{opacity:0,height:0}}
+            style={{overflow:"hidden",borderTop:"1px solid rgba(255,51,85,.2)",background:"rgba(255,51,85,.05)"}}>
+            <div className="px-4 py-3">
+              <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.65)",fontFamily:"'DM Sans',sans-serif",marginBottom:10}}>
+                Delete this match? Standings will update immediately.
+              </div>
+              <div className="flex gap-2">
+                <button onClick={()=>setConfirmDel(false)}
+                  className="flex-1 rounded-[10px] py-2 text-[11px] font-bold"
+                  style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",color:"rgba(255,255,255,.5)",fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
+                  Cancel
+                </button>
+                <button onClick={()=>{setConfirmDel(false);onDelete(m.id);}}
+                  className="flex-1 rounded-[10px] py-2 text-[11px] font-bold flex items-center justify-center gap-1.5"
+                  style={{background:"rgba(255,51,85,.15)",border:"1px solid rgba(255,51,85,.4)",color:"#FF3355",fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
+                  <Trash2 size={11}/> Delete Match
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="flex items-center justify-between px-4 pb-3 pt-1" style={{borderTop:"1px solid rgba(255,255,255,.05)"}}>
         <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg"
           style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)"}}>
@@ -595,7 +632,7 @@ function LogModal({players, onClose, onSubmit, prefill=null}) {
 }
 
 /* ── HOME TAB ── */
-function HomeTab({players,feed,onEditFeed}) {
+function HomeTab({players,feed,onEditFeed,onDeleteFeed,isAdmin=false,myPlayerId=null}) {
   const [showAll,setShowAll] = useState(false);
   // MVP = highest wins
   const mvp    = useMemo(()=>players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:{name:"No Players",wins:0,losses:0},[players]);
@@ -644,7 +681,7 @@ function HomeTab({players,feed,onEditFeed}) {
       </div>
 
       <ST>⚡ League Feed</ST>
-      {visible.map(m=><FeedCard key={m.id} m={m} onEdit={onEditFeed} players={players}/>)}
+      {visible.map(m=><FeedCard key={m.id} m={m} onEdit={onEditFeed} onDelete={onDeleteFeed} canDelete={isAdmin||(myPlayerId&&(m.winnerIds?.includes(myPlayerId)||m.loserIds?.includes(myPlayerId)))} players={players}/>)}
       {/* Load More — shows only if feed > 5 entries */}
       {feed.length>5&&!showAll&&(
         <button onClick={()=>setShowAll(true)}
@@ -1655,8 +1692,20 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
     setShowLog(true);
   },[]);
 
+  const handleDeleteMatch = useCallback(async (matchId) => {
+    // Optimistic removal — standings/awards recalculate from updated feed
+    setFeed(prev => prev.filter(m => m.id !== matchId));
+    if (leagueId) {
+      try {
+        await supabase.from("matches").delete().eq("id", matchId);
+      } catch {
+        // Nothing to revert — stale entry silently dropped; next load will re-sync
+      }
+    }
+  }, [leagueId]);
+
   const content = {
-    home:    <HomeTab    players={enrichedPlayers} feed={feed} onEditFeed={handleEdit}/>,
+    home:    <HomeTab    players={enrichedPlayers} feed={feed} onEditFeed={handleEdit} onDeleteFeed={handleDeleteMatch} isAdmin={!!(user?.id && ownerId && user.id===ownerId)} myPlayerId={players.find(p=>p.isMe)?.id||null}/>,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode}/>,
     profile: <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate}/>,
