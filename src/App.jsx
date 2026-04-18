@@ -3614,13 +3614,13 @@ export default function Root() {
   const [profile,       setProfile]       = useState(null);
   const [pendingJoinId, setPendingJoinId] = useState(null);
 
-  // ── Hard 5-second loading timeout — completely independent from the auth
+  // ── Hard 10-second loading timeout — completely independent from the auth
   //    effect so it can NEVER be cancelled by auth re-subscriptions or errors.
-  //    If the app is still on "loading" after 5 s, show the error screen.
+  //    If the app is still on "loading" after 10 s, show the error screen.
   useEffect(() => {
     const t = setTimeout(() => {
       setPhase(prev => prev === "loading" ? "timedout" : prev);
-    }, 5000);
+    }, 10000);
     return () => clearTimeout(t);
   }, []);
 
@@ -3633,39 +3633,65 @@ export default function Root() {
     }
   }, []);
 
+  // Race any promise against a hard deadline so a hanging Supabase query
+  // can never block the loading screen indefinitely.
+  const withTimeout = useCallback((promise, ms = 8000) =>
+    Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("query_timeout")), ms)
+      ),
+    ])
+  , []);
+
   const loadProfile = useCallback(async (uid) => {
     try {
-      const { data } = await supabase.from("profiles").select("*").eq("user_id", uid).maybeSingle();
+      const { data } = await withTimeout(
+        supabase.from("profiles").select("*").eq("user_id", uid).maybeSingle()
+      );
       setProfile(data || null);
     } catch {
       setProfile(null);
     }
-  }, []);
+  }, [withTimeout]);
 
   const loadLeagues = useCallback(async (uid) => {
     try {
-      const { data: pRows } = await supabase.from("players").select("league_id").eq("user_id", uid);
+      // Step 1 — get the league IDs this user belongs to
+      const { data: pRows } = await withTimeout(
+        supabase.from("players").select("league_id").eq("user_id", uid)
+      );
       if (!pRows?.length) { setLeagues([]); return; }
       const ids = [...new Set(pRows.map(r => r.league_id))];
-      // Try full select including join_code; fall back to base columns if the column
-      // hasn't been added to the DB yet (prevents a missing-column error from
-      // silently hanging the promise and blocking the loading screen).
-      let { data: lRows, error } = await supabase
-        .from("leagues")
-        .select("id,name,sport,settings,created_at,owner_id,image_url,join_code")
-        .in("id", ids);
-      if (error) {
-        const { data: fallback } = await supabase
+
+      // Step 2 — fetch league rows. Try with join_code first; if the column
+      // doesn't exist yet (migration not run) the error field is set and we
+      // fall back to the base column set — no second hanging query needed.
+      const { data: lRowsFull, error } = await withTimeout(
+        supabase
+          .from("leagues")
+          .select("id,name,sport,settings,created_at,owner_id,image_url,join_code")
+          .in("id", ids)
+      );
+
+      if (!error) {
+        setLeagues(lRowsFull || []);
+        return;
+      }
+
+      // join_code column not present — fall back without it
+      const { data: lRowsBase } = await withTimeout(
+        supabase
           .from("leagues")
           .select("id,name,sport,settings,created_at,owner_id,image_url")
-          .in("id", ids);
-        lRows = fallback;
-      }
-      setLeagues(lRows || []);
+          .in("id", ids)
+      );
+      setLeagues(lRowsBase || []);
     } catch {
+      // Query timed out or threw — fail gracefully, don't block loading
       setLeagues([]);
     }
-  }, []);
+  }, [withTimeout]);
 
   // Auth listener — single source of truth, handles initial session + changes
   useEffect(() => {
@@ -3895,13 +3921,13 @@ export default function Root() {
         @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;600;700;800&display=swap');
         *,*::before,*::after{box-sizing:border-box;}
       `}</style>
-      <div style={{fontSize:44,marginBottom:16}}>📡</div>
+      <div style={{fontSize:44,marginBottom:16}}>😔</div>
       <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:34,letterSpacing:"3px",color:"#fff",marginBottom:8}}>
-        CONNECTION <span style={{color:"#FF3355"}}>TIMED OUT</span>
+        TROUBLE <span style={{color:"#FF3355"}}>LOADING</span>
       </div>
-      <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,.45)",lineHeight:1.65,maxWidth:280,marginBottom:32}}>
-        Couldn't reach the server after 5 seconds.<br/>
-        Check your internet connection and try again.
+      <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,.45)",lineHeight:1.7,maxWidth:300,marginBottom:32}}>
+        We're having trouble loading your data.<br/>
+        Please try again or contact support if the issue persists.
       </div>
       <button
         onClick={() => window.location.reload()}
@@ -3914,9 +3940,6 @@ export default function Root() {
         }}>
         Try Again
       </button>
-      <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.2)",marginTop:20}}>
-        If this keeps happening, check the Supabase dashboard.
-      </div>
     </div>
   );
 
