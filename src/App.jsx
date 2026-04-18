@@ -3637,7 +3637,20 @@ export default function Root() {
       const { data: pRows } = await supabase.from("players").select("league_id").eq("user_id", uid);
       if (!pRows?.length) { setLeagues([]); return; }
       const ids = [...new Set(pRows.map(r => r.league_id))];
-      const { data: lRows } = await supabase.from("leagues").select("id,name,sport,settings,created_at,owner_id,image_url,join_code").in("id", ids);
+      // Try full select including join_code; fall back to base columns if the column
+      // hasn't been added to the DB yet (prevents a missing-column error from
+      // silently hanging the promise and blocking the loading screen).
+      let { data: lRows, error } = await supabase
+        .from("leagues")
+        .select("id,name,sport,settings,created_at,owner_id,image_url,join_code")
+        .in("id", ids);
+      if (error) {
+        const { data: fallback } = await supabase
+          .from("leagues")
+          .select("id,name,sport,settings,created_at,owner_id,image_url")
+          .in("id", ids);
+        lRows = fallback;
+      }
       setLeagues(lRows || []);
     } catch {
       setLeagues([]);
@@ -3648,28 +3661,37 @@ export default function Root() {
   useEffect(() => {
     const fallback = setTimeout(() => {
       setPhase(prev => prev === "loading" ? "login" : prev);
-    }, 3000);
+    }, 6000);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       clearTimeout(fallback);
-      if (session?.user) {
-        setUser(session.user);
-        await Promise.all([loadLeagues(session.user.id), loadProfile(session.user.id)]);
-        const joinId  = sessionStorage.getItem("league_it_join_id");
-        const intent  = sessionStorage.getItem("league_it_intent");
-        if (joinId) {
-          sessionStorage.removeItem("league_it_join_id");
-          setPendingJoinId(joinId);
-          setPhase("hub");
-        } else if (intent === "create") {
-          sessionStorage.removeItem("league_it_intent");
-          setPhase("wizard");
+      try {
+        if (session?.user) {
+          setUser(session.user);
+          // Each loader has its own try-catch — Promise.all will not hang even if one fails
+          await Promise.all([
+            loadLeagues(session.user.id).catch(() => setLeagues([])),
+            loadProfile(session.user.id).catch(() => setProfile(null)),
+          ]);
+          const joinId = sessionStorage.getItem("league_it_join_id");
+          const intent = sessionStorage.getItem("league_it_intent");
+          if (joinId) {
+            sessionStorage.removeItem("league_it_join_id");
+            setPendingJoinId(joinId);
+            setPhase("hub");
+          } else if (intent === "create") {
+            sessionStorage.removeItem("league_it_intent");
+            setPhase("wizard");
+          } else {
+            setPhase("hub");
+          }
         } else {
-          setPhase("hub");
+          setUser(null); setLeagues([]); setActiveData(null); setProfile(null);
+          setPhase("login");
         }
-      } else {
-        setUser(null); setLeagues([]); setActiveData(null); setProfile(null);
-        setPhase("login");
+      } catch {
+        // Safety net: if anything above throws unexpectedly, don't leave the user on loading
+        setPhase(prev => prev === "loading" ? "login" : prev);
       }
     });
 
