@@ -947,7 +947,7 @@ function StatsTab({players,feed}) {
                   { l:"WIN RATE", v: total ? `${yp}%` : "—",                                       c: yp >= 50 ? N : "#FF3355"           },
                   { l:"MATCHES",  v: total,                                                          c: "rgba(255,255,255,.7)"             },
                   { l:"BALANCE",  v: h2h.w > h2h.l ? `+${h2h.w-h2h.l}` : h2h.w < h2h.l ? `-${h2h.l-h2h.w}` : "0", c: h2h.w >= h2h.l ? N : "#FF3355" },
-                  { l:"MG TOTAL", v: (mgBalance.my + mgBalance.their) > 0 ? `${mgBalance.my}–${mgBalance.their}` : "—", c: mgBalance.my >= mgBalance.their ? N : "#FF3355" },
+                  { l:"MG BALANCE", v: (() => { const diff = mgBalance.my - mgBalance.their; return (mgBalance.my + mgBalance.their) > 0 ? (diff > 0 ? `+${diff}` : diff < 0 ? `${diff}` : "0") : "—"; })(), c: mgBalance.my >= mgBalance.their ? N : "#FF3355" },
                 ].map(s => (
                   <div key={s.l} className="text-center rounded-[12px] py-3 px-2" style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.07)"}}>
                     <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"1px",lineHeight:1,color:s.c,marginBottom:4}}>{s.v}</div>
