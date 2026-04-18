@@ -2791,7 +2791,7 @@ function StepBranding({ sport, format, points, customSportName, leagueName, setL
 // ─────────────────────────────────────────────
 // STEP 4 — VIRAL INVITE
 // ─────────────────────────────────────────────
-function StepInvite({ sport, format, points, customSportName, customRules, leagueName, leagueCode, onFinish, saving = false }) {
+function StepInvite({ sport, format, points, customSportName, customRules, leagueName, leagueCode, onFinish, saving = false, createErr = "" }) {
   const [copied, setCopied] = useState(false);
 
   const sportData     = SPORTS.find(s => s.id === sport) || SPORTS[0];
@@ -3061,9 +3061,7 @@ function StepInvite({ sport, format, points, customSportName, customRules, leagu
               className="w-full flex items-center justify-center gap-2 rounded-[22px] py-4 font-bold text-sm relative overflow-hidden"
               style={{
                 fontFamily: "'DM Sans', sans-serif",
-                background: saving
-                  ? `linear-gradient(135deg, ${NEON}, #7DC900)`
-                  : `linear-gradient(135deg, ${NEON}, #7DC900)`,
+                background: `linear-gradient(135deg, ${NEON}, #7DC900)`,
                 color: "#000",
                 boxShadow: saving
                   ? "0 0 20px rgba(170,255,0,0.2)"
@@ -3093,6 +3091,11 @@ function StepInvite({ sport, format, points, customSportName, customRules, leagu
                 </>
               )}
             </motion.button>
+            {createErr && (
+              <div style={{marginTop:10,fontSize:12,fontWeight:600,color:"#FF3355",fontFamily:"'DM Sans',sans-serif",textAlign:"center"}}>
+                {createErr}
+              </div>
+            )}
           </motion.div>
         </motion.div>
       </div>
@@ -3222,6 +3225,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const [adminName,       setAdminName]       = useState(user?.user_metadata?.full_name || "");
   const [leagueCode]                          = useState(generateCode);
   const [saving,          setSaving]          = useState(false);
+  const [createErr,       setCreateErr]       = useState("");
 
   const TOTAL_WIZARD_STEPS = 5;
 
@@ -3239,10 +3243,12 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const handleFinish = useCallback(async () => {
     if (saving) return;
     setSaving(true);
+    setCreateErr("");
     try {
       await onFinish({ leagueName, adminName, sport, format, points, customSportName, customRules, leagueCode });
     } catch (e) {
       console.error(e);
+      setCreateErr("Something went wrong. Please try again.");
       setSaving(false);
     }
   }, [saving, onFinish, leagueName, adminName, sport, format, points, customSportName, customRules, leagueCode]);
@@ -3271,7 +3277,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
       sport={sport} format={format} points={points}
       customSportName={customSportName} customRules={customRules}
       leagueName={leagueName} leagueCode={leagueCode}
-      saving={saving}
+      saving={saving} createErr={createErr}
       onFinish={handleFinish}
     />,
   ];
@@ -3940,34 +3946,56 @@ export default function Root() {
   }, [user, loadLeagues]);
 
   const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, format, points, customSportName, customRules, leagueCode }) => {
-    if (!user) return;
-    try {
-      const name        = leagueName.trim() || "My League";
-      const sportData   = SPORTS.find(s => s.id === sport);
-      const sportLabel  = customSportName?.trim() || sportData?.label || "Sport";
-      const sportEmoji  = sport === "custom_sport" ? "🏗️" : (sportData?.emoji || "🏸");
-      const { data: leagueRow, error } = await supabase.from("leagues")
-        .insert({ name, sport: sportLabel, join_code: leagueCode, settings: { leagueCode, format, points, customRules }, owner_id: user.id })
-        .select().single();
-      if (error || !leagueRow) return;
-      const displayName = adminName.trim() || profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
-      const initials    = displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join("");
-      const { data: pRow } = await supabase.from("players").insert({
-        league_id: leagueRow.id, user_id: user.id, name: displayName, is_me: true,
-        stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport: sportEmoji, mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
-      }).select().single();
-      setActiveData({
-        leagueId:       leagueRow.id,
-        leagueName:     name.toUpperCase(),
-        initialPlayers: pRow ? [rowToPlayer(pRow, user.id)] : [],
-        initialFeed:    [],
-        ownerId:        user.id,
-        joinCode:       leagueCode,
-      });
-      setPhase("app");
-    } catch (err) {
-      console.error("Failed to create league:", err);
+    if (!user) throw new Error("Not logged in");
+    const timeout = ms => new Promise((_, rej) => setTimeout(() => rej(new Error("Request timed out — please try again")), ms));
+
+    const name       = leagueName.trim() || "My League";
+    const sportData  = SPORTS.find(s => s.id === sport);
+    const sportLabel = customSportName?.trim() || sportData?.label || "Sport";
+    const sportEmoji = sport === "custom_sport" ? "🏗️" : (sportData?.emoji || "🏸");
+
+    // Try insert with join_code; fall back without it if the column doesn't exist yet
+    let leagueRow;
+    const insertWithCode = supabase
+      .from("leagues")
+      .insert({ name, sport: sportLabel, join_code: leagueCode, settings: { leagueCode, format, points, customRules }, owner_id: user.id })
+      .select().single();
+    const { data: rowFull, error: errFull } = await Promise.race([insertWithCode, timeout(12000)]);
+    if (errFull) {
+      // If the error is about the join_code column not existing, retry without it
+      if (errFull.message?.includes("join_code") || errFull.code === "PGRST204" || errFull.code === "42703") {
+        const insertBase = supabase
+          .from("leagues")
+          .insert({ name, sport: sportLabel, settings: { leagueCode, format, points, customRules }, owner_id: user.id })
+          .select().single();
+        const { data: rowBase, error: errBase } = await Promise.race([insertBase, timeout(12000)]);
+        if (errBase || !rowBase) throw new Error(errBase?.message || "Failed to create league");
+        leagueRow = rowBase;
+      } else {
+        throw new Error(errFull.message || "Failed to create league");
+      }
+    } else {
+      leagueRow = rowFull;
     }
+    if (!leagueRow) throw new Error("Failed to create league — no data returned");
+
+    const displayName = adminName.trim() || profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
+    const initials    = displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join("");
+    const playerInsert = supabase.from("players").insert({
+      league_id: leagueRow.id, user_id: user.id, name: displayName, is_me: true,
+      stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport: sportEmoji, mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
+    }).select().single();
+    const { data: pRow } = await Promise.race([playerInsert, timeout(12000)]);
+
+    setActiveData({
+      leagueId:       leagueRow.id,
+      leagueName:     name.toUpperCase(),
+      initialPlayers: pRow ? [rowToPlayer(pRow, user.id)] : [],
+      initialFeed:    [],
+      ownerId:        user.id,
+      joinCode:       leagueRow.join_code || leagueCode,
+    });
+    setPhase("app");
   }, [user, profile]);
 
   if (phase === "loading") return (
