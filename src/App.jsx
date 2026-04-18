@@ -3861,7 +3861,7 @@ export default function Root() {
       // Insert without .select() — RLS SELECT may block the row back even when INSERT succeeds
       const { error: leagueErr } = await supabase.from("leagues").insert({
         id: leagueId, name, sport, join_code: code,
-        settings: { leagueCode: code }, owner_id: user.id,
+        settings: { leagueCode: code }, owner_id: user.id, created_by: user.id,
       });
       if (leagueErr) return;
       const displayName = profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
@@ -3966,19 +3966,21 @@ export default function Root() {
 
     // ── Step 1: League insert — only step allowed to throw (league not yet created) ──
     const { error: leagueErr } = await supabase.from("leagues").insert({
-      id:        leagueId,
+      id:         leagueId,
       name,
-      sport:     sportLabel,
-      join_code: code,
-      settings:  { leagueCode: code, format, points, customRules },
-      owner_id:  user.id,
+      sport:      sportLabel,
+      join_code:  code,
+      settings:   { leagueCode: code, format, points, customRules },
+      owner_id:   user.id,
+      created_by: user.id,
     });
     if (leagueErr) {
       // join_code column missing in DB — retry without it
       if (leagueErr.message?.includes("join_code") || leagueErr.code === "42703") {
         const { error: retryErr } = await supabase.from("leagues").insert({
           id: leagueId, name, sport: sportLabel,
-          settings: { leagueCode: code, format, points, customRules }, owner_id: user.id,
+          settings: { leagueCode: code, format, points, customRules },
+          owner_id: user.id, created_by: user.id,
         });
         if (retryErr) throw new Error(retryErr.message || "Failed to create league");
       } else {
