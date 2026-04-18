@@ -1663,7 +1663,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
         name:      newPlayer.name,
         is_me:     false,
         stats:     playerToStats(newPlayer),
-      }).catch(() => {});
+      }).then(() => {}).catch(() => {});
     }
   },[addPlayerName, leagueId]);
 
@@ -1680,7 +1680,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, l
     ));
     setShowRemovePlayer(false);
     if (leagueId) {
-      supabase.from("players").delete().eq("id", target.id).catch(() => {});
+      supabase.from("players").delete().eq("id", target.id).then(() => {}).catch(() => {});
     }
   },[leagueId]);
 
@@ -3870,7 +3870,7 @@ export default function Root() {
         id: crypto.randomUUID(), league_id: leagueId, user_id: user.id,
         name: displayName, is_me: true,
         stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:"🏸", mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
-      }).catch(() => {});
+      });
       await loadLeagues(user.id);
     } catch {
       // network error — silently ignore
@@ -3989,14 +3989,16 @@ export default function Root() {
     }
 
     // ── Step 2: Player insert — non-fatal, swallow any error ──
-    await supabase.from("players").insert({
-      id: playerId, league_id: leagueId, user_id: user.id,
-      name: displayName, is_me: true,
-      stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:sportEmoji, mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
-    }).catch(() => {});
+    try {
+      await supabase.from("players").insert({
+        id: playerId, league_id: leagueId, user_id: user.id,
+        name: displayName, is_me: true,
+        stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:sportEmoji, mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
+      });
+    } catch { /* non-fatal */ }
 
     // ── Step 3: Reload leagues from DB then go to hub — guaranteed sync, no local state guessing ──
-    await loadLeagues(user.id).catch(() => {});
+    try { await loadLeagues(user.id); } catch { /* ignore */ }
     setPhase("hub");
   }, [user, profile, loadLeagues]);
 
