@@ -1073,8 +1073,10 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
   const [confirmDelete,    setConfirmDelete]    = useState(false);
   const [copied,           setCopied]           = useState(false);
 
-  // Show delete button if user is the owner, OR if owner_id is not set (migration pending — assume creator)
-  const isOwner = user?.id && (!ownerId || user.id === ownerId);
+  // Admin = user.id matches ownerId (created_by / owner_id set on league insert)
+  // If ownerId is absent (legacy league, pre-migration) fall back to allowing the action
+  // so existing leagues aren't accidentally locked out — new leagues always have ownerId.
+  const isAdmin = user?.id && (user.id === ownerId || !ownerId);
 
   const squadFileRef = useRef(null);
   const [squadUploading, setSquadUploading] = useState(false);
@@ -1115,25 +1117,25 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
   return (
     <div className="px-5 pt-5 pb-2">
       <ST>📸 Squad Photo</ST>
-      <div className="rounded-[20px] mb-6 relative overflow-hidden cursor-pointer hover:brightness-110 transition-all"
-        style={{background:"rgba(255,255,255,.03)",border:"2px dashed rgba(255,255,255,.12)",minHeight:130}}
-        onClick={()=>squadFileRef.current?.click()}>
+      <div className="rounded-[20px] mb-6 relative overflow-hidden transition-all"
+        style={{background:"rgba(255,255,255,.03)",border:"2px dashed rgba(255,255,255,.12)",minHeight:130,cursor:isAdmin?"pointer":"default"}}
+        onClick={()=>isAdmin&&squadFileRef.current?.click()}>
         <input ref={squadFileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleSquadPhotoChange}/>
         {squadPhotoUrl ? (
           <>
             <img src={squadPhotoUrl} alt="Squad" style={{width:"100%",maxHeight:200,objectFit:"cover",display:"block"}}/>
-            <div className="absolute bottom-0 inset-x-0 flex items-center justify-center py-2"
+            {isAdmin&&<div className="absolute bottom-0 inset-x-0 flex items-center justify-center py-2"
               style={{background:"rgba(0,0,0,.55)"}}>
               <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:700,color:"rgba(255,255,255,.7)",letterSpacing:"1px"}}>
                 {squadUploading?"UPLOADING...":"TAP TO CHANGE PHOTO"}
               </span>
-            </div>
+            </div>}
           </>
         ) : (
           <div className="flex flex-col items-center justify-center gap-3" style={{minHeight:130}}>
             <Camera size={28} style={{color:"rgba(255,255,255,.2)"}}/>
             <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:16,letterSpacing:"2px",color:"rgba(255,255,255,.25)"}}>
-              {squadUploading?"UPLOADING...":"ADD SQUAD PHOTO"}
+              {isAdmin?(squadUploading?"UPLOADING...":"ADD SQUAD PHOTO"):"NO SQUAD PHOTO YET"}
             </div>
           </div>
         )}
@@ -1145,7 +1147,7 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
 
       <ST>📜 The Constitution</ST>
       <div className="rounded-[20px] p-4 mb-5" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(170,255,0,.15)"}}>
-        {editing?(
+        {(editing && isAdmin)?(
           <div className="flex flex-col gap-3">
             {[{lbl:"Sport",k:"sport"},{lbl:"Format",k:"format"},{lbl:"Scoring",k:"scoring"}].map(f=>(
               <div key={f.k}>
@@ -1203,49 +1205,51 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
         <ChevronRight size={16} style={{color:N,flexShrink:0}}/>
       </motion.button>
 
-      {/* Join Code */}
-      {joinCode && (
+      {/* Join Code — admin only (they own the code and control who gets it) */}
+      {isAdmin && joinCode && (
         <>
           <ST>🔑 League Join Code</ST>
           <JoinCodeCard code={joinCode} />
         </>
       )}
 
-      {/* Admin Tools */}
-      <ST>⚙️ Admin Tools</ST>
-      <div className="flex flex-col gap-3 mb-6">
-        {TOOLS.map(({Icon,bg,bdr,lbl,sub,arr,fn})=>(
-          <button key={lbl} onClick={fn}
-            className="flex items-center gap-3 rounded-[18px] px-4 py-4 hover:brightness-110 transition-all text-left"
-            style={{background:"rgba(255,255,255,.03)",border:`1px solid ${bdr}`,cursor:"pointer"}}>
-            <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0" style={{background:bg}}>
-              <Icon size={18} color={lbl==="Edit Rules"?"#000":"#fff"}/>
-            </div>
-            <div className="flex-1">
-              <div style={{fontSize:13,fontWeight:800,color:"#fff",fontFamily:"'DM Sans',sans-serif"}}>{lbl}</div>
-              <div style={{fontSize:11,color:"rgba(255,255,255,.38)",fontFamily:"'DM Sans',sans-serif"}}>{sub}</div>
-            </div>
-            <ChevronRight size={16} style={{color:arr,flexShrink:0}}/>
-          </button>
-        ))}
+      {/* Admin Tools — strictly admin only */}
+      {isAdmin && (
+        <>
+          <ST>⚙️ Admin Tools</ST>
+          <div className="flex flex-col gap-3 mb-6">
+            {TOOLS.map(({Icon,bg,bdr,lbl,sub,arr,fn})=>(
+              <button key={lbl} onClick={fn}
+                className="flex items-center gap-3 rounded-[18px] px-4 py-4 hover:brightness-110 transition-all text-left"
+                style={{background:"rgba(255,255,255,.03)",border:`1px solid ${bdr}`,cursor:"pointer"}}>
+                <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0" style={{background:bg}}>
+                  <Icon size={18} color={lbl==="Edit Rules"?"#000":"#fff"}/>
+                </div>
+                <div className="flex-1">
+                  <div style={{fontSize:13,fontWeight:800,color:"#fff",fontFamily:"'DM Sans',sans-serif"}}>{lbl}</div>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,.38)",fontFamily:"'DM Sans',sans-serif"}}>{sub}</div>
+                </div>
+                <ChevronRight size={16} style={{color:arr,flexShrink:0}}/>
+              </button>
+            ))}
 
-        {/* Delete League — owner only */}
-        {isOwner&&(
-          <button onClick={()=>setConfirmDelete(true)}
-            className="flex items-center gap-3 rounded-[18px] px-4 py-4 hover:brightness-110 transition-all text-left"
-            style={{background:"rgba(255,51,85,.04)",border:"1px solid rgba(255,51,85,.3)",cursor:"pointer"}}>
-            <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0"
-              style={{background:"linear-gradient(135deg,#FF3355,#C0143C)"}}>
-              <X size={18} color="#fff"/>
-            </div>
-            <div className="flex-1">
-              <div style={{fontSize:13,fontWeight:800,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>Delete League</div>
-              <div style={{fontSize:11,color:"rgba(255,255,255,.38)",fontFamily:"'DM Sans',sans-serif"}}>Permanently remove this league</div>
-            </div>
-            <ChevronRight size={16} style={{color:"#FF3355",flexShrink:0}}/>
-          </button>
-        )}
-      </div>
+            {/* Delete League */}
+            <button onClick={()=>setConfirmDelete(true)}
+              className="flex items-center gap-3 rounded-[18px] px-4 py-4 hover:brightness-110 transition-all text-left"
+              style={{background:"rgba(255,51,85,.04)",border:"1px solid rgba(255,51,85,.3)",cursor:"pointer"}}>
+              <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0"
+                style={{background:"linear-gradient(135deg,#FF3355,#C0143C)"}}>
+                <X size={18} color="#fff"/>
+              </div>
+              <div className="flex-1">
+                <div style={{fontSize:13,fontWeight:800,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>Delete League</div>
+                <div style={{fontSize:11,color:"rgba(255,255,255,.38)",fontFamily:"'DM Sans',sans-serif"}}>Permanently remove this league</div>
+              </div>
+              <ChevronRight size={16} style={{color:"#FF3355",flexShrink:0}}/>
+            </button>
+          </div>
+        </>
+      )}
 
       <AnimatePresence>
         {confirm&&(
