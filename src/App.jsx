@@ -125,8 +125,11 @@ function settingsToRules(leagueSport, settings) {
   const scoring = s.format === "points"
     ? `First to ${s.points||21} points`
     : (s.customRules?.trim() || "");
+  // sportEmoji: use saved custom emoji if present, otherwise inferred at call-site from SPORTS
+  const sportEmoji = s.sportEmoji || "";
   return {
     sport:      leagueSport || "",
+    sportEmoji,
     format:     fmt,
     scoring,
     seasonYear: s.seasonYear || new Date().getFullYear(),
@@ -1096,7 +1099,8 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
   }, [leagueId, onSquadPhotoUpdate]);
 
   const handleShare = useCallback(async () => {
-    const url = `https://league-it-app.vercel.app/join/${leagueId}`;
+    const code = joinCode || leagueId;
+    const url = `https://league-it-app.vercel.app/join/${code}`;
     if (navigator.share) {
       try { await navigator.share({ title: "Join my League-It league!", text: "You've been invited 🏆", url }); }
       catch {} // user cancelled
@@ -1105,7 +1109,7 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     }
-  }, [leagueId]);
+  }, [joinCode, leagueId]);
 
   const TOOLS = [
     {Icon:Settings,  bg:`linear-gradient(135deg,${N},#7DC900)`,        bdr:"rgba(170,255,0,.22)",    lbl:"Edit Rules",       sub:"Modify format, scoring, season",  arr:N,         fn:()=>setEditing(true)},
@@ -1168,7 +1172,7 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
           </div>
         ):(
           [
-            ["🏸","Sport",      rules.sport   || "Standard Rules"],
+            [rules.sportEmoji || "🏸","Sport",      rules.sport   || "Standard Rules"],
             ["🎯","Format",     rules.format  || "Standard Rules"],
             ["📋","Scoring",    rules.scoring || "Standard Rules"],
             ["🏆","Season",     `Season ${rules.seasonYear || new Date().getFullYear()}`],
@@ -1990,7 +1994,12 @@ const SPORTS = [
   { id: "tennis",       label: "Tennis",     emoji: "🎾", sub: "Classic · Singles/Doubles"    },
   { id: "pingpong",     label: "Ping Pong",  emoji: "🏓", sub: "Fast · Spin · 11 pts"         },
   { id: "fifa",         label: "FIFA",       emoji: "🎮", sub: "Console · 6 min halves · 1v1" },
-  { id: "custom_sport", label: "Other",      emoji: "🏗️", sub: "Define your own game"         },
+  { id: "custom_sport", label: "Custom",     emoji: "⚙️", sub: "Name it, brand it, play it"  },
+];
+
+const CUSTOM_SPORT_EMOJIS = [
+  "⚽","🏀","🏈","⚾","🏐","🏉","🎾","🏒","🏑","🥍","🏏","🎱","🏓","🏸",
+  "🥊","🥋","🤸","🏋️","🚴","🏊","🧗","🤺","🎯","🎳","🛹","🏆","🔥","⚡",
 ];
 
 const FORMATS = [
@@ -2176,7 +2185,7 @@ function StepHeading({ line1, line2, sub }) {
 // ─────────────────────────────────────────────
 // STEP 0 — LANDING
 // ─────────────────────────────────────────────
-function StepLanding({ onNext, onSignIn = null }) {
+function StepLanding({ onNext, onSignIn = null, hasPendingJoin = false }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-6 text-center relative z-10">
       <motion.div
@@ -2279,9 +2288,49 @@ function StepLanding({ onNext, onSignIn = null }) {
 
         {/* CTA */}
         <motion.div variants={fadeUp} className="w-full">
-          <PrimaryBtn onClick={onSignIn || onNext}>
-            Create My League
-          </PrimaryBtn>
+          <motion.button
+            onClick={onSignIn || onNext}
+            whileHover={{ scale: 1.018, y: -2 }}
+            whileTap={{ scale: 0.97 }}
+            className="relative w-full overflow-hidden rounded-2xl py-[17px] font-black text-base tracking-wide"
+            style={{
+              fontFamily: "'DM Sans', sans-serif",
+              background: `linear-gradient(135deg, ${NEON} 0%, #7DC900 100%)`,
+              color: "#000",
+              cursor: "pointer",
+              boxShadow: "0 8px 28px rgba(170,255,0,0.32), 0 2px 8px rgba(0,0,0,0.5)",
+              fontSize: 15,
+            }}
+          >
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.16), transparent 55%)" }}
+            />
+            <span className="relative flex items-center justify-center gap-2.5">
+              {/* Google "G" logo */}
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#000" fillOpacity=".55"/>
+                <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#000" fillOpacity=".55"/>
+                <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#000" fillOpacity=".55"/>
+                <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#000" fillOpacity=".55"/>
+              </svg>
+              {hasPendingJoin ? "Join League & Get Started" : "Continue with Google"}
+            </span>
+          </motion.button>
+
+          <p
+            style={{
+              marginTop: 12,
+              fontSize: 12,
+              color: "rgba(255,255,255,0.32)",
+              fontFamily: "'DM Sans', sans-serif",
+              fontWeight: 500,
+              textAlign: "center",
+              letterSpacing: "0.2px",
+            }}
+          >
+            Log in or sign up — free forever.
+          </p>
         </motion.div>
       </motion.div>
     </div>
@@ -2291,10 +2340,11 @@ function StepLanding({ onNext, onSignIn = null }) {
 // ─────────────────────────────────────────────
 // STEP 1 — SPORT SELECTION
 // ─────────────────────────────────────────────
-function StepSport({ sport, setSport, customSportName, setCustomSportName, onNext }) {
+function StepSport({ sport, setSport, customSportName, setCustomSportName, customSportEmoji, setCustomSportEmoji, onNext }) {
   const isCustom    = sport === "custom_sport";
   const canContinue = !!sport && (!isCustom || customSportName.trim().length > 0);
   const customRef   = useRef(null);
+  const emojiRef    = useRef(null);
 
   useEffect(() => {
     if (isCustom) setTimeout(() => customRef.current?.focus(), 120);
@@ -2354,14 +2404,20 @@ function StepSport({ sport, setSport, customSportName, setCustomSportName, onNex
                       </motion.div>
                     )}
                   </AnimatePresence>
-                  <span className="text-4xl mb-3 leading-none">{s.emoji}</span>
+                  <span className="text-4xl mb-3 leading-none">
+                    {s.id === "custom_sport" && isCustom
+                      ? (customSportEmoji || s.emoji)
+                      : s.emoji}
+                  </span>
                   <span
                     style={{
                       fontFamily: "'Bebas Neue', sans-serif",
                       fontSize: 17, letterSpacing: "1px", color: "#fff",
                     }}
                   >
-                    {s.label}
+                    {s.id === "custom_sport" && isCustom && customSportName.trim()
+                      ? customSportName.trim()
+                      : s.label}
                   </span>
                   <span
                     style={{
@@ -2376,7 +2432,7 @@ function StepSport({ sport, setSport, customSportName, setCustomSportName, onNex
             })}
           </div>
 
-          {/* Custom sport input */}
+          {/* Custom sport inputs */}
           <AnimatePresence>
             {isCustom && (
               <motion.div
@@ -2387,37 +2443,92 @@ function StepSport({ sport, setSport, customSportName, setCustomSportName, onNex
                 transition={{ duration: 0.28, ease: "easeInOut" }}
                 style={{ overflow: "hidden" }}
               >
-                <div className="relative">
-                  <input
-                    ref={customRef}
-                    type="text"
-                    value={customSportName}
-                    onChange={(e) => setCustomSportName(e.target.value)}
-                    placeholder="Enter your sport name…"
-                    maxLength={32}
-                    className="w-full rounded-[16px] px-4 py-4 text-sm font-bold outline-none"
-                    style={{
-                      background: "rgba(255,255,255,0.05)",
-                      border: `1.5px solid ${customSportName.trim() ? NEON : "rgba(170,255,0,0.38)"}`,
-                      color: "#fff",
-                      caretColor: NEON,
-                      fontFamily: "'DM Sans', sans-serif",
-                      boxShadow: customSportName.trim()
-                        ? "0 0 20px rgba(170,255,0,0.12)"
-                        : "0 0 12px rgba(170,255,0,0.06)",
-                    }}
-                  />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-lg pointer-events-none">
-                    🏗️
-                  </span>
-                </div>
-                <p
+                {/* Sport Name */}
+                <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.5px", color: "rgba(170,255,0,0.6)", fontFamily: "'DM Sans', sans-serif", marginBottom: 6, textTransform: "uppercase" }}>
+                  Sport Name
+                </p>
+                <input
+                  ref={customRef}
+                  type="text"
+                  value={customSportName}
+                  onChange={(e) => setCustomSportName(e.target.value)}
+                  placeholder="e.g. Street Tennis, Spikeball…"
+                  maxLength={32}
+                  className="w-full rounded-[16px] px-4 py-4 text-sm font-bold outline-none mb-4"
                   style={{
-                    fontSize: 11, marginTop: 8, paddingLeft: 4,
-                    color: "rgba(255,255,255,0.28)", fontFamily: "'DM Sans', sans-serif",
+                    background: "rgba(255,255,255,0.05)",
+                    border: `1.5px solid ${customSportName.trim() ? NEON : "rgba(170,255,0,0.38)"}`,
+                    color: "#fff",
+                    caretColor: NEON,
+                    fontFamily: "'DM Sans', sans-serif",
+                    boxShadow: customSportName.trim() ? "0 0 20px rgba(170,255,0,0.12)" : "0 0 12px rgba(170,255,0,0.06)",
                   }}
-                >
-                  This will appear on the leaderboard and all match cards.
+                />
+
+                {/* Emoji Picker */}
+                <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: "1.5px", color: "rgba(170,255,0,0.6)", fontFamily: "'DM Sans', sans-serif", marginBottom: 6, textTransform: "uppercase" }}>
+                  Sport Emoji
+                </p>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {CUSTOM_SPORT_EMOJIS.map(e => {
+                    const active = customSportEmoji === e;
+                    return (
+                      <button
+                        key={e}
+                        type="button"
+                        onClick={() => setCustomSportEmoji(e)}
+                        className="flex items-center justify-center rounded-[10px] transition-all"
+                        style={{
+                          width: 40, height: 40, fontSize: 20,
+                          background: active ? "rgba(170,255,0,0.15)" : "rgba(255,255,255,0.05)",
+                          border: active ? `1.5px solid ${NEON}` : "1.5px solid rgba(255,255,255,0.08)",
+                          boxShadow: active ? "0 0 12px rgba(170,255,0,0.2)" : "none",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {e}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Custom emoji text input */}
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1">
+                    <input
+                      ref={emojiRef}
+                      type="text"
+                      value={CUSTOM_SPORT_EMOJIS.includes(customSportEmoji) ? "" : customSportEmoji}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) setCustomSportEmoji([...val].slice(0, 1).join(""));
+                      }}
+                      placeholder="Or paste your own…"
+                      className="w-full rounded-[14px] px-4 py-3 text-sm outline-none"
+                      style={{
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1.5px solid rgba(255,255,255,0.1)",
+                        color: "#fff",
+                        caretColor: NEON,
+                        fontFamily: "'DM Sans', sans-serif",
+                        fontSize: 16,
+                      }}
+                    />
+                  </div>
+                  <div
+                    className="flex items-center justify-center rounded-[14px] flex-shrink-0"
+                    style={{
+                      width: 52, height: 52, fontSize: 26,
+                      background: "rgba(170,255,0,0.07)",
+                      border: `1.5px solid ${NEON}44`,
+                    }}
+                  >
+                    {customSportEmoji || "⚙️"}
+                  </div>
+                </div>
+
+                <p style={{ fontSize: 11, marginTop: 10, paddingLeft: 4, color: "rgba(255,255,255,0.28)", fontFamily: "'DM Sans', sans-serif" }}>
+                  Emoji and name appear on the leaderboard and all match cards.
                 </p>
               </motion.div>
             )}
@@ -2686,7 +2797,7 @@ function StepRules({ format, setFormat, points, setPoints, customRules, setCusto
 // ─────────────────────────────────────────────
 // STEP 3 — BRANDING
 // ─────────────────────────────────────────────
-function StepBranding({ sport, format, points, customSportName, leagueName, setLeagueName, onNext }) {
+function StepBranding({ sport, format, points, customSportName, customSportEmoji, leagueName, setLeagueName, onNext }) {
   const inputRef  = useRef(null);
   const canSubmit = leagueName.trim().length >= 2;
 
@@ -2694,7 +2805,7 @@ function StepBranding({ sport, format, points, customSportName, leagueName, setL
   const resolvedSport = sport === "custom_sport"
     ? (customSportName.trim() || "Custom")
     : sportData.label;
-  const resolvedEmoji = sport === "custom_sport" ? "🏗️" : sportData.emoji;
+  const resolvedEmoji = sport === "custom_sport" ? (customSportEmoji || "⚙️") : sportData.emoji;
 
   const formatLabel = (() => {
     if (format === "single")       return "⚡ Single Set";
@@ -2885,14 +2996,14 @@ function StepBranding({ sport, format, points, customSportName, leagueName, setL
 // ─────────────────────────────────────────────
 // STEP 4 — VIRAL INVITE
 // ─────────────────────────────────────────────
-function StepInvite({ sport, format, points, customSportName, customRules, leagueName, leagueCode, onFinish, saving = false, createErr = "" }) {
+function StepInvite({ sport, format, points, customSportName, customSportEmoji, customRules, leagueName, leagueCode, onFinish, saving = false, createErr = "" }) {
   const [copied, setCopied] = useState(false);
 
   const sportData     = SPORTS.find(s => s.id === sport) || SPORTS[0];
   const resolvedSport = sport === "custom_sport"
     ? (customSportName.trim() || "Custom Sport")
     : sportData.label;
-  const resolvedEmoji = sport === "custom_sport" ? "🏗️" : sportData.emoji;
+  const resolvedEmoji = sport === "custom_sport" ? (customSportEmoji || "⚙️") : sportData.emoji;
 
   const formatLabel = (() => {
     if (format === "single")       return "Single Set ⚡";
@@ -3306,12 +3417,13 @@ function StepProfile({ adminName, setAdminName, onNext }) {
 // ─────────────────────────────────────────────
 // LEAGUEITONBOARDING
 // ─────────────────────────────────────────────
-function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, user = null, onSignIn = null }) {
+function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, user = null, onSignIn = null, hasPendingJoin = false }) {
   const [step, setStep] = useState(initialStep);
   const [dir,  setDir]  = useState(1);
 
   const [sport,           setSport]           = useState(null);
   const [customSportName, setCustomSportName] = useState("");
+  const [customSportEmoji,setCustomSportEmoji]= useState("🏆");
   const [format,          setFormat]          = useState("single");
   const [points,          setPoints]          = useState(21);
   const [customRules,     setCustomRules]     = useState("");
@@ -3339,25 +3451,25 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
     setSaving(true);
     setCreateErr("");
     try {
-      await onFinish({ leagueName, adminName, sport, format, points, customSportName, customRules, leagueCode });
+      await onFinish({ leagueName, adminName, sport, format, points, customSportName, customSportEmoji, customRules, leagueCode });
     } catch (e) {
       console.error(e);
       setCreateErr("Something went wrong. Please try again.");
       setSaving(false);
     }
-  }, [saving, onFinish, leagueName, adminName, sport, format, points, customSportName, customRules, leagueCode]);
+  }, [saving, onFinish, leagueName, adminName, sport, format, points, customSportName, customSportEmoji, customRules, leagueCode]);
 
-  const sportProps = { sport, setSport, customSportName, setCustomSportName };
+  const sportProps = { sport, setSport, customSportName, setCustomSportName, customSportEmoji, setCustomSportEmoji };
   const rulesProps = { format, setFormat, points, setPoints, customRules, setCustomRules };
 
   const screens = [
-    <StepLanding key="landing" onNext={goNext} onSignIn={onSignIn} />,
+    <StepLanding key="landing" onNext={goNext} onSignIn={onSignIn} hasPendingJoin={hasPendingJoin} />,
     <StepSport   key="sport"   {...sportProps} onNext={goNext} />,
     <StepRules   key="rules"   {...rulesProps} onNext={goNext} />,
     <StepBranding
       key="branding"
       sport={sport} format={format} points={points}
-      customSportName={customSportName}
+      customSportName={customSportName} customSportEmoji={customSportEmoji}
       leagueName={leagueName} setLeagueName={setLeagueName}
       onNext={goNext}
     />,
@@ -3369,7 +3481,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
     <StepInvite
       key="invite"
       sport={sport} format={format} points={points}
-      customSportName={customSportName} customRules={customRules}
+      customSportName={customSportName} customSportEmoji={customSportEmoji} customRules={customRules}
       leagueName={leagueName} leagueCode={leagueCode}
       saving={saving} createErr={createErr}
       onFinish={handleFinish}
@@ -3780,10 +3892,11 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
 export default function Root() {
   const [phase,         setPhase]         = useState("loading");
   const [user,          setUser]          = useState(null);
-  const [leagues,       setLeagues]       = useState([]);
-  const [activeData,    setActiveData]    = useState(null);
-  const [profile,       setProfile]       = useState(null);
-  const [pendingJoinId, setPendingJoinId] = useState(null);
+  const [leagues,          setLeagues]          = useState([]);
+  const [activeData,       setActiveData]       = useState(null);
+  const [profile,          setProfile]          = useState(null);
+  const [pendingJoinId,    setPendingJoinId]    = useState(null);
+  const [pendingJoinCode,  setPendingJoinCode]  = useState(null);
 
   // ── Hard 10-second loading timeout — completely independent from the auth
   //    effect so it can NEVER be cancelled by auth re-subscriptions or errors.
@@ -3795,12 +3908,26 @@ export default function Root() {
     return () => clearTimeout(t);
   }, []);
 
-  // ── Detect /join/<id> URL on first mount ──────────────────────────────────
+  // ── Detect /join/<slug-or-code> URL on first mount ───────────────────────
+  // Invite links look like:  /join/My-League-ABC123  (slug ending in 6-char code)
+  //                      or  /join/ABC123            (bare code)
+  //                      or  /join/<uuid>            (legacy league-ID link)
+  // Join codes are 6 uppercase alphanumeric chars (no O, I, 0, 1) from generateCode().
   useEffect(() => {
     const m = window.location.pathname.match(/^\/join\/([^/]+)$/);
-    if (m) {
-      sessionStorage.setItem("league_it_join_id", m[1]);
-      window.history.replaceState({}, "", "/");
+    if (!m) return;
+    const segment = m[1];
+    window.history.replaceState({}, "", "/");
+    // Extract the last dash-delimited part and check if it's a join code
+    const parts    = segment.split("-");
+    const lastPart = parts[parts.length - 1];
+    const isCode   = /^[A-Z2-9]{6}$/.test(lastPart);
+    if (isCode) {
+      // New code-based flow — use localStorage so it survives the OAuth redirect
+      localStorage.setItem("pending_join_code", lastPart);
+    } else {
+      // Legacy UUID-based flow
+      sessionStorage.setItem("league_it_join_id", segment);
     }
   }, []);
 
@@ -3875,9 +4002,14 @@ export default function Root() {
             loadLeagues(session.user.id).catch(() => setLeagues([])),
             loadProfile(session.user.id).catch(() => setProfile(null)),
           ]);
-          const joinId = sessionStorage.getItem("league_it_join_id");
-          const intent = sessionStorage.getItem("league_it_intent");
-          if (joinId) {
+          const joinCode = localStorage.getItem("pending_join_code");
+          const joinId   = sessionStorage.getItem("league_it_join_id");
+          const intent   = sessionStorage.getItem("league_it_intent");
+          if (joinCode) {
+            localStorage.removeItem("pending_join_code");
+            setPendingJoinCode(joinCode);
+            setPhase("hub");
+          } else if (joinId) {
             sessionStorage.removeItem("league_it_join_id");
             setPendingJoinId(joinId);
             setPhase("hub");
@@ -3947,6 +4079,20 @@ export default function Root() {
       }
     })();
   }, [pendingJoinId, user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-join via pending join code (from share URL) ─────────────────────
+  useEffect(() => {
+    if (!pendingJoinCode || !user) return;
+    (async () => {
+      try {
+        const result = await handleJoinLeague(pendingJoinCode);
+        if (result?.error && result.error !== "You're already in this league") {
+          // code not found or network error — silently clear
+        }
+      } catch {}
+      setPendingJoinCode(null);
+    })();
+  }, [pendingJoinCode, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreateLeague = useCallback(async (name, sport) => {
     if (!user) return;
@@ -4044,13 +4190,13 @@ export default function Root() {
     if (user) loadLeagues(user.id);
   }, [user, loadLeagues]);
 
-  const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, format, points, customSportName, customRules, leagueCode }) => {
+  const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, format, points, customSportName, customSportEmoji, customRules, leagueCode }) => {
     if (!user) throw new Error("Not logged in");
 
     const name        = leagueName?.trim() || "My League";
     const sportData   = SPORTS.find(s => s.id === sport);
     const sportLabel  = customSportName?.trim() || sportData?.label || "Sport";
-    const sportEmoji  = sport === "custom_sport" ? "🏗️" : (sportData?.emoji || "🏸");
+    const sportEmoji  = sport === "custom_sport" ? (customSportEmoji || "⚙️") : (sportData?.emoji || "🏸");
     const displayName = adminName?.trim() || profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
     const initials    = displayName.trim().split(/\s+/).map(w => w[0]?.toUpperCase() || "").slice(0, 2).join("") || "??";
     // Generate IDs client-side — never depend on Supabase returning the row back
@@ -4065,7 +4211,7 @@ export default function Root() {
       name,
       sport:      sportLabel,
       join_code:  code,
-      settings:   { leagueCode: code, format, points, customRules },
+      settings:   { leagueCode: code, format, points, customRules, sportEmoji },
       owner_id:   user.id,
       created_by: user.id,
     });
@@ -4074,7 +4220,7 @@ export default function Root() {
       if (leagueErr.message?.includes("join_code") || leagueErr.code === "42703") {
         const { error: retryErr } = await supabase.from("leagues").insert({
           id: leagueId, name, sport: sportLabel,
-          settings: { leagueCode: code, format, points, customRules },
+          settings: { leagueCode: code, format, points, customRules, sportEmoji },
           owner_id: user.id, created_by: user.id,
         });
         if (retryErr) throw new Error(retryErr.message || "Failed to create league");
@@ -4181,6 +4327,7 @@ export default function Root() {
   return (
     <LeagueItOnboarding
       initialStep={0}
+      hasPendingJoin={!!localStorage.getItem("pending_join_code")}
       onSignIn={() => {
         sessionStorage.setItem("league_it_intent", "create");
         supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
