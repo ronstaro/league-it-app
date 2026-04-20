@@ -3659,54 +3659,138 @@ function LoginScreen() {
 }
 
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// LEAGUE HUB HELPERS
+// ─────────────────────────────────────────────
+function relativeTime(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (isNaN(d)) return dateStr;
+  const diffMs = Date.now() - d.getTime();
+  const mins  = Math.floor(diffMs / 60000);
+  const hours = Math.floor(diffMs / 3600000);
+  const days  = Math.floor(diffMs / 86400000);
+  if (mins  <  1) return "just now";
+  if (mins  < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days  ===1) return "yesterday";
+  if (days  <  7) return `${days}d ago`;
+  if (days  < 30) return `${Math.floor(days/7)}w ago`;
+  return d.toLocaleDateString("en-US",{month:"short",day:"numeric"});
+}
+
+function getSportEmoji(league) {
+  const saved = league.settings?.sportEmoji;
+  if (saved) return saved;
+  const found = SPORTS.find(s => s.label === league.sport || s.id === league.sport);
+  return found?.emoji || "🏆";
+}
+
+const HUB_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+// ─────────────────────────────────────────────
 // LEAGUE HUB
 // ─────────────────────────────────────────────
 function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }) {
-  const [showJoin,   setShowJoin]   = useState(false);
-  const [joinCode,   setJoinCode]   = useState("");
-  const [joinErr,    setJoinErr]    = useState("");
-  const [saving,     setSaving]     = useState(false);
-  const [lastMatch,  setLastMatch]  = useState(null);
-  const [hubStats,   setHubStats]   = useState(null);
+  const [showJoin,      setShowJoin]      = useState(false);
+  const [joinCode,      setJoinCode]      = useState("");
+  const [joinErr,       setJoinErr]       = useState("");
+  const [saving,        setSaving]        = useState(false);
+  const [lastMatch,     setLastMatch]     = useState(null);
+  const [nextChallenge, setNextChallenge] = useState(null);
+  const [leagueRanks,   setLeagueRanks]   = useState({});
+  const [hubStats,      setHubStats]      = useState(null);
 
-  const displayName = user?.user_metadata?.full_name || user?.email || "Player";
-  const avatarUrl   = user?.user_metadata?.avatar_url;
-  const initials    = displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join("");
+  const displayName  = user?.user_metadata?.full_name || user?.email || "Player";
+  const firstName    = displayName.split(" ")[0].toUpperCase();
+  const avatarUrl    = user?.user_metadata?.avatar_url;
+  const initials     = displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join("");
+  const currentMonth = HUB_MONTHS[new Date().getMonth()].toUpperCase();
 
-  // Fetch last match + hub stats across all leagues
+  // Fetch last match, league ranks, rival data
   useEffect(() => {
     if (!leagues.length || !user) return;
     const ids = leagues.map(l => l.id);
     (async () => {
       try {
-        const { data: playerRows } = await supabase.from("players").select("id,league_id").in("league_id", ids).eq("user_id", user.id);
-        const playerIds = (playerRows || []).map(p => p.id);
+        // All of the user's player rows + all players in their leagues (for rank)
+        const [{ data: myPlayerRows }, { data: allPlayerRows }] = await Promise.all([
+          supabase.from("players").select("id,league_id").in("league_id", ids).eq("user_id", user.id),
+          supabase.from("players").select("id,league_id,user_id,name,stats,is_me").in("league_id", ids),
+        ]);
+        const playerIds = (myPlayerRows || []).map(p => p.id);
         if (!playerIds.length) return;
-        const { data: matches } = await supabase.from("matches").select("*").in("league_id", ids).order("date", { ascending: false }).limit(50);
+
+        // Recent matches
+        const { data: matches } = await supabase.from("matches").select("*")
+          .in("league_id", ids).order("date", { ascending: false }).limit(100);
+
+        // ── League ranks ──────────────────────────────────────────────
+        const ranks = {};
+        for (const league of leagues) {
+          const lgRows = (allPlayerRows || []).filter(r => r.league_id === league.id);
+          const lgPlayers = lgRows.map(r => rowToPlayer(r, user.id));
+          const sorted = byWins(lgPlayers);
+          const myIdx = sorted.findIndex(p => p.isMe);
+          if (myIdx >= 0) ranks[league.id] = { rank: myIdx + 1, total: sorted.length };
+        }
+        setLeagueRanks(ranks);
+
         if (!matches?.length) return;
         const userMatches = matches.filter(m => playerIds.includes(m.winner_id) || playerIds.includes(m.loser_id));
         if (!userMatches.length) return;
-        const lm = userMatches[0];
+
+        // ── Last match ────────────────────────────────────────────────
+        const lm    = userMatches[0];
         const lgName = leagues.find(l => l.id === lm.league_id)?.name || "League";
         const isWin  = playerIds.includes(lm.winner_id);
-        setLastMatch({ winner: lm.score?.winner || "?", loser: lm.score?.loser || "?", sets: lm.score?.sets || [], dateStr: lm.score?.dateStr || lm.date?.slice(0,10) || "?", isWin, lgName });
+        setLastMatch({
+          winner:  lm.score?.winner  || "?",
+          loser:   lm.score?.loser   || "?",
+          sets:    lm.score?.sets    || [],
+          date:    lm.date           || null,
+          isWin,
+          lgName,
+        });
+
+        // ── Hub stats (for fallback card) ─────────────────────────────
         const now = new Date();
-        const thisMonthCount = userMatches.filter(m => { const d = new Date(m.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); }).length;
+        const thisMonthCount = userMatches.filter(m => {
+          const d = new Date(m.date);
+          return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        }).length;
         let streak = 0;
         for (const m of userMatches) { if (playerIds.includes(m.winner_id)) streak++; else break; }
         setHubStats({ total: userMatches.length, thisMonth: thisMonthCount, winStreak: streak, leagueCount: leagues.length });
+
+        // ── Rival / Next Challenge ────────────────────────────────────
+        const rivalMap = {};
+        for (const m of userMatches) {
+          const userWon    = playerIds.includes(m.winner_id);
+          const oppId      = userWon ? m.loser_id  : m.winner_id;
+          const oppName    = userWon ? (m.score?.loser || "?") : (m.score?.winner || "?");
+          if (!oppId || oppName === "?") continue;
+          if (!rivalMap[oppId]) rivalMap[oppId] = { name: oppName, myWins: 0, rivalWins: 0 };
+          if (userWon) rivalMap[oppId].myWins++;
+          else         rivalMap[oppId].rivalWins++;
+        }
+        const rivals = Object.values(rivalMap)
+          .filter(r => r.myWins + r.rivalWins >= 2)
+          .sort((a, b) => (b.myWins + b.rivalWins) - (a.myWins + a.rivalWins));
+        if (rivals.length) setNextChallenge(rivals[0]);
       } catch {}
     })();
   }, [leagues, user]);
 
-  const didYouKnow = useMemo(() => {
+  // Fallback "Did You Know" facts when no rival exists yet
+  const fallbackFact = useMemo(() => {
     if (!hubStats) return null;
     const pool = [];
-    if (hubStats.winStreak >= 3) pool.push(`You're on a ${hubStats.winStreak}-match win streak! 🔥`);
-    else if (hubStats.winStreak === 2) pool.push(`Two wins in a row — keep it going! ⚡`);
+    if (hubStats.winStreak >= 3) pool.push(`You're on a ${hubStats.winStreak}-match win streak 🔥`);
+    else if (hubStats.winStreak === 2) pool.push(`Two wins in a row — keep it going ⚡`);
     if (hubStats.thisMonth > 0) pool.push(`You've played ${hubStats.thisMonth} match${hubStats.thisMonth>1?"es":""} this month 📅`);
-    if (hubStats.total >= 10) pool.push(`${hubStats.total} matches logged — you're a regular! 🏆`);
-    if (hubStats.leagueCount > 1) pool.push(`You're competing in ${hubStats.leagueCount} leagues simultaneously 🎯`);
+    if (hubStats.total >= 10) pool.push(`${hubStats.total} matches logged — you're a regular 🏆`);
+    if (hubStats.leagueCount > 1) pool.push(`Competing in ${hubStats.leagueCount} leagues simultaneously 🎯`);
     if (!pool.length && hubStats.total > 0) pool.push(`${hubStats.total} total match${hubStats.total>1?"es":""} logged across all leagues`);
     return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
   }, [hubStats]);
@@ -3736,6 +3820,7 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
       <div style={{minHeight:"100vh",background:BG,color:"#fff",display:"flex",justifyContent:"center",position:"relative",overflow:"hidden"}}>
         <GridBg/><GlowBlobs/>
         <div style={{width:"100%",maxWidth:430,minHeight:"100vh",display:"flex",flexDirection:"column",position:"relative",zIndex:1}}>
+
           {/* Header */}
           <div style={{padding:"20px 20px 0",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:28,letterSpacing:"4px",color:N,textShadow:"0 0 20px rgba(170,255,0,.4)"}}>LEAGUE-IT</div>
@@ -3751,11 +3836,18 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
               </button>
             </div>
           </div>
+
           {/* Welcome + content */}
           <div style={{padding:"20px 20px 0",flex:1,overflowY:"auto"}}>
-            <div style={{fontSize:12,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",fontWeight:700,letterSpacing:"1.5px",marginBottom:3}}>WELCOME BACK</div>
-            <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:30,letterSpacing:"2px",color:"#fff",lineHeight:1,marginBottom:20}}>
-              {displayName.split(" ")[0].toUpperCase()}
+
+            {/* Welcome header */}
+            <div style={{marginBottom:20}}>
+              <div style={{fontSize:11,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",fontWeight:700,letterSpacing:"2px",marginBottom:3}}>
+                WELCOME BACK · THE {currentMonth} SEASON
+              </div>
+              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:32,letterSpacing:"2px",color:"#fff",lineHeight:1}}>
+                {firstName}
+              </div>
             </div>
 
             {/* Action buttons — create / join */}
@@ -3798,52 +3890,134 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
               </div>
             ) : (
               <div className="flex flex-col gap-3 mb-6">
-                {leagues.map(lg => (
-                  <motion.div key={lg.id} whileHover={{scale:1.015,y:-2}} whileTap={{scale:.98}}
-                    onClick={()=>onEnter(lg)}
-                    className="rounded-[20px] p-4 cursor-pointer relative overflow-hidden"
-                    style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
-                    <div className="absolute inset-0 pointer-events-none" style={{background:"linear-gradient(135deg,rgba(170,255,0,.03),transparent 60%)"}}/>
-                    <div className="flex items-center justify-between relative">
-                      <div>
-                        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:20,letterSpacing:"1.5px",color:"#fff",marginBottom:2}}>{lg.name.toUpperCase()}</div>
-                        <div style={{fontSize:11,color:"rgba(255,255,255,.4)",fontFamily:"'DM Sans',sans-serif"}}>{lg.sport || "Sport"}</div>
+                {leagues.map((lg, i) => {
+                  const rankInfo   = leagueRanks[lg.id];
+                  const rankNum    = rankInfo?.rank;
+                  const medalData  = rankNum ? medal(rankNum) : null;
+                  const sportEmoji = getSportEmoji(lg);
+                  const glowDelay  = i * 0.6;
+                  return (
+                    <motion.div key={lg.id}
+                      whileHover={{scale:1.015,y:-2}} whileTap={{scale:.98}}
+                      animate={{ boxShadow: [
+                        "0 0 0px 0px rgba(170,255,0,0)",
+                        "0 0 22px 2px rgba(170,255,0,0.13)",
+                        "0 0 0px 0px rgba(170,255,0,0)",
+                      ]}}
+                      transition={{ boxShadow:{ duration:3.5, repeat:Infinity, ease:"easeInOut", delay:glowDelay }, scale:{type:"spring",stiffness:400,damping:25} }}
+                      onClick={()=>onEnter(lg)}
+                      className="rounded-[20px] p-4 cursor-pointer relative overflow-hidden"
+                      style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.1)"}}>
+                      <div className="absolute inset-0 pointer-events-none" style={{background:"linear-gradient(135deg,rgba(170,255,0,.04),transparent 60%)"}}/>
+                      <div className="flex items-center gap-3 relative">
+                        {/* Sport emoji icon */}
+                        <div className="flex items-center justify-center rounded-[12px] flex-shrink-0"
+                          style={{width:42,height:42,background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.08)",fontSize:20}}>
+                          {sportEmoji}
+                        </div>
+                        {/* Name + rank */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:20,letterSpacing:"1.5px",color:"#fff",lineHeight:1}}>
+                              {lg.name.toUpperCase()}
+                            </span>
+                            {rankNum && (
+                              <span
+                                style={{
+                                  fontSize:11,fontWeight:800,fontFamily:"'DM Sans',sans-serif",
+                                  color: medalData ? medalData.c : "rgba(255,255,255,.45)",
+                                  background: medalData ? `${medalData.c}18` : "rgba(255,255,255,.07)",
+                                  border: `1px solid ${medalData ? `${medalData.c}44` : "rgba(255,255,255,.12)"}`,
+                                  borderRadius:8,padding:"1px 7px",lineHeight:"18px",
+                                }}
+                              >
+                                {medalData ? medalData.e : `#${rankNum}`}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{fontSize:11,color:"rgba(255,255,255,.38)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>
+                            {lg.sport || "Sport"}{rankInfo ? ` · ${rankInfo.total} players` : ""}
+                          </div>
+                        </div>
+                        <ChevronRight size={18} style={{color:"rgba(255,255,255,.22)",flexShrink:0}}/>
                       </div>
-                      <ChevronRight size={20} style={{color:"rgba(255,255,255,.25)",flexShrink:0}}/>
-                    </div>
-                  </motion.div>
-                ))}
+                    </motion.div>
+                  );
+                })}
               </div>
             )}
 
             {/* My Last Match */}
-            {lastMatch && (
-              <div className="rounded-[20px] p-4 mb-4" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
-                <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginBottom:10}}>MY LAST MATCH</div>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div style={{fontSize:13,fontWeight:800,color:"#fff",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-                      {lastMatch.winner} <span style={{color:"rgba(255,255,255,.3)"}}>vs</span> {lastMatch.loser}
+            {lastMatch && (() => {
+              const tintBg    = lastMatch.isWin ? "rgba(170,255,0,.06)"  : "rgba(255,51,85,.06)";
+              const tintBdr   = lastMatch.isWin ? "rgba(170,255,0,.22)"  : "rgba(255,51,85,.2)";
+              const badgeBg   = lastMatch.isWin ? "rgba(170,255,0,.15)"  : "rgba(255,51,85,.15)";
+              const badgeBdr  = lastMatch.isWin ? "rgba(170,255,0,.4)"   : "rgba(255,51,85,.4)";
+              const badgeClr  = lastMatch.isWin ? N                      : "#FF3355";
+              return (
+                <div className="rounded-[20px] p-4 mb-4"
+                  style={{background:`linear-gradient(135deg,${tintBg},rgba(255,255,255,.02))`,border:`1px solid ${tintBdr}`}}>
+                  <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginBottom:10}}>MY LAST MATCH</div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div style={{fontSize:14,fontWeight:800,color:"#fff",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                        {lastMatch.winner} <span style={{color:"rgba(255,255,255,.3)",fontWeight:500}}>vs</span> {lastMatch.loser}
+                      </div>
+                      <div style={{fontSize:11,color:"rgba(255,255,255,.4)",fontFamily:"'DM Sans',sans-serif",marginTop:3}}>
+                        {lastMatch.sets.join("  ")}{lastMatch.sets.length ? " · " : ""}{lastMatch.lgName}
+                      </div>
+                      <div style={{fontSize:10,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>
+                        {relativeTime(lastMatch.date)}
+                      </div>
                     </div>
-                    <div style={{fontSize:11,color:"rgba(255,255,255,.4)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>
-                      {lastMatch.sets.join("  ")} · {lastMatch.lgName}
+                    {/* WIN / LOSS badge */}
+                    <div className="flex-shrink-0 rounded-[12px] px-3 py-2 flex flex-col items-center justify-center"
+                      style={{background:badgeBg,border:`1.5px solid ${badgeBdr}`,minWidth:52}}>
+                      <span style={{fontSize:14,lineHeight:1}}>{lastMatch.isWin ? "🏆" : "😤"}</span>
+                      <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,fontWeight:900,color:badgeClr,letterSpacing:"1px",marginTop:2}}>
+                        {lastMatch.isWin ? "WIN" : "LOSS"}
+                      </span>
                     </div>
-                    <div style={{fontSize:10,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>{lastMatch.dateStr}</div>
-                  </div>
-                  <div className="rounded-[10px] px-3 py-1.5 flex-shrink-0" style={{background:lastMatch.isWin?"rgba(170,255,0,.12)":"rgba(255,51,85,.1)",border:`1px solid ${lastMatch.isWin?"rgba(170,255,0,.3)":"rgba(255,51,85,.25)"}`}}>
-                    <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:800,color:lastMatch.isWin?N:"#FF3355"}}>{lastMatch.isWin?"WIN":"LOSS"}</span>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
-            {/* Did You Know? */}
-            {didYouKnow && (
-              <div className="rounded-[20px] p-4 mb-8" style={{background:`linear-gradient(135deg,rgba(170,255,0,.06),rgba(170,255,0,.02))`,border:`1px solid rgba(170,255,0,.2)`}}>
-                <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(170,255,0,.6)",fontFamily:"'DM Sans',sans-serif",marginBottom:6}}>DID YOU KNOW?</div>
-                <div style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.8)",fontFamily:"'DM Sans',sans-serif",lineHeight:1.5}}>{didYouKnow}</div>
-              </div>
-            )}
+            {/* Next Challenge — or fallback Did You Know */}
+            {(nextChallenge || fallbackFact) && (() => {
+              if (nextChallenge) {
+                const { rivalName, myWins, rivalWins } = nextChallenge;
+                const tied    = myWins === rivalWins;
+                const leading = myWins > rivalWins;
+                const ctaText = tied ? "All square — who breaks first?" : leading ? "You're ahead. Defend your lead." : "Schedule revenge?";
+                const accentC = tied ? "#FFB830" : leading ? N : "#FF3355";
+                return (
+                  <div className="rounded-[20px] p-4 mb-8"
+                    style={{background:`linear-gradient(135deg,${accentC}10,${accentC}04)`,border:`1px solid ${accentC}30`}}>
+                    <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:`${accentC}99`,fontFamily:"'DM Sans',sans-serif",marginBottom:8}}>
+                      ⚔️ NEXT CHALLENGE
+                    </div>
+                    <div style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.85)",fontFamily:"'DM Sans',sans-serif",lineHeight:1.55}}>
+                      Your rivalry with{" "}
+                      <span style={{fontWeight:900,color:"#fff"}}>{rivalName}</span>
+                      {" "}is{" "}
+                      <span style={{fontWeight:900,color:accentC}}>{myWins}–{rivalWins}</span>.
+                    </div>
+                    <div style={{fontSize:12,fontWeight:700,color:accentC,fontFamily:"'DM Sans',sans-serif",marginTop:6}}>
+                      {ctaText} →
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div className="rounded-[20px] p-4 mb-8"
+                  style={{background:`linear-gradient(135deg,rgba(170,255,0,.06),rgba(170,255,0,.02))`,border:`1px solid rgba(170,255,0,.2)`}}>
+                  <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(170,255,0,.6)",fontFamily:"'DM Sans',sans-serif",marginBottom:6}}>DID YOU KNOW?</div>
+                  <div style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.8)",fontFamily:"'DM Sans',sans-serif",lineHeight:1.5}}>{fallbackFact}</div>
+                </div>
+              );
+            })()}
+
           </div>
         </div>
       </div>
