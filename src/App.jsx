@@ -3776,6 +3776,7 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
   const [nextChallenge, setNextChallenge] = useState(null);
   const [leagueRanks,   setLeagueRanks]   = useState({});
   const [hubStats,      setHubStats]      = useState(null);
+  const [ovr,           setOvr]           = useState(null);
 
   const displayName  = user?.user_metadata?.full_name || user?.email || "Player";
   const firstName    = (displayName.split(" ")[0] || "").slice(0, 14);
@@ -3805,6 +3806,21 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
           if (myIdx >= 0) ranks[league.id] = { rank: myIdx + 1, total: sorted.length };
         }
         setLeagueRanks(ranks);
+
+        // ── OVR rating ────────────────────────────────────────────────
+        const myRows = (allPlayerRows || []).filter(r => r.user_id === user.id);
+        const totW   = myRows.reduce((s, r) => s + (r.stats?.wins       || 0), 0);
+        const totL   = myRows.reduce((s, r) => s + (r.stats?.losses     || 0), 0);
+        const totP   = totW + totL;
+        const totC   = myRows.reduce((s, r) => s + (r.stats?.clutchWins || 0), 0);
+        const totCB  = myRows.reduce((s, r) => s + (r.stats?.comebacks  || 0), 0);
+        if (totP > 0) {
+          const wr         = (totW / totP) * 100;
+          const winComp    = (wr / 100) * 50;
+          const expComp    = Math.min(totP, 60) / 60 * 25;
+          const clutchComp = Math.min(totC + totCB, 15) / 15 * 24;
+          setOvr(Math.min(99, Math.max(1, Math.round(winComp + expComp + clutchComp))));
+        }
 
         // ── Matches ───────────────────────────────────────────────────
         const { data: matches } = await supabase.from("matches").select("*")
@@ -3848,6 +3864,27 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
     })();
   }, [leagues, user]);
 
+  // ── Ticker items (all strings guarded — no toUpperCase on unknown values) ──
+  const tickerItems = useMemo(() => {
+    const base = [];
+    if (lastMatch) {
+      base.push(`Last match · ${lastMatch.winner || "?"} def. ${lastMatch.loser || "?"}`);
+    }
+    if (hubStats?.winStreak >= 2) base.push(`${hubStats.winStreak}× win streak 🔥`);
+    leagues.forEach(lg => {
+      const r = leagueRanks[lg.id];
+      if (r) base.push(`${getSportEmoji(lg)} ${lg.name || "League"} · Rank #${r.rank} of ${r.total}`);
+    });
+    if (nextChallenge) {
+      base.push(`⚔️ Rivalry: ${nextChallenge.name || "?"} — ${nextChallenge.myWins}–${nextChallenge.rivalWins}`);
+    }
+    if (hubStats?.total) base.push(`${hubStats.total} matches logged`);
+    base.push(`The ${currentMonth} season is live`);
+    if (ovr !== null) base.push(`Overall rating: ${ovr}`);
+    const items = base.length ? base : ["League-It · System active", "The arena awaits"];
+    return [...items, ...items]; // duplicate for seamless loop
+  }, [lastMatch, hubStats, leagues, leagueRanks, nextChallenge, ovr, currentMonth]);
+
   const fallbackFact = useMemo(() => {
     if (!hubStats) return null;
     const pool = [];
@@ -3881,6 +3918,13 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
         *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
         html,body{height:100%;background:#0A0A0A;}
         ::-webkit-scrollbar{display:none;}
+        @keyframes hub-dot-pulse {
+          0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(170,255,0,.5)}
+          50%{opacity:.5;box-shadow:0 0 0 4px rgba(170,255,0,0)}
+        }
+        @keyframes hub-ticker {
+          from{transform:translateX(0)} to{transform:translateX(-50%)}
+        }
       `}</style>
       <div style={{minHeight:"100vh",background:BG,color:"#fff",display:"flex",justifyContent:"center",position:"relative",overflow:"hidden"}}>
         <GridBg/><GlowBlobs/>
@@ -3888,19 +3932,14 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
 
           {/* ── TOP BAR ─────────────────────────────────────── */}
           <div style={{padding:"20px 20px 0",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-            <div>
-              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"5px",color:N,
-                textShadow:"0 0 24px rgba(170,255,0,.5)"}}>LEAGUE-IT</div>
-              <div style={{fontSize:12,color:"rgba(255,255,255,.4)",fontFamily:"'DM Sans',sans-serif",fontWeight:500,marginTop:1}}>
-                Hi {firstName} · {currentMonth} Season
-              </div>
-            </div>
+            <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"5px",color:N,
+              textShadow:"0 0 24px rgba(170,255,0,.5)"}}>LEAGUE-IT</div>
             <div className="flex items-center gap-2">
               {avatarUrl
-                ? <img src={avatarUrl} alt="" style={{width:36,height:36,borderRadius:18,objectFit:"cover",
+                ? <img src={avatarUrl} alt="" style={{width:34,height:34,borderRadius:17,objectFit:"cover",
                     border:"2px solid rgba(170,255,0,.35)"}}/>
-                : <div style={{width:36,height:36,borderRadius:18,display:"flex",alignItems:"center",justifyContent:"center",
-                    background:`linear-gradient(135deg,${N},#7DC900)`,color:"#000",fontSize:13,fontWeight:800,
+                : <div style={{width:34,height:34,borderRadius:17,display:"flex",alignItems:"center",justifyContent:"center",
+                    background:`linear-gradient(135deg,${N},#7DC900)`,color:"#000",fontSize:12,fontWeight:800,
                     fontFamily:"'DM Sans',sans-serif"}}>
                     {initials}
                   </div>
@@ -3914,8 +3953,47 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
             </div>
           </div>
 
+          {/* ── STATUS / POWER LEVEL HEADER ─────────────────── */}
+          <div style={{margin:"14px 20px 0",borderRadius:20,padding:"16px 20px",flexShrink:0,
+            background:"rgba(170,255,0,.06)",border:`1.5px solid ${N}33`,
+            boxShadow:`0 4px 24px rgba(170,255,0,.06)`}}>
+            <div className="flex items-center gap-4">
+              {/* OVR number */}
+              <div style={{textAlign:"center",flexShrink:0}}>
+                <div style={{fontFamily:"'Bebas Neue',sans-serif",
+                  fontSize: ovr !== null ? 64 : 40,
+                  lineHeight:1,
+                  color: ovr !== null ? N : `${N}30`,
+                  textShadow: ovr !== null ? `0 0 28px rgba(170,255,0,.6)` : "none",
+                  letterSpacing:"-1px",minWidth:64,textAlign:"center"}}>
+                  {ovr !== null ? ovr : "—"}
+                </div>
+                <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",color:`${N}55`,
+                  fontFamily:"'DM Sans',sans-serif",marginTop:2}}>OVR</div>
+              </div>
+              {/* Divider */}
+              <div style={{width:1,height:52,background:`${N}20`,flexShrink:0}}/>
+              {/* Name + status */}
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:11,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",
+                  fontWeight:500,marginBottom:3}}>Welcome back,</div>
+                <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:28,letterSpacing:"2px",
+                  color:"#fff",lineHeight:1,marginBottom:6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {firstName}
+                </div>
+                {/* SYSTEM ACTIVE indicator */}
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <div style={{width:7,height:7,borderRadius:"50%",background:N,flexShrink:0,
+                    animation:"hub-dot-pulse 2s ease-in-out infinite"}}/>
+                  <span style={{fontSize:10,fontWeight:700,letterSpacing:"1.5px",
+                    color:`${N}70`,fontFamily:"'DM Sans',sans-serif"}}>SYSTEM ACTIVE · {currentMonth} Season</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* ── SCROLLABLE CONTENT ──────────────────────────── */}
-          <div style={{padding:"20px 20px 36px",flex:1,overflowY:"auto"}}>
+          <div style={{padding:"16px 20px 36px",flex:1,overflowY:"auto"}}>
 
             {/* ── ACTION BUTTONS ──────────────────────────────── */}
             <div className="flex flex-col gap-3 mb-7">
@@ -4110,6 +4188,37 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
                 </div>
               );
             })()}
+
+            {/* bottom spacer for ticker */}
+            <div style={{height:8}}/>
+          </div>
+
+          {/* ── LIVE TICKER ─────────────────────────────────── */}
+          <div style={{height:36,flexShrink:0,overflow:"hidden",display:"flex",alignItems:"center",position:"relative",
+            borderTop:"1px solid rgba(255,255,255,.06)",
+            background:"rgba(10,10,10,.85)",backdropFilter:"blur(8px)"}}>
+            {/* fade masks */}
+            <div style={{position:"absolute",left:0,top:0,bottom:0,width:32,zIndex:2,
+              background:`linear-gradient(to right,${BG},transparent)`,pointerEvents:"none"}}/>
+            <div style={{position:"absolute",right:0,top:0,bottom:0,width:32,zIndex:2,
+              background:`linear-gradient(to left,${BG},transparent)`,pointerEvents:"none"}}/>
+            {/* scrolling track */}
+            <div style={{display:"flex",whiteSpace:"nowrap",
+              animation:"hub-ticker 32s linear infinite",willChange:"transform"}}>
+              {tickerItems.map((item, i) => (
+                <span key={i} style={{
+                  display:"inline-flex",alignItems:"center",gap:8,
+                  padding:"0 22px",
+                  fontSize:11,fontWeight:600,
+                  color:"rgba(170,255,0,.55)",
+                  fontFamily:"'DM Sans',sans-serif",
+                  letterSpacing:"0.2px",
+                }}>
+                  <span style={{color:`${N}28`,fontSize:8}}>●</span>
+                  {item}
+                </span>
+              ))}
+            </div>
           </div>
 
         </div>
