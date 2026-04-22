@@ -3953,42 +3953,21 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
             </div>
           </div>
 
-          {/* ── STATUS / POWER LEVEL HEADER ─────────────────── */}
-          <div style={{margin:"14px 20px 0",borderRadius:20,padding:"16px 20px",flexShrink:0,
-            background:"rgba(170,255,0,.06)",border:`1.5px solid ${N}33`,
-            boxShadow:`0 4px 24px rgba(170,255,0,.06)`}}>
-            <div className="flex items-center gap-4">
-              {/* OVR number */}
-              <div style={{textAlign:"center",flexShrink:0}}>
-                <div style={{fontFamily:"'Bebas Neue',sans-serif",
-                  fontSize: ovr !== null ? 64 : 40,
-                  lineHeight:1,
-                  color: ovr !== null ? N : `${N}30`,
-                  textShadow: ovr !== null ? `0 0 28px rgba(170,255,0,.6)` : "none",
-                  letterSpacing:"-1px",minWidth:64,textAlign:"center"}}>
-                  {ovr !== null ? ovr : "—"}
-                </div>
-                <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",color:`${N}55`,
-                  fontFamily:"'DM Sans',sans-serif",marginTop:2}}>OVR</div>
-              </div>
-              {/* Divider */}
-              <div style={{width:1,height:52,background:`${N}20`,flexShrink:0}}/>
-              {/* Name + status */}
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:11,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",
-                  fontWeight:500,marginBottom:3}}>Welcome back,</div>
-                <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:28,letterSpacing:"2px",
-                  color:"#fff",lineHeight:1,marginBottom:6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                  {firstName}
-                </div>
-                {/* SYSTEM ACTIVE indicator */}
-                <div style={{display:"flex",alignItems:"center",gap:6}}>
-                  <div style={{width:7,height:7,borderRadius:"50%",background:N,flexShrink:0,
-                    animation:"hub-dot-pulse 2s ease-in-out infinite"}}/>
-                  <span style={{fontSize:10,fontWeight:700,letterSpacing:"1.5px",
-                    color:`${N}70`,fontFamily:"'DM Sans',sans-serif"}}>SYSTEM ACTIVE · {currentMonth} Season</span>
-                </div>
-              </div>
+          {/* ── WELCOME HEADER ──────────────────────────────── */}
+          <div style={{margin:"14px 20px 0",borderRadius:20,padding:"18px 22px 16px",flexShrink:0,
+            background:"rgba(170,255,0,.05)",border:`1.5px solid ${N}25`}}>
+            <div style={{fontSize:13,fontWeight:500,color:"rgba(255,255,255,.38)",
+              fontFamily:"'DM Sans',sans-serif",marginBottom:4,letterSpacing:"0.1px"}}>
+              Welcome back,
+            </div>
+            <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:52,letterSpacing:"3px",
+              color:"#fff",lineHeight:1,textShadow:"0 2px 24px rgba(255,255,255,.08)",
+              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {firstName}
+            </div>
+            <div style={{fontSize:10,fontWeight:500,color:`${N}45`,
+              fontFamily:"'DM Sans',sans-serif",marginTop:6,letterSpacing:"0.5px"}}>
+              {currentMonth} Season
             </div>
           </div>
 
