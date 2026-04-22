@@ -1782,7 +1782,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     const name = addPlayerName.trim();
     if (!name) return;
     const words    = name.split(/\s+/);
-    const initials = words.map(w=>w[0].toUpperCase()).slice(0,2).join('');
+    const initials = words.map(w=>(w[0]||"").toUpperCase()).slice(0,2).join('');
     const newPlayer = {
       id:          crypto.randomUUID(),
       name,
@@ -3625,7 +3625,7 @@ function rowToPlayer(row, userId = null) {
   return {
     id:          row.id,
     name:        row.name,
-    initials:    s.initials || row.name.slice(0, 2).toUpperCase(),
+    initials:    s.initials || (row.name || "").slice(0, 2).toUpperCase(),
     isMe:        userId ? row.user_id === userId : row.is_me,
     wins:        s.wins        || 0,
     losses:      s.losses      || 0,
@@ -3763,49 +3763,9 @@ function SetSparkline({ sets, isWin }) {
   );
 }
 
-// Scanline overlay — reused on every HUD card
-function Scanlines() {
-  return (
-    <div className="absolute inset-0 pointer-events-none" style={{
-      backgroundImage: "repeating-linear-gradient(0deg,transparent 0px,transparent 3px,rgba(0,0,0,0.07) 3px,rgba(0,0,0,0.07) 4px)",
-      zIndex: 1,
-    }}/>
-  );
-}
-
 // ─────────────────────────────────────────────
-// LEAGUE HUB  (Combat HUD)
+// LEAGUE HUB  (clean)
 // ─────────────────────────────────────────────
-const HUB_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-  html,body{height:100%;background:#0A0A0A;}
-  ::-webkit-scrollbar{display:none;}
-
-  @keyframes hub-pulse-dot {
-    0%,100%{opacity:1;box-shadow:0 0 6px #AAFF00,0 0 12px #AAFF0055}
-    50%{opacity:.35;box-shadow:0 0 2px #AAFF00}
-  }
-  @keyframes hub-ovr-flicker {
-    0%,92%,100%{opacity:1}
-    93%{opacity:.7}  95%{opacity:1}  97%{opacity:.85}  99%{opacity:1}
-  }
-  @keyframes hub-glitch {
-    0%,90%,100%{transform:translateX(0) skewX(0deg);opacity:1}
-    91%{transform:translateX(-3px) skewX(-1.5deg);opacity:.85}
-    92%{transform:translateX(3px)  skewX(1.5deg);opacity:.9}
-    94%{transform:translateX(-1px) skewX(0deg);opacity:1}
-  }
-  @keyframes hub-ticker {
-    from{transform:translateX(0)} to{transform:translateX(-50%)}
-  }
-  @keyframes hub-card-sweep {
-    0%{background-position:200% center}
-    100%{background-position:-200% center}
-  }
-  .hub-tile-name { animation: hub-glitch 7s ease-in-out infinite; }
-  .hub-tile:hover .hub-tile-name { animation: hub-glitch 0.35s ease-in-out; }
-`;
 
 function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }) {
   const [showJoin,      setShowJoin]      = useState(false);
@@ -3816,13 +3776,12 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
   const [nextChallenge, setNextChallenge] = useState(null);
   const [leagueRanks,   setLeagueRanks]   = useState({});
   const [hubStats,      setHubStats]      = useState(null);
-  const [ovr,           setOvr]           = useState(null);
 
   const displayName  = user?.user_metadata?.full_name || user?.email || "Player";
-  const firstName    = displayName.split(" ")[0].toUpperCase();
+  const firstName    = (displayName.split(" ")[0] || "").slice(0, 14);
   const avatarUrl    = user?.user_metadata?.avatar_url;
-  const initials     = displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join("");
-  const currentMonth = HUB_MONTHS[new Date().getMonth()].toUpperCase();
+  const initials     = displayName.trim().split(/\s+/).map(w => (w[0] || "").toUpperCase()).slice(0, 2).join("");
+  const currentMonth = HUB_MONTHS[new Date().getMonth()];
 
   useEffect(() => {
     if (!leagues.length || !user) return;
@@ -3846,21 +3805,6 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
           if (myIdx >= 0) ranks[league.id] = { rank: myIdx + 1, total: sorted.length };
         }
         setLeagueRanks(ranks);
-
-        // ── OVR rating across all leagues ──────────────────────────────
-        const myRows  = (allPlayerRows || []).filter(r => r.user_id === user.id);
-        const totW    = myRows.reduce((s, r) => s + (r.stats?.wins       || 0), 0);
-        const totL    = myRows.reduce((s, r) => s + (r.stats?.losses     || 0), 0);
-        const totP    = totW + totL;
-        const totC    = myRows.reduce((s, r) => s + (r.stats?.clutchWins || 0), 0);
-        const totCB   = myRows.reduce((s, r) => s + (r.stats?.comebacks  || 0), 0);
-        const wr      = totP > 0 ? (totW / totP) * 100 : 0;
-        if (totP > 0) {
-          const winComp    = (wr / 100) * 50;
-          const expComp    = Math.min(totP, 60) / 60 * 25;
-          const clutchComp = Math.min(totC + totCB, 15) / 15 * 24;
-          setOvr(Math.min(99, Math.max(1, Math.round(winComp + expComp + clutchComp))));
-        }
 
         // ── Matches ───────────────────────────────────────────────────
         const { data: matches } = await supabase.from("matches").select("*")
@@ -3904,24 +3848,6 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
     })();
   }, [leagues, user]);
 
-  // Ticker items
-  const tickerItems = useMemo(() => {
-    const base = [];
-    if (lastMatch) base.push(`LAST MATCH ▸ ${lastMatch.winner.toUpperCase()} DEF. ${lastMatch.loser.toUpperCase()}  ${lastMatch.sets.join(" ")}`);
-    if (hubStats?.winStreak >= 2) base.push(`${hubStats.winStreak}✕ WIN STREAK ACTIVE`);
-    leagues.forEach(lg => {
-      const r = leagueRanks[lg.id];
-      if (r) base.push(`${getSportEmoji(lg)} ${lg.name.toUpperCase()} · RANK #${r.rank} / ${r.total}`);
-    });
-    if (nextChallenge) base.push(`⚔️ RIVALRY: ${nextChallenge.rivalName.toUpperCase()} ${nextChallenge.myWins}–${nextChallenge.rivalWins}`);
-    if (hubStats?.total) base.push(`${hubStats.total} MATCHES LOGGED`);
-    base.push(`THE ${currentMonth} SEASON IS LIVE`);
-    if (ovr) base.push(`OVR RATING: ${ovr}`);
-    const items = base.length ? base : ["LEAGUE-IT SYSTEM ONLINE", "THE ARENA AWAITS"];
-    return [...items, ...items]; // duplicate for seamless loop
-  }, [lastMatch, hubStats, leagues, leagueRanks, nextChallenge, ovr, currentMonth]);
-
-  // Fallback card fact
   const fallbackFact = useMemo(() => {
     if (!hubStats) return null;
     const pool = [];
@@ -3948,227 +3874,155 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
     }
   };
 
-  // Shared card style — sharp edges + double border
-  const hudCard = (accentColor = N, extraStyle = {}) => ({
-    background:    "rgba(10,10,10,0.85)",
-    border:        `1px solid ${accentColor}55`,
-    boxShadow:     `0 0 0 1px ${accentColor}18, inset 0 0 0 1px ${accentColor}08`,
-    borderRadius:  4,
-    position:      "relative",
-    overflow:      "hidden",
-    ...extraStyle,
-  });
-
-  const sectionLabel = (text, color = N) => (
-    <div style={{ fontSize:9, fontWeight:800, letterSpacing:"3px", color:`${color}88`,
-      fontFamily:"'JetBrains Mono',monospace", marginBottom:8, display:"flex", alignItems:"center", gap:6 }}>
-      <div style={{ flex:1, height:1, background:`${color}22` }}/>
-      {text}
-      <div style={{ flex:1, height:1, background:`${color}22` }}/>
-    </div>
-  );
-
   return (
     <>
-      <style>{HUB_CSS}</style>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700;800;900&display=swap');
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+        html,body{height:100%;background:#0A0A0A;}
+        ::-webkit-scrollbar{display:none;}
+      `}</style>
       <div style={{minHeight:"100vh",background:BG,color:"#fff",display:"flex",justifyContent:"center",position:"relative",overflow:"hidden"}}>
         <GridBg/><GlowBlobs/>
         <div style={{width:"100%",maxWidth:430,minHeight:"100vh",display:"flex",flexDirection:"column",position:"relative",zIndex:1}}>
 
           {/* ── TOP BAR ─────────────────────────────────────── */}
-          <div style={{padding:"16px 16px 0",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-            {/* Logo + status */}
+          <div style={{padding:"20px 20px 0",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div>
               <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"5px",color:N,
-                textShadow:"0 0 24px rgba(170,255,0,.6), 0 0 60px rgba(170,255,0,.2)"}}>LEAGUE-IT</div>
-              <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}>
-                <div style={{width:6,height:6,borderRadius:"50%",background:N,
-                  animation:"hub-pulse-dot 1.8s ease-in-out infinite",flexShrink:0}}/>
-                <span style={{fontSize:9,fontWeight:700,letterSpacing:"2.5px",
-                  color:"rgba(170,255,0,.55)",fontFamily:"'JetBrains Mono',monospace"}}>SYSTEM ACTIVE</span>
+                textShadow:"0 0 24px rgba(170,255,0,.5)"}}>LEAGUE-IT</div>
+              <div style={{fontSize:12,color:"rgba(255,255,255,.4)",fontFamily:"'DM Sans',sans-serif",fontWeight:500,marginTop:1}}>
+                Hi {firstName} · {currentMonth} Season
               </div>
             </div>
-            {/* Avatar + sign out */}
             <div className="flex items-center gap-2">
               {avatarUrl
-                ? <img src={avatarUrl} alt="" style={{width:34,height:34,borderRadius:3,objectFit:"cover",
-                    border:`1.5px solid ${N}66`,boxShadow:`0 0 10px ${N}33`}}/>
-                : <div style={{width:34,height:34,borderRadius:3,display:"flex",alignItems:"center",justifyContent:"center",
-                    background:`linear-gradient(135deg,${N},#7DC900)`,color:"#000",fontSize:12,fontWeight:900,fontFamily:"'DM Sans',sans-serif"}}>
+                ? <img src={avatarUrl} alt="" style={{width:36,height:36,borderRadius:18,objectFit:"cover",
+                    border:"2px solid rgba(170,255,0,.35)"}}/>
+                : <div style={{width:36,height:36,borderRadius:18,display:"flex",alignItems:"center",justifyContent:"center",
+                    background:`linear-gradient(135deg,${N},#7DC900)`,color:"#000",fontSize:13,fontWeight:800,
+                    fontFamily:"'DM Sans',sans-serif"}}>
                     {initials}
                   </div>
               }
               <button onClick={onSignOut} style={{
-                borderRadius:3,padding:"5px 10px",fontSize:10,fontWeight:700,cursor:"pointer",
-                background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",
-                color:"rgba(255,255,255,.4)",fontFamily:"'DM Sans',sans-serif",letterSpacing:"0.5px"}}>
-                EXIT
+                borderRadius:12,padding:"6px 12px",fontSize:11,fontWeight:600,cursor:"pointer",
+                background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.12)",
+                color:"rgba(255,255,255,.45)",fontFamily:"'DM Sans',sans-serif"}}>
+                Sign out
               </button>
             </div>
           </div>
 
           {/* ── SCROLLABLE CONTENT ──────────────────────────── */}
-          <div style={{padding:"14px 16px 0",flex:1,overflowY:"auto"}}>
-
-            {/* ── POWER LEVEL HEADER ─────────────────────────── */}
-            <div style={{...hudCard(N,{padding:"14px 16px",marginBottom:14})}}>
-              <Scanlines/>
-              {/* Corner accent */}
-              <div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",
-                borderWidth:"0 18px 18px 0",borderColor:`transparent ${N}55 transparent transparent`}}/>
-              <div style={{position:"absolute",bottom:0,left:0,width:0,height:0,borderStyle:"solid",
-                borderWidth:"0 0 18px 18px",borderColor:`transparent transparent ${N}22 transparent`}}/>
-              <div className="flex items-end gap-4 relative" style={{zIndex:2}}>
-                {/* OVR number */}
-                <div>
-                  <div style={{fontSize:9,fontWeight:700,letterSpacing:"3px",color:`${N}66`,
-                    fontFamily:"'JetBrains Mono',monospace",marginBottom:2}}>OVR</div>
-                  <div style={{
-                    fontFamily:"'JetBrains Mono',monospace",
-                    fontSize: ovr !== null ? 72 : 40,
-                    fontWeight:700,
-                    lineHeight:1,
-                    color: ovr !== null ? N : "rgba(170,255,0,.2)",
-                    textShadow: ovr !== null ? `0 0 30px ${N}88, 0 0 60px ${N}44` : "none",
-                    animation: ovr !== null ? "hub-ovr-flicker 8s ease-in-out infinite" : "none",
-                    letterSpacing:"-2px",
-                    minWidth:80,
-                  }}>
-                    {ovr !== null ? ovr : "—"}
-                  </div>
-                </div>
-                {/* Name + season */}
-                <div style={{paddingBottom:6}}>
-                  <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:28,letterSpacing:"2px",
-                    color:"#fff",lineHeight:1,marginBottom:4}}>{firstName}</div>
-                  <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",
-                    color:"rgba(255,255,255,.3)",fontFamily:"'JetBrains Mono',monospace"}}>
-                    THE {currentMonth} SEASON
-                  </div>
-                  {hubStats?.total > 0 && (
-                    <div style={{fontSize:9,color:"rgba(255,255,255,.22)",
-                      fontFamily:"'JetBrains Mono',monospace",marginTop:2}}>
-                      {hubStats.total}W+L · {hubStats.thisMonth} THIS MONTH
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+          <div style={{padding:"20px 20px 36px",flex:1,overflowY:"auto"}}>
 
             {/* ── ACTION BUTTONS ──────────────────────────────── */}
-            <div className="flex flex-col gap-2 mb-5">
-              <motion.button whileHover={{scale:1.01}} whileTap={{scale:.98}}
+            <div className="flex flex-col gap-3 mb-7">
+              <motion.button whileHover={{scale:1.015,y:-1}} whileTap={{scale:.98}}
                 onClick={onCreateWizard}
-                style={{...hudCard(N,{padding:"13px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,border:`1px solid ${N}66`})}}>
-                <Scanlines/>
-                <div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",
-                  borderWidth:"0 12px 12px 0",borderColor:`transparent ${N}44 transparent transparent`}}/>
-                <div style={{width:34,height:34,borderRadius:3,display:"flex",alignItems:"center",justifyContent:"center",
-                  background:`${N}18`,border:`1px solid ${N}44`,flexShrink:0,position:"relative",zIndex:2}}>
-                  <Plus size={18} style={{color:N}}/>
+                style={{width:"100%",padding:"15px 18px",borderRadius:20,cursor:"pointer",
+                  display:"flex",alignItems:"center",gap:14,
+                  background:"rgba(170,255,0,.07)",border:`1.5px solid ${N}55`,
+                  boxShadow:`0 4px 20px rgba(170,255,0,.08)`}}>
+                <div style={{width:40,height:40,borderRadius:14,display:"flex",alignItems:"center",justifyContent:"center",
+                  background:`${N}18`,flexShrink:0}}>
+                  <Plus size={20} style={{color:N}}/>
                 </div>
-                <div className="flex-1 text-left" style={{position:"relative",zIndex:2}}>
-                  <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,fontWeight:700,color:N,
-                    letterSpacing:"1px",lineHeight:1}}>CREATE LEAGUE</div>
-                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"rgba(255,255,255,.3)",marginTop:3}}>
-                    Initialize a new arena
+                <div className="flex-1 text-left">
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:700,color:N,lineHeight:1}}>Create League</div>
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(255,255,255,.35)",marginTop:3}}>
+                    Start a new league from scratch
                   </div>
                 </div>
-                <ChevronRight size={16} style={{color:`${N}66`,flexShrink:0,position:"relative",zIndex:2}}/>
+                <ChevronRight size={18} style={{color:`${N}55`,flexShrink:0}}/>
               </motion.button>
 
-              <motion.button whileHover={{scale:1.01}} whileTap={{scale:.98}}
+              <motion.button whileHover={{scale:1.015,y:-1}} whileTap={{scale:.98}}
                 onClick={()=>{setShowJoin(true);setJoinErr("");}}
-                style={{...hudCard("#3B8EFF",{padding:"13px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12})}}>
-                <Scanlines/>
-                <div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",
-                  borderWidth:"0 12px 12px 0",borderColor:"transparent rgba(59,142,255,.3) transparent transparent"}}/>
-                <div style={{width:34,height:34,borderRadius:3,display:"flex",alignItems:"center",justifyContent:"center",
-                  background:"rgba(59,142,255,.15)",border:"1px solid rgba(59,142,255,.4)",flexShrink:0,position:"relative",zIndex:2}}>
-                  <Hash size={18} style={{color:"#3B8EFF"}}/>
+                style={{width:"100%",padding:"15px 18px",borderRadius:20,cursor:"pointer",
+                  display:"flex",alignItems:"center",gap:14,
+                  background:"rgba(59,142,255,.07)",border:"1.5px solid rgba(59,142,255,.45)",
+                  boxShadow:"0 4px 20px rgba(59,142,255,.08)"}}>
+                <div style={{width:40,height:40,borderRadius:14,display:"flex",alignItems:"center",justifyContent:"center",
+                  background:"rgba(59,142,255,.15)",flexShrink:0}}>
+                  <Hash size={20} style={{color:"#3B8EFF"}}/>
                 </div>
-                <div className="flex-1 text-left" style={{position:"relative",zIndex:2}}>
-                  <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,fontWeight:700,color:"#3B8EFF",
-                    letterSpacing:"1px",lineHeight:1}}>JOIN BY CODE</div>
-                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"rgba(255,255,255,.3)",marginTop:3}}>
-                    Enter access credentials
+                <div className="flex-1 text-left">
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:700,color:"#3B8EFF",lineHeight:1}}>Join by Code</div>
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(255,255,255,.35)",marginTop:3}}>
+                    Enter a 6-character invite code
                   </div>
                 </div>
-                <ChevronRight size={16} style={{color:"rgba(59,142,255,.5)",flexShrink:0,position:"relative",zIndex:2}}/>
+                <ChevronRight size={18} style={{color:"rgba(59,142,255,.5)",flexShrink:0}}/>
               </motion.button>
             </div>
 
-            {/* ── LEAGUE TILES ────────────────────────────────── */}
-            {sectionLabel("ACTIVE OPERATIONS")}
+            {/* ── MY LEAGUES ──────────────────────────────────── */}
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:"2px",color:"rgba(255,255,255,.3)",
+              fontFamily:"'DM Sans',sans-serif",marginBottom:12}}>MY LEAGUES</div>
+
             {leagues.length === 0 ? (
-              <div style={{...hudCard("rgba(255,255,255,.1)",{padding:"32px 16px",textAlign:"center",marginBottom:14})}}>
-                <Scanlines/>
-                <div style={{fontSize:24,marginBottom:8,position:"relative",zIndex:2}}>📡</div>
-                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:14,letterSpacing:"3px",
-                  color:"rgba(255,255,255,.15)",marginBottom:4,position:"relative",zIndex:2}}>NO LEAGUES FOUND</div>
-                <div style={{fontSize:11,color:"rgba(255,255,255,.2)",fontFamily:"'DM Sans',sans-serif",
-                  position:"relative",zIndex:2}}>Create or join a league above</div>
+              <div style={{borderRadius:20,padding:"36px 20px",textAlign:"center",
+                background:"rgba(255,255,255,.03)",border:"1.5px dashed rgba(255,255,255,.1)",marginBottom:24}}>
+                <div style={{fontSize:28,marginBottom:8}}>🏟️</div>
+                <div style={{fontSize:14,fontWeight:600,color:"rgba(255,255,255,.25)",
+                  fontFamily:"'DM Sans',sans-serif",marginBottom:4}}>No leagues yet</div>
+                <div style={{fontSize:12,color:"rgba(255,255,255,.18)",fontFamily:"'DM Sans',sans-serif"}}>
+                  Create or join one above
+                </div>
               </div>
             ) : (
-              <div className="flex flex-col gap-2 mb-5">
+              <div className="flex flex-col gap-3 mb-7">
                 {leagues.map((lg, i) => {
                   const rankInfo   = leagueRanks[lg.id];
                   const rankNum    = rankInfo?.rank;
                   const medalData  = rankNum ? medal(rankNum) : null;
                   const sportEmoji = getSportEmoji(lg);
-                  const glowDelay  = i * 0.7;
+                  const glowDelay  = i * 0.8;
                   return (
-                    <motion.div key={lg.id} className="hub-tile"
+                    <motion.div key={lg.id}
                       whileTap={{scale:.98}}
                       animate={{ boxShadow:[
-                        `0 0 0 0 rgba(170,255,0,0), 0 0 0 1px ${N}18`,
-                        `0 0 28px 3px rgba(170,255,0,.16), 0 0 0 1px ${N}33`,
-                        `0 0 0 0 rgba(170,255,0,0), 0 0 0 1px ${N}18`,
+                        `0 0 0 0 rgba(170,255,0,0), 0 2px 12px rgba(0,0,0,.3)`,
+                        `0 0 22px 2px rgba(170,255,0,.12), 0 2px 12px rgba(0,0,0,.3)`,
+                        `0 0 0 0 rgba(170,255,0,0), 0 2px 12px rgba(0,0,0,.3)`,
                       ]}}
                       transition={{ boxShadow:{ duration:3.5,repeat:Infinity,ease:"easeInOut",delay:glowDelay },
                         scale:{type:"spring",stiffness:400,damping:22} }}
                       onClick={()=>onEnter(lg)}
-                      style={{...hudCard(N,{padding:"12px 14px",cursor:"pointer"})}}>
-                      <Scanlines/>
-                      {/* Folded corner */}
-                      <div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",
-                        borderWidth:"0 14px 14px 0",borderColor:`transparent ${N}44 transparent transparent`}}/>
-                      {/* Bottom-left corner */}
-                      <div style={{position:"absolute",bottom:0,left:0,width:0,height:0,borderStyle:"solid",
-                        borderWidth:"0 0 14px 14px",borderColor:`transparent transparent ${N}18 transparent`}}/>
-
-                      <div className="flex items-center gap-3 relative" style={{zIndex:2}}>
-                        {/* Sport icon */}
-                        <div style={{width:38,height:38,borderRadius:3,display:"flex",alignItems:"center",
-                          justifyContent:"center",background:"rgba(170,255,0,.06)",
-                          border:`1px solid ${N}33`,fontSize:18,flexShrink:0}}>
+                      style={{borderRadius:20,padding:"14px 16px",cursor:"pointer",
+                        background:"rgba(255,255,255,.04)",border:"1.5px solid rgba(255,255,255,.08)"}}>
+                      <div className="flex items-center gap-3">
+                        <div style={{width:44,height:44,borderRadius:14,display:"flex",alignItems:"center",
+                          justifyContent:"center",background:"rgba(170,255,0,.08)",
+                          border:"1px solid rgba(170,255,0,.2)",fontSize:20,flexShrink:0}}>
                           {sportEmoji}
                         </div>
-                        {/* Info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="hub-tile-name" style={{fontFamily:"'JetBrains Mono',monospace",
-                              fontSize:13,fontWeight:700,letterSpacing:"1px",color:"#fff",lineHeight:1}}>
-                              {lg.name.toUpperCase()}
+                            <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:700,
+                              color:"#fff",lineHeight:1}}>
+                              {lg.name || "League"}
                             </span>
                             {rankNum && (
                               <span style={{
-                                fontSize:10,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",
+                                fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",
                                 color: medalData ? medalData.c : `${N}88`,
                                 background: medalData ? `${medalData.c}18` : `${N}0A`,
-                                border: `1px solid ${medalData ? `${medalData.c}55` : `${N}33`}`,
-                                borderRadius:2,padding:"1px 5px",lineHeight:"16px",
+                                border: `1px solid ${medalData ? `${medalData.c}44` : `${N}2A`}`,
+                                borderRadius:8,padding:"1px 7px",lineHeight:"18px",
                               }}>
                                 {medalData ? medalData.e : `#${rankNum}`}
                               </span>
                             )}
                           </div>
-                          <div style={{fontSize:10,color:"rgba(255,255,255,.32)",
-                            fontFamily:"'JetBrains Mono',monospace",marginTop:3,letterSpacing:"0.5px"}}>
-                            {lg.sport || "SPORT"}{rankInfo ? `  ·  ${rankInfo.total} PLAYERS` : ""}
+                          <div style={{fontSize:11,color:"rgba(255,255,255,.3)",
+                            fontFamily:"'DM Sans',sans-serif",marginTop:3}}>
+                            {lg.sport || "Sport"}{rankInfo ? ` · ${rankInfo.total} players` : ""}
                           </div>
                         </div>
-                        <ChevronRight size={16} style={{color:`${N}44`,flexShrink:0}}/>
+                        <ChevronRight size={16} style={{color:"rgba(255,255,255,.2)",flexShrink:0}}/>
                       </div>
                     </motion.div>
                   );
@@ -4180,42 +4034,38 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
             {lastMatch && (() => {
               const isWin   = lastMatch.isWin;
               const ac      = isWin ? N : "#FF3355";
-              const badgeBg = isWin ? `${N}18` : "rgba(255,51,85,.18)";
+              const bgTint  = isWin ? "rgba(170,255,0,.05)" : "rgba(255,51,85,.05)";
+              const bdrTint = isWin ? "rgba(170,255,0,.25)" : "rgba(255,51,85,.25)";
               return (
-                <div style={{marginBottom:14}}>
-                  {sectionLabel("LAST COMBAT LOG", ac)}
-                  <div style={{...hudCard(ac,{padding:"12px 14px"})}}>
-                    <Scanlines/>
-                    <div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",
-                      borderWidth:`0 14px 14px 0`,borderColor:`transparent ${ac}44 transparent transparent`}}/>
-                    <div className="flex items-start gap-3 relative" style={{zIndex:2}}>
+                <div style={{marginBottom:24}}>
+                  <div style={{fontSize:11,fontWeight:700,letterSpacing:"2px",color:"rgba(255,255,255,.3)",
+                    fontFamily:"'DM Sans',sans-serif",marginBottom:12}}>LAST MATCH</div>
+                  <div style={{borderRadius:20,padding:"14px 16px",background:bgTint,border:`1.5px solid ${bdrTint}`}}>
+                    <div className="flex items-start gap-3">
                       <div className="flex-1 min-w-0">
-                        <div style={{fontSize:13,fontWeight:800,color:"#fff",fontFamily:"'DM Sans',sans-serif",
-                          whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-                          {lastMatch.winner} <span style={{color:"rgba(255,255,255,.25)",fontWeight:400}}>vs</span> {lastMatch.loser}
+                        <div style={{fontSize:14,fontWeight:700,color:"#fff",fontFamily:"'DM Sans',sans-serif",
+                          whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginBottom:3}}>
+                          {lastMatch.winner} <span style={{color:"rgba(255,255,255,.25)",fontWeight:400,fontSize:12}}>vs</span> {lastMatch.loser}
                         </div>
-                        <div style={{fontSize:10,color:"rgba(255,255,255,.35)",
-                          fontFamily:"'JetBrains Mono',monospace",marginTop:4,letterSpacing:"0.5px"}}>
-                          {lastMatch.lgName.toUpperCase()}  ·  {relativeTime(lastMatch.date)}
+                        <div style={{fontSize:11,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>
+                          {lastMatch.lgName || ""}  ·  {relativeTime(lastMatch.date)}
                         </div>
-                        {/* Sparkline */}
                         {lastMatch.sets.length >= 2 && (
                           <div style={{marginTop:8}}>
                             <SetSparkline sets={lastMatch.sets} isWin={isWin}/>
-                            <div style={{fontSize:9,color:"rgba(255,255,255,.2)",fontFamily:"'JetBrains Mono',monospace",
-                              marginTop:4,letterSpacing:"1px"}}>
+                            <div style={{fontSize:10,color:"rgba(255,255,255,.2)",fontFamily:"'DM Sans',sans-serif",marginTop:3}}>
                               {lastMatch.sets.join("  ·  ")}
                             </div>
                           </div>
                         )}
                       </div>
-                      {/* Badge */}
-                      <div style={{flexShrink:0,borderRadius:3,padding:"8px 10px",display:"flex",
+                      <div style={{flexShrink:0,borderRadius:12,padding:"8px 12px",display:"flex",
                         flexDirection:"column",alignItems:"center",justifyContent:"center",
-                        background:badgeBg,border:`1.5px solid ${ac}55`,minWidth:48}}>
-                        <span style={{fontSize:16,lineHeight:1}}>{isWin?"🏆":"😤"}</span>
-                        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,fontWeight:700,
-                          color:ac,letterSpacing:"1px",marginTop:4}}>{isWin?"WIN":"LOSS"}</span>
+                        background: isWin ? `${N}14` : "rgba(255,51,85,.14)",
+                        border: `1.5px solid ${ac}44`,minWidth:50}}>
+                        <span style={{fontSize:18,lineHeight:1}}>{isWin?"🏆":"😤"}</span>
+                        <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,fontWeight:700,
+                          color:ac,letterSpacing:"0.5px",marginTop:4}}>{isWin?"WIN":"LOSS"}</span>
                       </div>
                     </div>
                   </div>
@@ -4223,79 +4073,43 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
               );
             })()}
 
-            {/* ── NEXT CHALLENGE ──────────────────────────────── */}
+            {/* ── NEXT CHALLENGE / FALLBACK ────────────────────── */}
             {(nextChallenge || fallbackFact) && (() => {
               if (nextChallenge) {
-                const { rivalName, myWins, rivalWins } = nextChallenge;
+                const { name: rivalName, myWins, rivalWins } = nextChallenge;
                 const tied    = myWins === rivalWins;
                 const leading = myWins > rivalWins;
                 const ac      = tied ? "#FFB830" : leading ? N : "#FF3355";
                 const cta     = tied ? "All square — who breaks first?" : leading ? "You're ahead. Defend it." : "Schedule revenge?";
                 return (
-                  <div style={{marginBottom:14}}>
-                    {sectionLabel("THREAT ASSESSMENT", ac)}
-                    <div style={{...hudCard(ac,{padding:"12px 14px"})}}>
-                      <Scanlines/>
-                      <div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",
-                        borderWidth:`0 14px 14px 0`,borderColor:`transparent ${ac}44 transparent transparent`}}/>
-                      <div style={{position:"relative",zIndex:2}}>
-                        <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,
-                          color:"rgba(255,255,255,.8)",lineHeight:1.55}}>
-                          Rivalry with{" "}
-                          <span style={{fontWeight:900,color:"#fff"}}>{rivalName}</span>
-                          {" "}stands at{" "}
-                          <span style={{fontWeight:900,color:ac,fontFamily:"'JetBrains Mono',monospace"}}>
-                            {myWins}–{rivalWins}
-                          </span>
-                        </div>
-                        <div style={{fontSize:11,fontWeight:700,color:ac,fontFamily:"'DM Sans',sans-serif",marginTop:6}}>
-                          {cta} →
-                        </div>
+                  <div style={{marginBottom:24}}>
+                    <div style={{fontSize:11,fontWeight:700,letterSpacing:"2px",color:"rgba(255,255,255,.3)",
+                      fontFamily:"'DM Sans',sans-serif",marginBottom:12}}>NEXT CHALLENGE</div>
+                    <div style={{borderRadius:20,padding:"14px 16px",background:`${ac}08`,border:`1.5px solid ${ac}33`}}>
+                      <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,
+                        color:"rgba(255,255,255,.75)",lineHeight:1.55,marginBottom:6}}>
+                        Rivalry with{" "}
+                        <span style={{fontWeight:800,color:"#fff"}}>{rivalName || "?"}</span>
+                        {" "}stands at{" "}
+                        <span style={{fontWeight:800,color:ac}}>{myWins}–{rivalWins}</span>
+                      </div>
+                      <div style={{fontSize:12,fontWeight:700,color:ac,fontFamily:"'DM Sans',sans-serif"}}>
+                        {cta} →
                       </div>
                     </div>
                   </div>
                 );
               }
               return (
-                <div style={{...hudCard(N,{padding:"12px 14px",marginBottom:14})}}>
-                  <Scanlines/>
-                  <div style={{fontSize:9,fontWeight:700,letterSpacing:"2.5px",color:`${N}66`,
-                    fontFamily:"'JetBrains Mono',monospace",marginBottom:6,position:"relative",zIndex:2}}>INTEL</div>
-                  <div style={{fontSize:12,fontWeight:600,color:"rgba(255,255,255,.7)",
-                    fontFamily:"'DM Sans',sans-serif",lineHeight:1.5,position:"relative",zIndex:2}}>{fallbackFact}</div>
+                <div style={{borderRadius:20,padding:"14px 16px",marginBottom:24,
+                  background:"rgba(255,255,255,.03)",border:"1.5px solid rgba(255,255,255,.08)"}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:"2px",color:"rgba(255,255,255,.25)",
+                    fontFamily:"'DM Sans',sans-serif",marginBottom:6}}>DID YOU KNOW</div>
+                  <div style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.6)",
+                    fontFamily:"'DM Sans',sans-serif",lineHeight:1.5}}>{fallbackFact}</div>
                 </div>
               );
             })()}
-
-            {/* bottom spacer for ticker */}
-            <div style={{height:40}}/>
-          </div>
-
-          {/* ── LIVE TICKER ─────────────────────────────────── */}
-          <div style={{height:32,flexShrink:0,background:"rgba(0,0,0,.7)",borderTop:`1px solid ${N}33`,
-            overflow:"hidden",display:"flex",alignItems:"center",position:"relative"}}>
-            {/* Left mask */}
-            <div style={{position:"absolute",left:0,top:0,bottom:0,width:24,
-              background:`linear-gradient(to right,${BG},transparent)`,zIndex:2}}/>
-            {/* Right mask */}
-            <div style={{position:"absolute",right:0,top:0,bottom:0,width:24,
-              background:`linear-gradient(to left,${BG},transparent)`,zIndex:2}}/>
-            <div style={{
-              display:"flex",gap:0,
-              animation:"hub-ticker 28s linear infinite",
-              whiteSpace:"nowrap",
-              willChange:"transform",
-            }}>
-              {tickerItems.map((item, i) => (
-                <span key={i} style={{
-                  fontFamily:"'JetBrains Mono',monospace",fontSize:9,fontWeight:700,letterSpacing:"1.5px",
-                  color:`${N}88`,padding:"0 20px",display:"inline-flex",alignItems:"center",gap:8,
-                }}>
-                  <span style={{color:`${N}44`,fontSize:8}}>◆</span>
-                  {item}
-                </span>
-              ))}
-            </div>
           </div>
 
         </div>
@@ -4306,49 +4120,45 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
         {showJoin&&(
           <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
             className="fixed inset-0 z-50 flex items-end justify-center"
-            style={{background:"rgba(0,0,0,.8)",backdropFilter:"blur(6px)"}}
+            style={{background:"rgba(0,0,0,.8)",backdropFilter:"blur(8px)"}}
             onClick={e=>{if(e.target===e.currentTarget)setShowJoin(false)}}>
             <motion.div initial={{y:"100%"}} animate={{y:0}} exit={{y:"100%"}} transition={{type:"spring",damping:28,stiffness:300}}
               className="w-full overflow-hidden"
-              style={{maxWidth:430,background:"#080A0D",borderTop:`1.5px solid ${N}44`,
-                boxShadow:`0 0 40px ${N}22`}}>
-              <div style={{height:3,background:`linear-gradient(90deg,transparent,${N},transparent)`}}/>
-              <div className="flex justify-center pt-3 pb-1">
-                <div style={{width:36,height:3,borderRadius:0,background:`${N}33`}}/>
+              style={{maxWidth:430,background:"#0D0F12",borderRadius:"24px 24px 0 0",
+                border:`1.5px solid rgba(170,255,0,.25)`,borderBottom:"none",
+                boxShadow:`0 -12px 48px rgba(170,255,0,.1)`}}>
+              <div className="flex justify-center pt-4 pb-2">
+                <div style={{width:36,height:4,borderRadius:2,background:"rgba(255,255,255,.15)"}}/>
               </div>
-              <div className="flex items-center justify-between px-5 py-3" style={{borderBottom:`1px solid ${N}22`}}>
-                <div>
-                  <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,letterSpacing:"3px",color:`${N}55`,marginBottom:2}}>ACCESS TERMINAL</div>
-                  <h3 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"3px",color:"#fff"}}>
-                    JOIN <span style={{color:"#3B8EFF"}}>LEAGUE</span>
-                  </h3>
-                </div>
+              <div className="flex items-center justify-between px-6 py-3">
+                <h3 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:24,letterSpacing:"3px",color:"#fff"}}>
+                  Join <span style={{color:"#3B8EFF"}}>League</span>
+                </h3>
                 <button onClick={()=>setShowJoin(false)} style={{
                   display:"flex",alignItems:"center",justifyContent:"center",
-                  width:30,height:30,borderRadius:3,
-                  background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.12)"}}>
+                  width:32,height:32,borderRadius:16,
+                  background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.12)"}}>
                   <X size={14} style={{color:"rgba(255,255,255,.5)"}}/>
                 </button>
               </div>
-              <div style={{padding:"16px 20px 28px"}}>
-                <p style={{fontSize:10,color:"rgba(255,255,255,.3)",fontFamily:"'JetBrains Mono',monospace",
-                  letterSpacing:"1px",marginBottom:10}}>ENTER ACCESS CODE</p>
+              <div style={{padding:"8px 24px 36px"}}>
+                <p style={{fontSize:12,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginBottom:12}}>
+                  Enter the invite code shared with you
+                </p>
                 <input autoFocus type="text" value={joinCode}
                   onChange={e=>{setJoinCode(e.target.value.toUpperCase());setJoinErr("");}}
                   onKeyDown={e=>e.key==="Enter"&&handleJoin()}
                   placeholder="ABC123" maxLength={12}
-                  style={{width:"100%",borderRadius:3,padding:"13px 14px",marginBottom:6,outline:"none",
-                    fontFamily:"'JetBrains Mono',monospace",fontSize:16,letterSpacing:"4px",fontWeight:700,
-                    background:"rgba(170,255,0,.04)",
-                    border:`1.5px solid ${joinErr?"#FF3355":joinCode?N:"rgba(170,255,0,.2)"}`,
-                    color:"#fff",caretColor:N,
-                    boxShadow:joinCode?`0 0 12px ${N}22`:"none"}}/>
-                {joinErr&&<p style={{fontSize:10,color:"#FF3355",fontFamily:"'JetBrains Mono',monospace",
-                  letterSpacing:"0.5px",marginBottom:10}}>{joinErr}</p>}
+                  style={{width:"100%",borderRadius:16,padding:"14px 16px",marginBottom:8,outline:"none",
+                    fontFamily:"'DM Sans',sans-serif",fontSize:18,letterSpacing:"4px",fontWeight:700,
+                    background:"rgba(255,255,255,.05)",
+                    border:`1.5px solid ${joinErr?"#FF3355":joinCode?N:"rgba(255,255,255,.15)"}`,
+                    color:"#fff",caretColor:N}}/>
+                {joinErr&&<p style={{fontSize:11,color:"#FF3355",fontFamily:"'DM Sans',sans-serif",marginBottom:10}}>{joinErr}</p>}
                 <div style={{height:joinErr?0:10}}/>
                 <PBtn onClick={handleJoin} disabled={!joinCode.trim()||saving}
-                  style={{background:"linear-gradient(135deg,#3B8EFF,#1A5FCC)",borderRadius:3}}>
-                  {saving?"JOINING…":"ENTER ARENA"}
+                  style={{background:"linear-gradient(135deg,#3B8EFF,#1A5FCC)",borderRadius:16}}>
+                  {saving?"Joining…":"Join League"}
                 </PBtn>
               </div>
             </motion.div>
@@ -4518,7 +4328,7 @@ export default function Root() {
       ]);
       setActiveData({
         leagueId:       league.id,
-        leagueName:     league.name.toUpperCase(),
+        leagueName:     (league.name || "").toUpperCase(),
         initialPlayers: (pData || []).map(r => rowToPlayer(r, user?.id)),
         initialFeed:    (mData || []).map(m => ({ id: m.id, ...m.score })),
         ownerId:        league.owner_id || league.created_by || null,
