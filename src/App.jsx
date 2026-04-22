@@ -3688,9 +3688,78 @@ function getSportEmoji(league) {
 
 const HUB_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
+// Sparkline — score per set as a polyline SVG
+function SetSparkline({ sets, isWin }) {
+  if (!sets || sets.length < 2) return null;
+  const color = isWin ? N : "#FF3355";
+  const pts = sets.map(s => {
+    const [a, b] = String(s).split("-").map(Number);
+    if (isNaN(a) || isNaN(b)) return 0;
+    return isWin ? Math.max(a, b) : Math.min(a, b);
+  });
+  const W = 76, H = 28, pad = 3;
+  const max = Math.max(...pts, 1);
+  const n = pts.length;
+  const xs = pts.map((_, i) => pad + (i / (n - 1)) * (W - pad * 2));
+  const ys = pts.map(p => H - pad - (p / max) * (H - pad * 2.5));
+  const polyPts = xs.map((x, i) => `${x.toFixed(1)},${ys[i].toFixed(1)}`).join(" ");
+  return (
+    <svg width={W} height={H} style={{ overflow: "visible", display: "block" }}>
+      <polyline points={polyPts} fill="none" stroke={color} strokeWidth={1.5}
+        strokeLinecap="round" strokeLinejoin="round"
+        style={{ filter: `drop-shadow(0 0 4px ${color}99)` }} />
+      {xs.map((x, i) => (
+        <circle key={i} cx={x} cy={ys[i]} r={2.5} fill={color}
+          style={{ filter: `drop-shadow(0 0 5px ${color})` }} />
+      ))}
+    </svg>
+  );
+}
+
+// Scanline overlay — reused on every HUD card
+function Scanlines() {
+  return (
+    <div className="absolute inset-0 pointer-events-none" style={{
+      backgroundImage: "repeating-linear-gradient(0deg,transparent 0px,transparent 3px,rgba(0,0,0,0.07) 3px,rgba(0,0,0,0.07) 4px)",
+      zIndex: 1,
+    }}/>
+  );
+}
+
 // ─────────────────────────────────────────────
-// LEAGUE HUB
+// LEAGUE HUB  (Combat HUD)
 // ─────────────────────────────────────────────
+const HUB_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;background:#0A0A0A;}
+  ::-webkit-scrollbar{display:none;}
+
+  @keyframes hub-pulse-dot {
+    0%,100%{opacity:1;box-shadow:0 0 6px #AAFF00,0 0 12px #AAFF0055}
+    50%{opacity:.35;box-shadow:0 0 2px #AAFF00}
+  }
+  @keyframes hub-ovr-flicker {
+    0%,92%,100%{opacity:1}
+    93%{opacity:.7}  95%{opacity:1}  97%{opacity:.85}  99%{opacity:1}
+  }
+  @keyframes hub-glitch {
+    0%,90%,100%{transform:translateX(0) skewX(0deg);opacity:1}
+    91%{transform:translateX(-3px) skewX(-1.5deg);opacity:.85}
+    92%{transform:translateX(3px)  skewX(1.5deg);opacity:.9}
+    94%{transform:translateX(-1px) skewX(0deg);opacity:1}
+  }
+  @keyframes hub-ticker {
+    from{transform:translateX(0)} to{transform:translateX(-50%)}
+  }
+  @keyframes hub-card-sweep {
+    0%{background-position:200% center}
+    100%{background-position:-200% center}
+  }
+  .hub-tile-name { animation: hub-glitch 7s ease-in-out infinite; }
+  .hub-tile:hover .hub-tile-name { animation: hub-glitch 0.35s ease-in-out; }
+`;
+
 function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }) {
   const [showJoin,      setShowJoin]      = useState(false);
   const [joinCode,      setJoinCode]      = useState("");
@@ -3700,6 +3769,7 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
   const [nextChallenge, setNextChallenge] = useState(null);
   const [leagueRanks,   setLeagueRanks]   = useState({});
   const [hubStats,      setHubStats]      = useState(null);
+  const [ovr,           setOvr]           = useState(null);
 
   const displayName  = user?.user_metadata?.full_name || user?.email || "Player";
   const firstName    = displayName.split(" ")[0].toUpperCase();
@@ -3707,13 +3777,11 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
   const initials     = displayName.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join("");
   const currentMonth = HUB_MONTHS[new Date().getMonth()].toUpperCase();
 
-  // Fetch last match, league ranks, rival data
   useEffect(() => {
     if (!leagues.length || !user) return;
     const ids = leagues.map(l => l.id);
     (async () => {
       try {
-        // All of the user's player rows + all players in their leagues (for rank)
         const [{ data: myPlayerRows }, { data: allPlayerRows }] = await Promise.all([
           supabase.from("players").select("id,league_id").in("league_id", ids).eq("user_id", user.id),
           supabase.from("players").select("id,league_id,user_id,name,stats,is_me").in("league_id", ids),
@@ -3721,39 +3789,47 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
         const playerIds = (myPlayerRows || []).map(p => p.id);
         if (!playerIds.length) return;
 
-        // Recent matches
-        const { data: matches } = await supabase.from("matches").select("*")
-          .in("league_id", ids).order("date", { ascending: false }).limit(100);
-
         // ── League ranks ──────────────────────────────────────────────
         const ranks = {};
         for (const league of leagues) {
-          const lgRows = (allPlayerRows || []).filter(r => r.league_id === league.id);
+          const lgRows    = (allPlayerRows || []).filter(r => r.league_id === league.id);
           const lgPlayers = lgRows.map(r => rowToPlayer(r, user.id));
-          const sorted = byWins(lgPlayers);
-          const myIdx = sorted.findIndex(p => p.isMe);
+          const sorted    = byWins(lgPlayers);
+          const myIdx     = sorted.findIndex(p => p.isMe);
           if (myIdx >= 0) ranks[league.id] = { rank: myIdx + 1, total: sorted.length };
         }
         setLeagueRanks(ranks);
 
+        // ── OVR rating across all leagues ──────────────────────────────
+        const myRows  = (allPlayerRows || []).filter(r => r.user_id === user.id);
+        const totW    = myRows.reduce((s, r) => s + (r.stats?.wins       || 0), 0);
+        const totL    = myRows.reduce((s, r) => s + (r.stats?.losses     || 0), 0);
+        const totP    = totW + totL;
+        const totC    = myRows.reduce((s, r) => s + (r.stats?.clutchWins || 0), 0);
+        const totCB   = myRows.reduce((s, r) => s + (r.stats?.comebacks  || 0), 0);
+        const wr      = totP > 0 ? (totW / totP) * 100 : 0;
+        if (totP > 0) {
+          const winComp    = (wr / 100) * 50;
+          const expComp    = Math.min(totP, 60) / 60 * 25;
+          const clutchComp = Math.min(totC + totCB, 15) / 15 * 24;
+          setOvr(Math.min(99, Math.max(1, Math.round(winComp + expComp + clutchComp))));
+        }
+
+        // ── Matches ───────────────────────────────────────────────────
+        const { data: matches } = await supabase.from("matches").select("*")
+          .in("league_id", ids).order("date", { ascending: false }).limit(100);
         if (!matches?.length) return;
         const userMatches = matches.filter(m => playerIds.includes(m.winner_id) || playerIds.includes(m.loser_id));
         if (!userMatches.length) return;
 
-        // ── Last match ────────────────────────────────────────────────
-        const lm    = userMatches[0];
+        // Last match
+        const lm     = userMatches[0];
         const lgName = leagues.find(l => l.id === lm.league_id)?.name || "League";
         const isWin  = playerIds.includes(lm.winner_id);
-        setLastMatch({
-          winner:  lm.score?.winner  || "?",
-          loser:   lm.score?.loser   || "?",
-          sets:    lm.score?.sets    || [],
-          date:    lm.date           || null,
-          isWin,
-          lgName,
-        });
+        setLastMatch({ winner: lm.score?.winner || "?", loser: lm.score?.loser || "?",
+          sets: lm.score?.sets || [], date: lm.date || null, isWin, lgName });
 
-        // ── Hub stats (for fallback card) ─────────────────────────────
+        // Hub stats
         const now = new Date();
         const thisMonthCount = userMatches.filter(m => {
           const d = new Date(m.date);
@@ -3763,16 +3839,15 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
         for (const m of userMatches) { if (playerIds.includes(m.winner_id)) streak++; else break; }
         setHubStats({ total: userMatches.length, thisMonth: thisMonthCount, winStreak: streak, leagueCount: leagues.length });
 
-        // ── Rival / Next Challenge ────────────────────────────────────
+        // Rival
         const rivalMap = {};
         for (const m of userMatches) {
-          const userWon    = playerIds.includes(m.winner_id);
-          const oppId      = userWon ? m.loser_id  : m.winner_id;
-          const oppName    = userWon ? (m.score?.loser || "?") : (m.score?.winner || "?");
+          const userWon = playerIds.includes(m.winner_id);
+          const oppId   = userWon ? m.loser_id  : m.winner_id;
+          const oppName = userWon ? (m.score?.loser || "?") : (m.score?.winner || "?");
           if (!oppId || oppName === "?") continue;
           if (!rivalMap[oppId]) rivalMap[oppId] = { name: oppName, myWins: 0, rivalWins: 0 };
-          if (userWon) rivalMap[oppId].myWins++;
-          else         rivalMap[oppId].rivalWins++;
+          if (userWon) rivalMap[oppId].myWins++; else rivalMap[oppId].rivalWins++;
         }
         const rivals = Object.values(rivalMap)
           .filter(r => r.myWins + r.rivalWins >= 2)
@@ -3782,16 +3857,33 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
     })();
   }, [leagues, user]);
 
-  // Fallback "Did You Know" facts when no rival exists yet
+  // Ticker items
+  const tickerItems = useMemo(() => {
+    const base = [];
+    if (lastMatch) base.push(`LAST MATCH ▸ ${lastMatch.winner.toUpperCase()} DEF. ${lastMatch.loser.toUpperCase()}  ${lastMatch.sets.join(" ")}`);
+    if (hubStats?.winStreak >= 2) base.push(`${hubStats.winStreak}✕ WIN STREAK ACTIVE`);
+    leagues.forEach(lg => {
+      const r = leagueRanks[lg.id];
+      if (r) base.push(`${getSportEmoji(lg)} ${lg.name.toUpperCase()} · RANK #${r.rank} / ${r.total}`);
+    });
+    if (nextChallenge) base.push(`⚔️ RIVALRY: ${nextChallenge.rivalName.toUpperCase()} ${nextChallenge.myWins}–${nextChallenge.rivalWins}`);
+    if (hubStats?.total) base.push(`${hubStats.total} MATCHES LOGGED`);
+    base.push(`THE ${currentMonth} SEASON IS LIVE`);
+    if (ovr) base.push(`OVR RATING: ${ovr}`);
+    const items = base.length ? base : ["LEAGUE-IT SYSTEM ONLINE", "THE ARENA AWAITS"];
+    return [...items, ...items]; // duplicate for seamless loop
+  }, [lastMatch, hubStats, leagues, leagueRanks, nextChallenge, ovr, currentMonth]);
+
+  // Fallback card fact
   const fallbackFact = useMemo(() => {
     if (!hubStats) return null;
     const pool = [];
-    if (hubStats.winStreak >= 3) pool.push(`You're on a ${hubStats.winStreak}-match win streak 🔥`);
-    else if (hubStats.winStreak === 2) pool.push(`Two wins in a row — keep it going ⚡`);
-    if (hubStats.thisMonth > 0) pool.push(`You've played ${hubStats.thisMonth} match${hubStats.thisMonth>1?"es":""} this month 📅`);
-    if (hubStats.total >= 10) pool.push(`${hubStats.total} matches logged — you're a regular 🏆`);
-    if (hubStats.leagueCount > 1) pool.push(`Competing in ${hubStats.leagueCount} leagues simultaneously 🎯`);
-    if (!pool.length && hubStats.total > 0) pool.push(`${hubStats.total} total match${hubStats.total>1?"es":""} logged across all leagues`);
+    if (hubStats.winStreak >= 3) pool.push(`${hubStats.winStreak}-match win streak 🔥`);
+    else if (hubStats.winStreak === 2) pool.push(`Two wins in a row ⚡`);
+    if (hubStats.thisMonth > 0) pool.push(`${hubStats.thisMonth} match${hubStats.thisMonth>1?"es":""} played this month`);
+    if (hubStats.total >= 10) pool.push(`${hubStats.total} total matches logged 🏆`);
+    if (hubStats.leagueCount > 1) pool.push(`Active in ${hubStats.leagueCount} leagues 🎯`);
+    if (!pool.length && hubStats.total > 0) pool.push(`${hubStats.total} total match${hubStats.total>1?"es":""} logged`);
     return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
   }, [hubStats]);
 
@@ -3809,137 +3901,227 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
     }
   };
 
+  // Shared card style — sharp edges + double border
+  const hudCard = (accentColor = N, extraStyle = {}) => ({
+    background:    "rgba(10,10,10,0.85)",
+    border:        `1px solid ${accentColor}55`,
+    boxShadow:     `0 0 0 1px ${accentColor}18, inset 0 0 0 1px ${accentColor}08`,
+    borderRadius:  4,
+    position:      "relative",
+    overflow:      "hidden",
+    ...extraStyle,
+  });
+
+  const sectionLabel = (text, color = N) => (
+    <div style={{ fontSize:9, fontWeight:800, letterSpacing:"3px", color:`${color}88`,
+      fontFamily:"'JetBrains Mono',monospace", marginBottom:8, display:"flex", alignItems:"center", gap:6 }}>
+      <div style={{ flex:1, height:1, background:`${color}22` }}/>
+      {text}
+      <div style={{ flex:1, height:1, background:`${color}22` }}/>
+    </div>
+  );
+
   return (
     <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
-        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-        html,body{height:100%;background:#0A0A0A;}
-        ::-webkit-scrollbar{display:none;}
-      `}</style>
+      <style>{HUB_CSS}</style>
       <div style={{minHeight:"100vh",background:BG,color:"#fff",display:"flex",justifyContent:"center",position:"relative",overflow:"hidden"}}>
         <GridBg/><GlowBlobs/>
         <div style={{width:"100%",maxWidth:430,minHeight:"100vh",display:"flex",flexDirection:"column",position:"relative",zIndex:1}}>
 
-          {/* Header */}
-          <div style={{padding:"20px 20px 0",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-            <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:28,letterSpacing:"4px",color:N,textShadow:"0 0 20px rgba(170,255,0,.4)"}}>LEAGUE-IT</div>
+          {/* ── TOP BAR ─────────────────────────────────────── */}
+          <div style={{padding:"16px 16px 0",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+            {/* Logo + status */}
+            <div>
+              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"5px",color:N,
+                textShadow:"0 0 24px rgba(170,255,0,.6), 0 0 60px rgba(170,255,0,.2)"}}>LEAGUE-IT</div>
+              <div style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}>
+                <div style={{width:6,height:6,borderRadius:"50%",background:N,
+                  animation:"hub-pulse-dot 1.8s ease-in-out infinite",flexShrink:0}}/>
+                <span style={{fontSize:9,fontWeight:700,letterSpacing:"2.5px",
+                  color:"rgba(170,255,0,.55)",fontFamily:"'JetBrains Mono',monospace"}}>SYSTEM ACTIVE</span>
+              </div>
+            </div>
+            {/* Avatar + sign out */}
             <div className="flex items-center gap-2">
               {avatarUrl
-                ? <img src={avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" style={{border:`2px solid ${N}55`}}/>
-                : <div className="w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-black" style={{background:`linear-gradient(135deg,${N},#7DC900)`,color:"#000",fontFamily:"'DM Sans',sans-serif"}}>{initials}</div>
+                ? <img src={avatarUrl} alt="" style={{width:34,height:34,borderRadius:3,objectFit:"cover",
+                    border:`1.5px solid ${N}66`,boxShadow:`0 0 10px ${N}33`}}/>
+                : <div style={{width:34,height:34,borderRadius:3,display:"flex",alignItems:"center",justifyContent:"center",
+                    background:`linear-gradient(135deg,${N},#7DC900)`,color:"#000",fontSize:12,fontWeight:900,fontFamily:"'DM Sans',sans-serif"}}>
+                    {initials}
+                  </div>
               }
-              <button onClick={onSignOut}
-                className="rounded-[10px] px-3 py-1.5 text-[11px] font-bold"
-                style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",color:"rgba(255,255,255,.5)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
-                Sign out
+              <button onClick={onSignOut} style={{
+                borderRadius:3,padding:"5px 10px",fontSize:10,fontWeight:700,cursor:"pointer",
+                background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",
+                color:"rgba(255,255,255,.4)",fontFamily:"'DM Sans',sans-serif",letterSpacing:"0.5px"}}>
+                EXIT
               </button>
             </div>
           </div>
 
-          {/* Welcome + content */}
-          <div style={{padding:"20px 20px 0",flex:1,overflowY:"auto"}}>
+          {/* ── SCROLLABLE CONTENT ──────────────────────────── */}
+          <div style={{padding:"14px 16px 0",flex:1,overflowY:"auto"}}>
 
-            {/* Welcome header */}
-            <div style={{marginBottom:20}}>
-              <div style={{fontSize:11,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",fontWeight:700,letterSpacing:"2px",marginBottom:3}}>
-                WELCOME BACK · THE {currentMonth} SEASON
-              </div>
-              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:32,letterSpacing:"2px",color:"#fff",lineHeight:1}}>
-                {firstName}
+            {/* ── POWER LEVEL HEADER ─────────────────────────── */}
+            <div style={{...hudCard(N,{padding:"14px 16px",marginBottom:14})}}>
+              <Scanlines/>
+              {/* Corner accent */}
+              <div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",
+                borderWidth:"0 18px 18px 0",borderColor:`transparent ${N}55 transparent transparent`}}/>
+              <div style={{position:"absolute",bottom:0,left:0,width:0,height:0,borderStyle:"solid",
+                borderWidth:"0 0 18px 18px",borderColor:`transparent transparent ${N}22 transparent`}}/>
+              <div className="flex items-end gap-4 relative" style={{zIndex:2}}>
+                {/* OVR number */}
+                <div>
+                  <div style={{fontSize:9,fontWeight:700,letterSpacing:"3px",color:`${N}66`,
+                    fontFamily:"'JetBrains Mono',monospace",marginBottom:2}}>OVR</div>
+                  <div style={{
+                    fontFamily:"'JetBrains Mono',monospace",
+                    fontSize: ovr !== null ? 72 : 40,
+                    fontWeight:700,
+                    lineHeight:1,
+                    color: ovr !== null ? N : "rgba(170,255,0,.2)",
+                    textShadow: ovr !== null ? `0 0 30px ${N}88, 0 0 60px ${N}44` : "none",
+                    animation: ovr !== null ? "hub-ovr-flicker 8s ease-in-out infinite" : "none",
+                    letterSpacing:"-2px",
+                    minWidth:80,
+                  }}>
+                    {ovr !== null ? ovr : "—"}
+                  </div>
+                </div>
+                {/* Name + season */}
+                <div style={{paddingBottom:6}}>
+                  <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:28,letterSpacing:"2px",
+                    color:"#fff",lineHeight:1,marginBottom:4}}>{firstName}</div>
+                  <div style={{fontSize:9,fontWeight:700,letterSpacing:"2px",
+                    color:"rgba(255,255,255,.3)",fontFamily:"'JetBrains Mono',monospace"}}>
+                    THE {currentMonth} SEASON
+                  </div>
+                  {hubStats?.total > 0 && (
+                    <div style={{fontSize:9,color:"rgba(255,255,255,.22)",
+                      fontFamily:"'JetBrains Mono',monospace",marginTop:2}}>
+                      {hubStats.total}W+L · {hubStats.thisMonth} THIS MONTH
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Action buttons — create / join */}
-            <div className="flex flex-col gap-3 mb-6">
-              <motion.button whileHover={{scale:1.01,y:-1}} whileTap={{scale:.98}}
+            {/* ── ACTION BUTTONS ──────────────────────────────── */}
+            <div className="flex flex-col gap-2 mb-5">
+              <motion.button whileHover={{scale:1.01}} whileTap={{scale:.98}}
                 onClick={onCreateWizard}
-                className="w-full flex items-center rounded-[18px] px-5 py-4 gap-4"
-                style={{background:`linear-gradient(135deg,${N}1A,${N}0A)`,border:`1px solid ${N}55`,cursor:"pointer"}}>
-                <div className="flex items-center justify-center w-10 h-10 rounded-[12px] flex-shrink-0" style={{background:`${N}22`}}>
-                  <Plus size={20} style={{color:N}}/>
+                style={{...hudCard(N,{padding:"13px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,border:`1px solid ${N}66`})}}>
+                <Scanlines/>
+                <div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",
+                  borderWidth:"0 12px 12px 0",borderColor:`transparent ${N}44 transparent transparent`}}/>
+                <div style={{width:34,height:34,borderRadius:3,display:"flex",alignItems:"center",justifyContent:"center",
+                  background:`${N}18`,border:`1px solid ${N}44`,flexShrink:0,position:"relative",zIndex:2}}>
+                  <Plus size={18} style={{color:N}}/>
                 </div>
-                <div className="flex-1 text-left">
-                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,color:N,lineHeight:1}}>Create League</div>
-                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.35)",marginTop:3}}>Start a new league from scratch</div>
+                <div className="flex-1 text-left" style={{position:"relative",zIndex:2}}>
+                  <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,fontWeight:700,color:N,
+                    letterSpacing:"1px",lineHeight:1}}>CREATE LEAGUE</div>
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"rgba(255,255,255,.3)",marginTop:3}}>
+                    Initialize a new arena
+                  </div>
                 </div>
-                <ChevronRight size={18} style={{color:`${N}88`,flexShrink:0}}/>
+                <ChevronRight size={16} style={{color:`${N}66`,flexShrink:0,position:"relative",zIndex:2}}/>
               </motion.button>
-              <motion.button whileHover={{scale:1.01,y:-1}} whileTap={{scale:.98}}
+
+              <motion.button whileHover={{scale:1.01}} whileTap={{scale:.98}}
                 onClick={()=>{setShowJoin(true);setJoinErr("");}}
-                className="w-full flex items-center rounded-[18px] px-5 py-4 gap-4"
-                style={{background:"rgba(59,142,255,.08)",border:"1px solid rgba(59,142,255,.35)",cursor:"pointer"}}>
-                <div className="flex items-center justify-center w-10 h-10 rounded-[12px] flex-shrink-0" style={{background:"rgba(59,142,255,.15)"}}>
-                  <Hash size={20} style={{color:"#3B8EFF"}}/>
+                style={{...hudCard("#3B8EFF",{padding:"13px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12})}}>
+                <Scanlines/>
+                <div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",
+                  borderWidth:"0 12px 12px 0",borderColor:"transparent rgba(59,142,255,.3) transparent transparent"}}/>
+                <div style={{width:34,height:34,borderRadius:3,display:"flex",alignItems:"center",justifyContent:"center",
+                  background:"rgba(59,142,255,.15)",border:"1px solid rgba(59,142,255,.4)",flexShrink:0,position:"relative",zIndex:2}}>
+                  <Hash size={18} style={{color:"#3B8EFF"}}/>
                 </div>
-                <div className="flex-1 text-left">
-                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,color:"#3B8EFF",lineHeight:1}}>Join by Code</div>
-                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.35)",marginTop:3}}>Enter an invite code to join</div>
+                <div className="flex-1 text-left" style={{position:"relative",zIndex:2}}>
+                  <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,fontWeight:700,color:"#3B8EFF",
+                    letterSpacing:"1px",lineHeight:1}}>JOIN BY CODE</div>
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"rgba(255,255,255,.3)",marginTop:3}}>
+                    Enter access credentials
+                  </div>
                 </div>
-                <ChevronRight size={18} style={{color:"rgba(59,142,255,.5)",flexShrink:0}}/>
+                <ChevronRight size={16} style={{color:"rgba(59,142,255,.5)",flexShrink:0,position:"relative",zIndex:2}}/>
               </motion.button>
             </div>
 
-            {/* League list */}
-            <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginBottom:12}}>MY LEAGUES</div>
+            {/* ── LEAGUE TILES ────────────────────────────────── */}
+            {sectionLabel("ACTIVE OPERATIONS")}
             {leagues.length === 0 ? (
-              <div className="rounded-[20px] py-10 text-center mb-6" style={{background:"rgba(255,255,255,.02)",border:"1px dashed rgba(255,255,255,.1)"}}>
-                <div style={{fontSize:28,marginBottom:8}}>🏆</div>
-                <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:18,letterSpacing:"2px",color:"rgba(255,255,255,.2)",marginBottom:6}}>NO LEAGUES YET</div>
-                <div style={{fontSize:12,color:"rgba(255,255,255,.25)",fontFamily:"'DM Sans',sans-serif"}}>Create one or join with a code above</div>
+              <div style={{...hudCard("rgba(255,255,255,.1)",{padding:"32px 16px",textAlign:"center",marginBottom:14})}}>
+                <Scanlines/>
+                <div style={{fontSize:24,marginBottom:8,position:"relative",zIndex:2}}>📡</div>
+                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:14,letterSpacing:"3px",
+                  color:"rgba(255,255,255,.15)",marginBottom:4,position:"relative",zIndex:2}}>NO LEAGUES FOUND</div>
+                <div style={{fontSize:11,color:"rgba(255,255,255,.2)",fontFamily:"'DM Sans',sans-serif",
+                  position:"relative",zIndex:2}}>Create or join a league above</div>
               </div>
             ) : (
-              <div className="flex flex-col gap-3 mb-6">
+              <div className="flex flex-col gap-2 mb-5">
                 {leagues.map((lg, i) => {
                   const rankInfo   = leagueRanks[lg.id];
                   const rankNum    = rankInfo?.rank;
                   const medalData  = rankNum ? medal(rankNum) : null;
                   const sportEmoji = getSportEmoji(lg);
-                  const glowDelay  = i * 0.6;
+                  const glowDelay  = i * 0.7;
                   return (
-                    <motion.div key={lg.id}
-                      whileHover={{scale:1.015,y:-2}} whileTap={{scale:.98}}
-                      animate={{ boxShadow: [
-                        "0 0 0px 0px rgba(170,255,0,0)",
-                        "0 0 22px 2px rgba(170,255,0,0.13)",
-                        "0 0 0px 0px rgba(170,255,0,0)",
+                    <motion.div key={lg.id} className="hub-tile"
+                      whileTap={{scale:.98}}
+                      animate={{ boxShadow:[
+                        `0 0 0 0 rgba(170,255,0,0), 0 0 0 1px ${N}18`,
+                        `0 0 28px 3px rgba(170,255,0,.16), 0 0 0 1px ${N}33`,
+                        `0 0 0 0 rgba(170,255,0,0), 0 0 0 1px ${N}18`,
                       ]}}
-                      transition={{ boxShadow:{ duration:3.5, repeat:Infinity, ease:"easeInOut", delay:glowDelay }, scale:{type:"spring",stiffness:400,damping:25} }}
+                      transition={{ boxShadow:{ duration:3.5,repeat:Infinity,ease:"easeInOut",delay:glowDelay },
+                        scale:{type:"spring",stiffness:400,damping:22} }}
                       onClick={()=>onEnter(lg)}
-                      className="rounded-[20px] p-4 cursor-pointer relative overflow-hidden"
-                      style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.1)"}}>
-                      <div className="absolute inset-0 pointer-events-none" style={{background:"linear-gradient(135deg,rgba(170,255,0,.04),transparent 60%)"}}/>
-                      <div className="flex items-center gap-3 relative">
-                        {/* Sport emoji icon */}
-                        <div className="flex items-center justify-center rounded-[12px] flex-shrink-0"
-                          style={{width:42,height:42,background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.08)",fontSize:20}}>
+                      style={{...hudCard(N,{padding:"12px 14px",cursor:"pointer"})}}>
+                      <Scanlines/>
+                      {/* Folded corner */}
+                      <div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",
+                        borderWidth:"0 14px 14px 0",borderColor:`transparent ${N}44 transparent transparent`}}/>
+                      {/* Bottom-left corner */}
+                      <div style={{position:"absolute",bottom:0,left:0,width:0,height:0,borderStyle:"solid",
+                        borderWidth:"0 0 14px 14px",borderColor:`transparent transparent ${N}18 transparent`}}/>
+
+                      <div className="flex items-center gap-3 relative" style={{zIndex:2}}>
+                        {/* Sport icon */}
+                        <div style={{width:38,height:38,borderRadius:3,display:"flex",alignItems:"center",
+                          justifyContent:"center",background:"rgba(170,255,0,.06)",
+                          border:`1px solid ${N}33`,fontSize:18,flexShrink:0}}>
                           {sportEmoji}
                         </div>
-                        {/* Name + rank */}
+                        {/* Info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:20,letterSpacing:"1.5px",color:"#fff",lineHeight:1}}>
+                            <span className="hub-tile-name" style={{fontFamily:"'JetBrains Mono',monospace",
+                              fontSize:13,fontWeight:700,letterSpacing:"1px",color:"#fff",lineHeight:1}}>
                               {lg.name.toUpperCase()}
                             </span>
                             {rankNum && (
-                              <span
-                                style={{
-                                  fontSize:11,fontWeight:800,fontFamily:"'DM Sans',sans-serif",
-                                  color: medalData ? medalData.c : "rgba(255,255,255,.45)",
-                                  background: medalData ? `${medalData.c}18` : "rgba(255,255,255,.07)",
-                                  border: `1px solid ${medalData ? `${medalData.c}44` : "rgba(255,255,255,.12)"}`,
-                                  borderRadius:8,padding:"1px 7px",lineHeight:"18px",
-                                }}
-                              >
+                              <span style={{
+                                fontSize:10,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",
+                                color: medalData ? medalData.c : `${N}88`,
+                                background: medalData ? `${medalData.c}18` : `${N}0A`,
+                                border: `1px solid ${medalData ? `${medalData.c}55` : `${N}33`}`,
+                                borderRadius:2,padding:"1px 5px",lineHeight:"16px",
+                              }}>
                                 {medalData ? medalData.e : `#${rankNum}`}
                               </span>
                             )}
                           </div>
-                          <div style={{fontSize:11,color:"rgba(255,255,255,.38)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>
-                            {lg.sport || "Sport"}{rankInfo ? ` · ${rankInfo.total} players` : ""}
+                          <div style={{fontSize:10,color:"rgba(255,255,255,.32)",
+                            fontFamily:"'JetBrains Mono',monospace",marginTop:3,letterSpacing:"0.5px"}}>
+                            {lg.sport || "SPORT"}{rankInfo ? `  ·  ${rankInfo.total} PLAYERS` : ""}
                           </div>
                         </div>
-                        <ChevronRight size={18} style={{color:"rgba(255,255,255,.22)",flexShrink:0}}/>
+                        <ChevronRight size={16} style={{color:`${N}44`,flexShrink:0}}/>
                       </div>
                     </motion.div>
                   );
@@ -3947,109 +4129,179 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
               </div>
             )}
 
-            {/* My Last Match */}
+            {/* ── LAST MATCH ──────────────────────────────────── */}
             {lastMatch && (() => {
-              const tintBg    = lastMatch.isWin ? "rgba(170,255,0,.06)"  : "rgba(255,51,85,.06)";
-              const tintBdr   = lastMatch.isWin ? "rgba(170,255,0,.22)"  : "rgba(255,51,85,.2)";
-              const badgeBg   = lastMatch.isWin ? "rgba(170,255,0,.15)"  : "rgba(255,51,85,.15)";
-              const badgeBdr  = lastMatch.isWin ? "rgba(170,255,0,.4)"   : "rgba(255,51,85,.4)";
-              const badgeClr  = lastMatch.isWin ? N                      : "#FF3355";
+              const isWin   = lastMatch.isWin;
+              const ac      = isWin ? N : "#FF3355";
+              const badgeBg = isWin ? `${N}18` : "rgba(255,51,85,.18)";
               return (
-                <div className="rounded-[20px] p-4 mb-4"
-                  style={{background:`linear-gradient(135deg,${tintBg},rgba(255,255,255,.02))`,border:`1px solid ${tintBdr}`}}>
-                  <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginBottom:10}}>MY LAST MATCH</div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div style={{fontSize:14,fontWeight:800,color:"#fff",fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-                        {lastMatch.winner} <span style={{color:"rgba(255,255,255,.3)",fontWeight:500}}>vs</span> {lastMatch.loser}
+                <div style={{marginBottom:14}}>
+                  {sectionLabel("LAST COMBAT LOG", ac)}
+                  <div style={{...hudCard(ac,{padding:"12px 14px"})}}>
+                    <Scanlines/>
+                    <div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",
+                      borderWidth:`0 14px 14px 0`,borderColor:`transparent ${ac}44 transparent transparent`}}/>
+                    <div className="flex items-start gap-3 relative" style={{zIndex:2}}>
+                      <div className="flex-1 min-w-0">
+                        <div style={{fontSize:13,fontWeight:800,color:"#fff",fontFamily:"'DM Sans',sans-serif",
+                          whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                          {lastMatch.winner} <span style={{color:"rgba(255,255,255,.25)",fontWeight:400}}>vs</span> {lastMatch.loser}
+                        </div>
+                        <div style={{fontSize:10,color:"rgba(255,255,255,.35)",
+                          fontFamily:"'JetBrains Mono',monospace",marginTop:4,letterSpacing:"0.5px"}}>
+                          {lastMatch.lgName.toUpperCase()}  ·  {relativeTime(lastMatch.date)}
+                        </div>
+                        {/* Sparkline */}
+                        {lastMatch.sets.length >= 2 && (
+                          <div style={{marginTop:8}}>
+                            <SetSparkline sets={lastMatch.sets} isWin={isWin}/>
+                            <div style={{fontSize:9,color:"rgba(255,255,255,.2)",fontFamily:"'JetBrains Mono',monospace",
+                              marginTop:4,letterSpacing:"1px"}}>
+                              {lastMatch.sets.join("  ·  ")}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div style={{fontSize:11,color:"rgba(255,255,255,.4)",fontFamily:"'DM Sans',sans-serif",marginTop:3}}>
-                        {lastMatch.sets.join("  ")}{lastMatch.sets.length ? " · " : ""}{lastMatch.lgName}
+                      {/* Badge */}
+                      <div style={{flexShrink:0,borderRadius:3,padding:"8px 10px",display:"flex",
+                        flexDirection:"column",alignItems:"center",justifyContent:"center",
+                        background:badgeBg,border:`1.5px solid ${ac}55`,minWidth:48}}>
+                        <span style={{fontSize:16,lineHeight:1}}>{isWin?"🏆":"😤"}</span>
+                        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,fontWeight:700,
+                          color:ac,letterSpacing:"1px",marginTop:4}}>{isWin?"WIN":"LOSS"}</span>
                       </div>
-                      <div style={{fontSize:10,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>
-                        {relativeTime(lastMatch.date)}
-                      </div>
-                    </div>
-                    {/* WIN / LOSS badge */}
-                    <div className="flex-shrink-0 rounded-[12px] px-3 py-2 flex flex-col items-center justify-center"
-                      style={{background:badgeBg,border:`1.5px solid ${badgeBdr}`,minWidth:52}}>
-                      <span style={{fontSize:14,lineHeight:1}}>{lastMatch.isWin ? "🏆" : "😤"}</span>
-                      <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,fontWeight:900,color:badgeClr,letterSpacing:"1px",marginTop:2}}>
-                        {lastMatch.isWin ? "WIN" : "LOSS"}
-                      </span>
                     </div>
                   </div>
                 </div>
               );
             })()}
 
-            {/* Next Challenge — or fallback Did You Know */}
+            {/* ── NEXT CHALLENGE ──────────────────────────────── */}
             {(nextChallenge || fallbackFact) && (() => {
               if (nextChallenge) {
                 const { rivalName, myWins, rivalWins } = nextChallenge;
                 const tied    = myWins === rivalWins;
                 const leading = myWins > rivalWins;
-                const ctaText = tied ? "All square — who breaks first?" : leading ? "You're ahead. Defend your lead." : "Schedule revenge?";
-                const accentC = tied ? "#FFB830" : leading ? N : "#FF3355";
+                const ac      = tied ? "#FFB830" : leading ? N : "#FF3355";
+                const cta     = tied ? "All square — who breaks first?" : leading ? "You're ahead. Defend it." : "Schedule revenge?";
                 return (
-                  <div className="rounded-[20px] p-4 mb-8"
-                    style={{background:`linear-gradient(135deg,${accentC}10,${accentC}04)`,border:`1px solid ${accentC}30`}}>
-                    <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:`${accentC}99`,fontFamily:"'DM Sans',sans-serif",marginBottom:8}}>
-                      ⚔️ NEXT CHALLENGE
-                    </div>
-                    <div style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.85)",fontFamily:"'DM Sans',sans-serif",lineHeight:1.55}}>
-                      Your rivalry with{" "}
-                      <span style={{fontWeight:900,color:"#fff"}}>{rivalName}</span>
-                      {" "}is{" "}
-                      <span style={{fontWeight:900,color:accentC}}>{myWins}–{rivalWins}</span>.
-                    </div>
-                    <div style={{fontSize:12,fontWeight:700,color:accentC,fontFamily:"'DM Sans',sans-serif",marginTop:6}}>
-                      {ctaText} →
+                  <div style={{marginBottom:14}}>
+                    {sectionLabel("THREAT ASSESSMENT", ac)}
+                    <div style={{...hudCard(ac,{padding:"12px 14px"})}}>
+                      <Scanlines/>
+                      <div style={{position:"absolute",top:0,right:0,width:0,height:0,borderStyle:"solid",
+                        borderWidth:`0 14px 14px 0`,borderColor:`transparent ${ac}44 transparent transparent`}}/>
+                      <div style={{position:"relative",zIndex:2}}>
+                        <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,
+                          color:"rgba(255,255,255,.8)",lineHeight:1.55}}>
+                          Rivalry with{" "}
+                          <span style={{fontWeight:900,color:"#fff"}}>{rivalName}</span>
+                          {" "}stands at{" "}
+                          <span style={{fontWeight:900,color:ac,fontFamily:"'JetBrains Mono',monospace"}}>
+                            {myWins}–{rivalWins}
+                          </span>
+                        </div>
+                        <div style={{fontSize:11,fontWeight:700,color:ac,fontFamily:"'DM Sans',sans-serif",marginTop:6}}>
+                          {cta} →
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
               }
               return (
-                <div className="rounded-[20px] p-4 mb-8"
-                  style={{background:`linear-gradient(135deg,rgba(170,255,0,.06),rgba(170,255,0,.02))`,border:`1px solid rgba(170,255,0,.2)`}}>
-                  <div style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(170,255,0,.6)",fontFamily:"'DM Sans',sans-serif",marginBottom:6}}>DID YOU KNOW?</div>
-                  <div style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.8)",fontFamily:"'DM Sans',sans-serif",lineHeight:1.5}}>{fallbackFact}</div>
+                <div style={{...hudCard(N,{padding:"12px 14px",marginBottom:14})}}>
+                  <Scanlines/>
+                  <div style={{fontSize:9,fontWeight:700,letterSpacing:"2.5px",color:`${N}66`,
+                    fontFamily:"'JetBrains Mono',monospace",marginBottom:6,position:"relative",zIndex:2}}>INTEL</div>
+                  <div style={{fontSize:12,fontWeight:600,color:"rgba(255,255,255,.7)",
+                    fontFamily:"'DM Sans',sans-serif",lineHeight:1.5,position:"relative",zIndex:2}}>{fallbackFact}</div>
                 </div>
               );
             })()}
 
+            {/* bottom spacer for ticker */}
+            <div style={{height:40}}/>
           </div>
+
+          {/* ── LIVE TICKER ─────────────────────────────────── */}
+          <div style={{height:32,flexShrink:0,background:"rgba(0,0,0,.7)",borderTop:`1px solid ${N}33`,
+            overflow:"hidden",display:"flex",alignItems:"center",position:"relative"}}>
+            {/* Left mask */}
+            <div style={{position:"absolute",left:0,top:0,bottom:0,width:24,
+              background:`linear-gradient(to right,${BG},transparent)`,zIndex:2}}/>
+            {/* Right mask */}
+            <div style={{position:"absolute",right:0,top:0,bottom:0,width:24,
+              background:`linear-gradient(to left,${BG},transparent)`,zIndex:2}}/>
+            <div style={{
+              display:"flex",gap:0,
+              animation:"hub-ticker 28s linear infinite",
+              whiteSpace:"nowrap",
+              willChange:"transform",
+            }}>
+              {tickerItems.map((item, i) => (
+                <span key={i} style={{
+                  fontFamily:"'JetBrains Mono',monospace",fontSize:9,fontWeight:700,letterSpacing:"1.5px",
+                  color:`${N}88`,padding:"0 20px",display:"inline-flex",alignItems:"center",gap:8,
+                }}>
+                  <span style={{color:`${N}44`,fontSize:8}}>◆</span>
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+
         </div>
       </div>
 
-      {/* Join League Modal */}
+      {/* ── JOIN MODAL ──────────────────────────────────── */}
       <AnimatePresence>
         {showJoin&&(
           <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
             className="fixed inset-0 z-50 flex items-end justify-center"
-            style={{background:"rgba(0,0,0,.75)",backdropFilter:"blur(6px)"}}
+            style={{background:"rgba(0,0,0,.8)",backdropFilter:"blur(6px)"}}
             onClick={e=>{if(e.target===e.currentTarget)setShowJoin(false)}}>
             <motion.div initial={{y:"100%"}} animate={{y:0}} exit={{y:"100%"}} transition={{type:"spring",damping:28,stiffness:300}}
-              className="w-full rounded-t-[28px] overflow-hidden"
-              style={{maxWidth:430,background:"#111318",border:"1.5px solid rgba(255,255,255,.08)",borderBottom:"none"}}>
-              <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full" style={{background:"rgba(255,255,255,.15)"}}/></div>
-              <div className="flex items-center justify-between px-5 py-3" style={{borderBottom:"1px solid rgba(255,255,255,.07)"}}>
-                <h3 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:24,letterSpacing:"2px",color:"#fff"}}>Join <span style={{color:"#3B8EFF"}}>League</span></h3>
-                <button onClick={()=>setShowJoin(false)} className="flex items-center justify-center w-8 h-8 rounded-full" style={{background:"rgba(255,255,255,.07)",border:"1px solid rgba(255,255,255,.1)"}}>
-                  <X size={15} style={{color:"rgba(255,255,255,.55)"}}/>
+              className="w-full overflow-hidden"
+              style={{maxWidth:430,background:"#080A0D",borderTop:`1.5px solid ${N}44`,
+                boxShadow:`0 0 40px ${N}22`}}>
+              <div style={{height:3,background:`linear-gradient(90deg,transparent,${N},transparent)`}}/>
+              <div className="flex justify-center pt-3 pb-1">
+                <div style={{width:36,height:3,borderRadius:0,background:`${N}33`}}/>
+              </div>
+              <div className="flex items-center justify-between px-5 py-3" style={{borderBottom:`1px solid ${N}22`}}>
+                <div>
+                  <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,letterSpacing:"3px",color:`${N}55`,marginBottom:2}}>ACCESS TERMINAL</div>
+                  <h3 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"3px",color:"#fff"}}>
+                    JOIN <span style={{color:"#3B8EFF"}}>LEAGUE</span>
+                  </h3>
+                </div>
+                <button onClick={()=>setShowJoin(false)} style={{
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  width:30,height:30,borderRadius:3,
+                  background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.12)"}}>
+                  <X size={14} style={{color:"rgba(255,255,255,.5)"}}/>
                 </button>
               </div>
-              <div className="px-5 pt-5 pb-8">
-                <p style={{fontSize:11,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",marginBottom:12}}>Enter the league invite code</p>
-                <input autoFocus type="text" value={joinCode} onChange={e=>{setJoinCode(e.target.value.toUpperCase());setJoinErr("");}}
-                  onKeyDown={e=>e.key==="Enter"&&handleJoin()} placeholder="e.g. XK4-9PL" maxLength={12}
-                  className="w-full rounded-[16px] px-4 py-4 mb-2 outline-none text-sm font-bold"
-                  style={{fontFamily:"'JetBrains Mono',monospace",background:"rgba(255,255,255,.05)",border:`1.5px solid ${joinErr?"#FF3355":joinCode?"#3B8EFF":"rgba(255,255,255,.12)"}`,color:"#fff",caretColor:"#3B8EFF",letterSpacing:"2px"}}/>
-                {joinErr&&<p style={{fontSize:11,color:"#FF3355",fontFamily:"'DM Sans',sans-serif",marginBottom:10}}>{joinErr}</p>}
-                <div style={{height:joinErr?0:14}}/>
+              <div style={{padding:"16px 20px 28px"}}>
+                <p style={{fontSize:10,color:"rgba(255,255,255,.3)",fontFamily:"'JetBrains Mono',monospace",
+                  letterSpacing:"1px",marginBottom:10}}>ENTER ACCESS CODE</p>
+                <input autoFocus type="text" value={joinCode}
+                  onChange={e=>{setJoinCode(e.target.value.toUpperCase());setJoinErr("");}}
+                  onKeyDown={e=>e.key==="Enter"&&handleJoin()}
+                  placeholder="ABC123" maxLength={12}
+                  style={{width:"100%",borderRadius:3,padding:"13px 14px",marginBottom:6,outline:"none",
+                    fontFamily:"'JetBrains Mono',monospace",fontSize:16,letterSpacing:"4px",fontWeight:700,
+                    background:"rgba(170,255,0,.04)",
+                    border:`1.5px solid ${joinErr?"#FF3355":joinCode?N:"rgba(170,255,0,.2)"}`,
+                    color:"#fff",caretColor:N,
+                    boxShadow:joinCode?`0 0 12px ${N}22`:"none"}}/>
+                {joinErr&&<p style={{fontSize:10,color:"#FF3355",fontFamily:"'JetBrains Mono',monospace",
+                  letterSpacing:"0.5px",marginBottom:10}}>{joinErr}</p>}
+                <div style={{height:joinErr?0:10}}/>
                 <PBtn onClick={handleJoin} disabled={!joinCode.trim()||saving}
-                  style={{background:"linear-gradient(135deg,#3B8EFF,#1A5FCC)"}}>
-                  {saving?"Joining…":"Join League"}
+                  style={{background:"linear-gradient(135deg,#3B8EFF,#1A5FCC)",borderRadius:3}}>
+                  {saving?"JOINING…":"ENTER ARENA"}
                 </PBtn>
               </div>
             </motion.div>
