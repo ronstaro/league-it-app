@@ -1069,17 +1069,17 @@ function JoinCodeCard({ code }) {
   );
 }
 
-function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlayer,onRemovePlayer,leagueId,ownerId,user,onDeleteLeague,squadPhotoUrl=null,onSquadPhotoUpdate=null,joinCode=null}) {
+function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlayer,onRemovePlayer,onJoinAsPlayer,leagueId,ownerId,user,onDeleteLeague,squadPhotoUrl=null,onSquadPhotoUpdate=null,joinCode=null}) {
   const [editing,          setEditing]          = useState(false);
   const [draft,            setDraft]            = useState(rules);
   const [confirm,          setConfirm]          = useState(false);
   const [confirmDelete,    setConfirmDelete]    = useState(false);
   const [copied,           setCopied]           = useState(false);
 
-  // Admin = user.id matches ownerId (created_by / owner_id set on league insert)
-  // If ownerId is absent (legacy league, pre-migration) fall back to allowing the action
-  // so existing leagues aren't accidentally locked out — new leagues always have ownerId.
-  const isAdmin = user?.id && (user.id === ownerId || !ownerId);
+  // Admin = strict match only — user must be the league owner.
+  // No fallback: if ownerId is null this league pre-dates the owner_id column and
+  // nobody gets elevated access until the DB is backfilled.
+  const isAdmin = !!(user?.id && ownerId && user.id === ownerId);
 
   const squadFileRef = useRef(null);
   const [squadUploading, setSquadUploading] = useState(false);
@@ -1215,6 +1215,31 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
           <ST>🔑 League Join Code</ST>
           <JoinCodeCard code={joinCode} />
         </>
+      )}
+
+      {/* Join as Player — shown to admin if they're not yet in the standings */}
+      {isAdmin && !players.some(p => p.isMe) && (
+        <div className="rounded-[18px] px-4 py-4 mb-5 flex items-center gap-3"
+          style={{background:"rgba(170,255,0,.05)",border:"1.5px dashed rgba(170,255,0,.35)"}}>
+          <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0"
+            style={{background:"rgba(170,255,0,.12)",border:"1px solid rgba(170,255,0,.3)"}}>
+            <UserPlus size={18} color={N}/>
+          </div>
+          <div className="flex-1">
+            <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:800,color:N,lineHeight:1}}>
+              You're not in the standings yet
+            </div>
+            <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.38)",marginTop:3}}>
+              Admins must opt in to play
+            </div>
+          </div>
+          <button onClick={onJoinAsPlayer}
+            className="rounded-[12px] px-3 py-2 text-xs font-black flex-shrink-0"
+            style={{background:`linear-gradient(135deg,${N},#7DC900)`,color:"#000",
+              fontFamily:"'DM Sans',sans-serif",letterSpacing:"0.3px",cursor:"pointer",border:"none"}}>
+            Join as Player
+          </button>
+        </div>
       )}
 
       {/* Admin Tools — strictly admin only */}
@@ -1725,6 +1750,28 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     }
   },[players, leagueId]);
 
+  // ── JOIN AS PLAYER (admin self-enroll) ──────────────────────────────────
+  const handleJoinAsPlayer = useCallback(async () => {
+    if (!user || !leagueId) return;
+    if (players.some(p => p.isMe)) return; // already enrolled
+    const displayName = profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
+    const initials    = displayName.trim().split(/\s+/).map(w => w[0]?.toUpperCase() || "").slice(0, 2).join("") || "??";
+    const newId       = crypto.randomUUID();
+    try {
+      await supabase.from("players").insert({
+        id: newId, league_id: leagueId, user_id: user.id, name: displayName, is_me: true,
+        stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:"🏸",
+          mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
+      });
+      setPlayers(prev => [...prev, {
+        id: newId, name: displayName, initials, isMe: true,
+        wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:"🏸",
+        mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0,
+        gamesWon:0, gamesLost:0, comebacks:0,
+      }]);
+    } catch { /* silently fail */ }
+  }, [user, leagueId, players, profile]);
+
   // ── ADD PLAYER ──────────────────────────────────────────────────────────
   const handleAddPlayer = useCallback(()=>{
     setAddPlayerName("");
@@ -1802,7 +1849,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   const content = {
     home:    <HomeTab    players={enrichedPlayers} feed={feed} onEditFeed={handleEdit} onDeleteFeed={handleDeleteMatch} isAdmin={!!(user?.id && ownerId && user.id===ownerId)} myPlayerId={players.find(p=>p.isMe)?.id||null}/>,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed}/>,
-    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode}/>,
+    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode}/>,
     profile: <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate}/>,
   };
 
@@ -4381,12 +4428,17 @@ export default function Root() {
 
   const loadLeagues = useCallback(async (uid) => {
     try {
-      // Step 1 — get the league IDs this user belongs to
-      const { data: pRows } = await withTimeout(
-        supabase.from("players").select("league_id").eq("user_id", uid)
-      );
-      if (!pRows?.length) { setLeagues([]); return; }
-      const ids = [...new Set(pRows.map(r => r.league_id))];
+      // Step 1 — league IDs from player rows + leagues the user owns (admin may not be a player yet)
+      const [{ data: pRows }, { data: ownedRows }] = await Promise.all([
+        withTimeout(supabase.from("players").select("league_id").eq("user_id", uid)),
+        withTimeout(supabase.from("leagues").select("id").eq("owner_id", uid)),
+      ]);
+      const idSet = new Set([
+        ...(pRows    || []).map(r => r.league_id),
+        ...(ownedRows || []).map(r => r.id),
+      ]);
+      if (!idSet.size) { setLeagues([]); return; }
+      const ids = [...idSet];
 
       // Step 2 — fetch league rows. Try with join_code first; if the column
       // doesn't exist yet (migration not run) the error field is set and we
@@ -4394,7 +4446,7 @@ export default function Root() {
       const { data: lRowsFull, error } = await withTimeout(
         supabase
           .from("leagues")
-          .select("id,name,sport,settings,created_at,owner_id,image_url,join_code")
+          .select("id,name,sport,settings,created_at,owner_id,created_by,image_url,join_code")
           .in("id", ids)
       );
 
@@ -4407,7 +4459,7 @@ export default function Root() {
       const { data: lRowsBase } = await withTimeout(
         supabase
           .from("leagues")
-          .select("id,name,sport,settings,created_at,owner_id,image_url")
+          .select("id,name,sport,settings,created_at,owner_id,created_by,image_url")
           .in("id", ids)
       );
       setLeagues(lRowsBase || []);
@@ -4469,7 +4521,7 @@ export default function Root() {
         leagueName:     league.name.toUpperCase(),
         initialPlayers: (pData || []).map(r => rowToPlayer(r, user?.id)),
         initialFeed:    (mData || []).map(m => ({ id: m.id, ...m.score })),
-        ownerId:        league.owner_id || null,
+        ownerId:        league.owner_id || league.created_by || null,
         squadPhotoUrl:  league.image_url || null,
         joinCode:       league.join_code || league.settings?.leagueCode || null,
         initialRules:   settingsToRules(league.sport, league.settings),
@@ -4655,16 +4707,8 @@ export default function Root() {
       }
     }
 
-    // ── Step 2: Player insert — non-fatal, swallow any error ──
-    try {
-      await supabase.from("players").insert({
-        id: playerId, league_id: leagueId, user_id: user.id,
-        name: displayName, is_me: true,
-        stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:sportEmoji, mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
-      });
-    } catch { /* non-fatal */ }
-
-    // ── Step 3: Reload leagues from DB then go to hub — guaranteed sync, no local state guessing ──
+    // Admin is NOT auto-added to players — they must use "Join as Player" inside the league view.
+    // Step 2: Reload leagues from DB then go to hub — guaranteed sync, no local state guessing ──
     try { await loadLeagues(user.id); } catch { /* ignore */ }
     setPhase("hub");
   }, [user, profile, loadLeagues]);
