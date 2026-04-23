@@ -134,6 +134,9 @@ function settingsToRules(leagueSport, settings) {
     scoring,
     seasonYear:       s.seasonYear || new Date().getFullYear(),
     tournamentFormat: s.tournamentFormat || "classic",
+    reportingMode:    s.reportingMode || "admin",
+    groupSettings:    s.groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 },
+    participants:     s.participants || [],
   };
 }
 
@@ -2609,9 +2612,21 @@ const TOURNAMENT_FORMATS = [
     label: "Knockout Tournament",
     sub:   "Single-elimination bracket. Lose once and you're out.",
   },
+  {
+    id:    "groups_knockout",
+    emoji: "🏆",
+    label: "Groups + Knockout",
+    sub:   "Group stage then knockout. Everyone gets guaranteed games, best advance.",
+  },
 ];
 
-function StepTournamentFormat({ tournamentFormat, setTournamentFormat, onNext }) {
+function StepTournamentFormat({ tournamentFormat, setTournamentFormat, groupSettings, setGroupSettings, onNext }) {
+  const isGroupsKnockout = tournamentFormat === "groups_knockout";
+
+  const ctaLabel = tournamentFormat === "knockout" || tournamentFormat === "groups_knockout"
+    ? "Add Participants →"
+    : "Set Up Rules →";
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto px-5 pt-2 pb-4" style={{ WebkitOverflowScrolling: "touch" }}>
@@ -2680,11 +2695,85 @@ function StepTournamentFormat({ tournamentFormat, setTournamentFormat, onNext })
               );
             })}
           </div>
+
+          {/* Group Settings — only for Groups + Knockout */}
+          <AnimatePresence>
+            {isGroupsKnockout && (
+              <motion.div
+                key="group-settings"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={{ duration: 0.22 }}
+                style={{
+                  marginTop: 20, borderRadius: 20, padding: "20px 20px",
+                  background: "rgba(170,255,0,0.04)", border: `1.5px solid ${NEON}22`,
+                }}
+              >
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700, color: `${NEON}cc`, marginBottom: 16, letterSpacing: "0.5px" }}>
+                  GROUP STAGE SETTINGS
+                </div>
+                <div className="flex gap-4">
+                  {/* Players per group */}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.45)", marginBottom: 8, fontWeight: 600 }}>
+                      Players per Group
+                    </div>
+                    <div className="flex gap-2">
+                      {[3, 4, 5, 6].map(n => (
+                        <button
+                          key={n}
+                          onClick={() => setGroupSettings(g => ({ ...g, playersPerGroup: n }))}
+                          style={{
+                            flex: 1, padding: "10px 0", borderRadius: 12, cursor: "pointer",
+                            background: groupSettings.playersPerGroup === n ? `${NEON}18` : "rgba(255,255,255,.04)",
+                            border: `1.5px solid ${groupSettings.playersPerGroup === n ? NEON : "rgba(255,255,255,.1)"}`,
+                            fontFamily: "'DM Sans',sans-serif", fontSize: 15, fontWeight: 800,
+                            color: groupSettings.playersPerGroup === n ? NEON : "rgba(255,255,255,.45)",
+                            transition: "all 0.15s ease",
+                          }}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Advancing per group */}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.45)", marginBottom: 8, fontWeight: 600 }}>
+                      Advance per Group
+                    </div>
+                    <div className="flex gap-2">
+                      {[1, 2, 3].filter(n => n < groupSettings.playersPerGroup).map(n => (
+                        <button
+                          key={n}
+                          onClick={() => setGroupSettings(g => ({ ...g, advancingPerGroup: n }))}
+                          style={{
+                            flex: 1, padding: "10px 0", borderRadius: 12, cursor: "pointer",
+                            background: groupSettings.advancingPerGroup === n ? `${NEON}18` : "rgba(255,255,255,.04)",
+                            border: `1.5px solid ${groupSettings.advancingPerGroup === n ? NEON : "rgba(255,255,255,.1)"}`,
+                            fontFamily: "'DM Sans',sans-serif", fontSize: 15, fontWeight: 800,
+                            color: groupSettings.advancingPerGroup === n ? NEON : "rgba(255,255,255,.45)",
+                            transition: "all 0.15s ease",
+                          }}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ marginTop: 12, fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.3)", lineHeight: 1.6 }}>
+                  Groups of {groupSettings.playersPerGroup} · Top {groupSettings.advancingPerGroup} advance to knockout
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
       </div>
       <FixedFooter>
         <PBtn onClick={onNext} disabled={!tournamentFormat}>
-          {tournamentFormat === "knockout" ? "Build the Bracket →" : "Set Up Rules →"}
+          {ctaLabel}
         </PBtn>
       </FixedFooter>
     </div>
@@ -2695,10 +2784,13 @@ function StepTournamentFormat({ tournamentFormat, setTournamentFormat, onNext })
 // STEP 3 (KNOCKOUT ONLY) — ADD PARTICIPANTS
 // ─────────────────────────────────────────────
 const TIER_META = {
-  A: { label: "Tier A", color: "#FFD700", bg: "rgba(255,215,0,.12)",  border: "rgba(255,215,0,.35)", desc: "Top seeds"    },
-  B: { label: "Tier B", color: "#3B8EFF", bg: "rgba(59,142,255,.12)", border: "rgba(59,142,255,.35)", desc: "Mid seeds"   },
-  C: { label: "Tier C", color: "#FF8C42", bg: "rgba(255,140,66,.12)", border: "rgba(255,140,66,.35)", desc: "Wild cards"  },
+  A: { label: "Tier A", color: "#FFD700", bg: "rgba(255,215,0,.12)",  border: "rgba(255,215,0,.35)", desc: "Elite"      },
+  B: { label: "Tier B", color: "#AAFF00", bg: "rgba(170,255,0,.10)",  border: "rgba(170,255,0,.32)", desc: "Strong"     },
+  C: { label: "Tier C", color: "#3B8EFF", bg: "rgba(59,142,255,.12)", border: "rgba(59,142,255,.35)", desc: "Mid"       },
+  D: { label: "Tier D", color: "#FF8C42", bg: "rgba(255,140,66,.12)", border: "rgba(255,140,66,.35)", desc: "Developing" },
+  E: { label: "Tier E", color: "#AA7FFF", bg: "rgba(170,127,255,.10)",border: "rgba(170,127,255,.32)", desc: "Novice"   },
 };
+const TIER_ORDER = ["A", "B", "C", "D", "E"];
 
 function StepParticipants({ participants, setParticipants, onNext }) {
   const [drawMode,   setDrawMode]   = useState(null);   // null | "simple" | "seeded"
@@ -2757,7 +2849,7 @@ function StepParticipants({ participants, setParticipants, onNext }) {
             <div className="flex flex-col gap-3">
               {[
                 { id: "simple", emoji: "🎲", label: "Simple Random Draw",   sub: "Add names — bracket is randomised automatically. Every player is equal." },
-                { id: "seeded", emoji: "🎯", label: "Seeded / Tiered Draw",  sub: "Assign Tier A, B, or C so stronger players are kept apart early on." },
+                { id: "seeded", emoji: "🎯", label: "Seeded / Tiered Draw",  sub: "Assign Tiers A–E so stronger players are kept apart early on." },
               ].map(opt => (
                 <motion.button
                   key={opt.id}
@@ -2929,8 +3021,7 @@ function StepParticipants({ participants, setParticipants, onNext }) {
                       {isSeeded && (
                         <button
                           onClick={() => {
-                            const order = ["A", "B", "C"];
-                            const next = order[(order.indexOf(p.tier || "C") + 1) % 3];
+                            const next = TIER_ORDER[(TIER_ORDER.indexOf(p.tier || "E") + 1) % TIER_ORDER.length];
                             handleChangeTier(p.id, next);
                           }}
                           style={{
@@ -2987,6 +3078,104 @@ function StepParticipants({ participants, setParticipants, onNext }) {
       <FixedFooter>
         <PBtn onClick={onNext} disabled={!canContinue}>
           {canContinue ? `Lock In ${participants.length} Players →` : `Add ${MIN - participants.length} More to Continue`}
+        </PBtn>
+      </FixedFooter>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// STEP 4 (KNOCKOUT/GROUPS ONLY) — REPORTING MODE
+// ─────────────────────────────────────────────
+const REPORTING_OPTIONS = [
+  {
+    id:    "admin",
+    emoji: "🔒",
+    label: "Admin Only",
+    sub:   "Only you can enter scores. Full control over every result.",
+  },
+  {
+    id:    "self",
+    emoji: "📲",
+    label: "Self-Reporting",
+    sub:   "Any player can log their own match results after playing.",
+  },
+];
+
+function StepReportingMode({ reportingMode, setReportingMode, onNext }) {
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto px-5 pt-2 pb-4" style={{ WebkitOverflowScrolling: "touch" }}>
+        <motion.div variants={stagger(0.05)} initial="hidden" animate="show">
+          <StepHeading
+            line1="Who Reports"
+            line2="Scores?"
+            sub="Decide how match results get entered into the system."
+          />
+
+          <div className="flex flex-col gap-3">
+            {REPORTING_OPTIONS.map(opt => {
+              const selected = reportingMode === opt.id;
+              return (
+                <motion.button
+                  key={opt.id}
+                  variants={fadeUp}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => setReportingMode(opt.id)}
+                  style={{
+                    width: "100%", padding: "18px 20px", borderRadius: 22, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 16, textAlign: "left",
+                    background: selected ? "rgba(170,255,0,0.07)" : "rgba(255,255,255,0.03)",
+                    border: selected
+                      ? `1.5px solid ${NEON}`
+                      : "1.5px solid rgba(255,255,255,0.07)",
+                    boxShadow: selected
+                      ? "0 0 30px rgba(170,255,0,0.14), 0 0 60px rgba(170,255,0,0.05)"
+                      : "none",
+                    transition: "all 0.18s ease",
+                  }}
+                >
+                  <div style={{
+                    width: 52, height: 52, borderRadius: 16, flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 26,
+                    background: selected ? "rgba(170,255,0,0.1)" : "rgba(255,255,255,0.04)",
+                    border: selected ? `1px solid ${NEON}44` : "1px solid rgba(255,255,255,0.08)",
+                  }}>
+                    {opt.emoji}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700,
+                      color: selected ? NEON : "#fff", lineHeight: 1, marginBottom: 5,
+                    }}>
+                      {opt.label}
+                    </div>
+                    <div style={{
+                      fontFamily: "'DM Sans',sans-serif", fontSize: 12,
+                      color: "rgba(255,255,255,0.38)", lineHeight: 1.5,
+                    }}>
+                      {opt.sub}
+                    </div>
+                  </div>
+                  <div style={{
+                    width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                    border: selected ? `2px solid ${NEON}` : "2px solid rgba(255,255,255,0.15)",
+                    background: selected ? NEON : "transparent",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "all 0.18s ease",
+                  }}>
+                    {selected && <Check size={12} strokeWidth={3} color="#000" />}
+                  </div>
+                </motion.button>
+              );
+            })}
+          </div>
+        </motion.div>
+      </div>
+      <FixedFooter>
+        <PBtn onClick={onNext} disabled={!reportingMode}>
+          {reportingMode === "admin" ? "Set Up Rules →" : "Set Up Rules →"}
         </PBtn>
       </FixedFooter>
     </div>
@@ -3874,6 +4063,8 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const [customSportEmoji,  setCustomSportEmoji]  = useState("🏆");
   const [tournamentFormat,  setTournamentFormat]  = useState("classic");
   const [participants,      setParticipants]      = useState([]);
+  const [reportingMode,     setReportingMode]     = useState("admin");
+  const [groupSettings,     setGroupSettings]     = useState({ playersPerGroup: 4, advancingPerGroup: 2 });
   const [format,            setFormat]            = useState("single");
   const [points,            setPoints]            = useState(21);
   const [customRules,       setCustomRules]       = useState("");
@@ -3883,9 +4074,9 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const [saving,            setSaving]            = useState(false);
   const [createErr,         setCreateErr]         = useState("");
 
-  const isKnockout          = tournamentFormat === "knockout";
-  const TOTAL_WIZARD_STEPS  = isKnockout ? 7 : 6;
-  const MAX_STEP            = isKnockout ? 7 : 6;
+  const isNonClassic        = tournamentFormat !== "classic";
+  const TOTAL_WIZARD_STEPS  = isNonClassic ? 8 : 6;
+  const MAX_STEP            = isNonClassic ? 8 : 6;
 
   const goNext = useCallback(() => {
     setDir(1);
@@ -3903,7 +4094,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
     setSaving(true);
     setCreateErr("");
     try {
-      await onFinish({ leagueName, adminName, sport, tournamentFormat, participants, format, points, customSportName, customSportEmoji, customRules, leagueCode });
+      await onFinish({ leagueName, adminName, sport, tournamentFormat, participants, reportingMode, groupSettings, format, points, customSportName, customSportEmoji, customRules, leagueCode });
     } catch (e) {
       console.error(e);
       setCreateErr("Something went wrong. Please try again.");
@@ -3920,13 +4111,19 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
     <StepTournamentFormat
       key="tournament-format"
       tournamentFormat={tournamentFormat} setTournamentFormat={setTournamentFormat}
+      groupSettings={groupSettings} setGroupSettings={setGroupSettings}
       onNext={goNext}
     />,
-    // Knockout only: participant entry before rules
-    ...(isKnockout ? [
+    // Non-classic: participants + reporting mode before rules
+    ...(isNonClassic ? [
       <StepParticipants
         key="participants"
         participants={participants} setParticipants={setParticipants}
+        onNext={goNext}
+      />,
+      <StepReportingMode
+        key="reporting-mode"
+        reportingMode={reportingMode} setReportingMode={setReportingMode}
         onNext={goNext}
       />,
     ] : []),
@@ -4984,7 +5181,7 @@ export default function Root() {
     if (user) loadLeagues(user.id);
   }, [user, loadLeagues]);
 
-  const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, tournamentFormat, participants, format, points, customSportName, customSportEmoji, customRules, leagueCode }) => {
+  const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, tournamentFormat, participants, reportingMode, groupSettings, format, points, customSportName, customSportEmoji, customRules, leagueCode }) => {
     if (!user) throw new Error("Not logged in");
 
     const name        = leagueName?.trim() || "My League";
@@ -5005,7 +5202,7 @@ export default function Root() {
       name,
       sport:      sportLabel,
       join_code:  code,
-      settings:   { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], format, points, customRules, sportEmoji },
+      settings:   { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], reportingMode: reportingMode || "admin", groupSettings: groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 }, format, points, customRules, sportEmoji },
       owner_id:   user.id,
       created_by: user.id,
     });
@@ -5014,7 +5211,7 @@ export default function Root() {
       if (leagueErr.message?.includes("join_code") || leagueErr.code === "42703") {
         const { error: retryErr } = await supabase.from("leagues").insert({
           id: leagueId, name, sport: sportLabel,
-          settings: { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], format, points, customRules, sportEmoji },
+          settings: { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], reportingMode: reportingMode || "admin", groupSettings: groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 }, format, points, customRules, sportEmoji },
           owner_id: user.id, created_by: user.id,
         });
         if (retryErr) throw new Error(retryErr.message || "Failed to create league");
