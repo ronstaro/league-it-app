@@ -2692,7 +2692,309 @@ function StepTournamentFormat({ tournamentFormat, setTournamentFormat, onNext })
 }
 
 // ─────────────────────────────────────────────
-// STEP 3 — RULE ENGINE
+// STEP 3 (KNOCKOUT ONLY) — ADD PARTICIPANTS
+// ─────────────────────────────────────────────
+const TIER_META = {
+  A: { label: "Tier A", color: "#FFD700", bg: "rgba(255,215,0,.12)",  border: "rgba(255,215,0,.35)", desc: "Top seeds"    },
+  B: { label: "Tier B", color: "#3B8EFF", bg: "rgba(59,142,255,.12)", border: "rgba(59,142,255,.35)", desc: "Mid seeds"   },
+  C: { label: "Tier C", color: "#FF8C42", bg: "rgba(255,140,66,.12)", border: "rgba(255,140,66,.35)", desc: "Wild cards"  },
+};
+
+function StepParticipants({ participants, setParticipants, onNext }) {
+  const [drawMode,   setDrawMode]   = useState(null);   // null | "simple" | "seeded"
+  const [inputName,  setInputName]  = useState("");
+  const [activeTier, setActiveTier] = useState("A");    // seeded mode only
+  const inputRef = useRef(null);
+
+  const MIN = 4;
+  const canContinue = participants.length >= MIN;
+
+  // Focus input when mode is chosen
+  useEffect(() => {
+    if (drawMode) setTimeout(() => inputRef.current?.focus(), 160);
+  }, [drawMode]);
+
+  const handleAdd = () => {
+    const name = inputName.trim();
+    if (!name) return;
+    if (participants.some(p => p.name.toLowerCase() === name.toLowerCase())) {
+      setInputName("");
+      return;
+    }
+    setParticipants(prev => [...prev, {
+      id:   crypto.randomUUID(),
+      name,
+      tier: drawMode === "seeded" ? activeTier : null,
+    }]);
+    setInputName("");
+  };
+
+  const handleRemove = (id) => setParticipants(prev => prev.filter(p => p.id !== id));
+
+  const handleChangeTier = (id, tier) =>
+    setParticipants(prev => prev.map(p => p.id === id ? { ...p, tier } : p));
+
+  const switchMode = (mode) => {
+    // Preserve all names; normalise tiers for the new mode
+    if (mode === "simple") {
+      setParticipants(prev => prev.map(p => ({ ...p, tier: null })));
+    }
+    // Going to seeded: leave tiers as-is (null = unassigned, user can set)
+    setDrawMode(mode);
+  };
+
+  // ── MODE SELECTION ──────────────────────────────────────────────────────
+  if (!drawMode) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex-1 overflow-y-auto px-5 pt-2 pb-4" style={{ WebkitOverflowScrolling: "touch" }}>
+          <motion.div variants={stagger(0.05)} initial="hidden" animate="show">
+            <StepHeading
+              line1="Add"
+              line2="Participants"
+              sub="How do you want to seed the draw?"
+            />
+            <div className="flex flex-col gap-3">
+              {[
+                { id: "simple", emoji: "🎲", label: "Simple Random Draw",   sub: "Add names — bracket is randomised automatically. Every player is equal." },
+                { id: "seeded", emoji: "🎯", label: "Seeded / Tiered Draw",  sub: "Assign Tier A, B, or C so stronger players are kept apart early on." },
+              ].map(opt => (
+                <motion.button
+                  key={opt.id}
+                  variants={fadeUp}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => switchMode(opt.id)}
+                  style={{
+                    width: "100%", padding: "18px 20px", borderRadius: 22, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 16, textAlign: "left",
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1.5px solid rgba(255,255,255,0.07)",
+                    transition: "all 0.18s ease",
+                  }}
+                >
+                  <div style={{
+                    width: 52, height: 52, borderRadius: 16, flexShrink: 0, fontSize: 26,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                  }}>{opt.emoji}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700, color: "#fff", lineHeight: 1, marginBottom: 5 }}>{opt.label}</div>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,0.38)", lineHeight: 1.5 }}>{opt.sub}</div>
+                  </div>
+                  <ChevronRight size={18} style={{ color: "rgba(255,255,255,0.2)", flexShrink: 0 }} />
+                </motion.button>
+              ))}
+            </div>
+
+            {/* If they already have participants (came back), show shortcut */}
+            {participants.length > 0 && (
+              <motion.div variants={fadeUp} style={{ marginTop: 16, textAlign: "center" }}>
+                <button
+                  onClick={() => setDrawMode(participants.some(p => p.tier) ? "seeded" : "simple")}
+                  style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: `${NEON}88`, fontWeight: 600 }}
+                >
+                  ← Continue editing {participants.length} player{participants.length !== 1 ? "s" : ""} already added
+                </button>
+              </motion.div>
+            )}
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── PLAYER LIST ─────────────────────────────────────────────────────────
+  const isSeeded = drawMode === "seeded";
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto px-5 pt-2 pb-4" style={{ WebkitOverflowScrolling: "touch" }}>
+        <motion.div variants={stagger(0.04)} initial="hidden" animate="show">
+
+          {/* Header row with mode badge + switch link */}
+          <motion.div variants={fadeUp} className="flex items-center justify-between mb-5">
+            <div>
+              <h2 style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 40, letterSpacing: "2px", lineHeight: 1, color: "#fff" }}>
+                Add <span style={{ color: NEON }}>{isSeeded ? "Seeded" : "Players"}</span>
+              </h2>
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", fontFamily: "'DM Sans',sans-serif", marginTop: 4 }}>
+                {isSeeded
+                  ? "Pick a tier, type a name, hit Add."
+                  : "Type a name and hit Add. All equal."}
+              </p>
+            </div>
+            <button
+              onClick={() => switchMode(isSeeded ? "simple" : "seeded")}
+              style={{
+                background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.12)",
+                borderRadius: 12, padding: "6px 10px", cursor: "pointer", flexShrink: 0,
+                fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 700,
+                color: "rgba(255,255,255,.5)",
+              }}
+            >
+              Switch to {isSeeded ? "Simple" : "Seeded"}
+            </button>
+          </motion.div>
+
+          {/* Tier selector — seeded mode only */}
+          {isSeeded && (
+            <motion.div variants={fadeUp} className="flex gap-2 mb-4">
+              {Object.entries(TIER_META).map(([t, meta]) => (
+                <button
+                  key={t}
+                  onClick={() => setActiveTier(t)}
+                  style={{
+                    flex: 1, padding: "10px 6px", borderRadius: 14, cursor: "pointer",
+                    background: activeTier === t ? meta.bg : "rgba(255,255,255,.03)",
+                    border: `1.5px solid ${activeTier === t ? meta.border : "rgba(255,255,255,.08)"}`,
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 800, color: activeTier === t ? meta.color : "rgba(255,255,255,.4)" }}>{meta.label}</div>
+                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, color: "rgba(255,255,255,.28)", marginTop: 2 }}>{meta.desc}</div>
+                </button>
+              ))}
+            </motion.div>
+          )}
+
+          {/* Input row */}
+          <motion.div variants={fadeUp} className="flex gap-2 mb-4">
+            <input
+              ref={inputRef}
+              type="text"
+              value={inputName}
+              onChange={e => setInputName(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleAdd()}
+              placeholder="Player name…"
+              maxLength={24}
+              style={{
+                flex: 1, borderRadius: 16, padding: "13px 16px", outline: "none",
+                fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 600,
+                background: "rgba(255,255,255,.05)",
+                border: inputName ? `1.5px solid ${NEON}` : "1.5px solid rgba(255,255,255,.12)",
+                color: "#fff", caretColor: NEON,
+              }}
+            />
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={handleAdd}
+              disabled={!inputName.trim()}
+              style={{
+                borderRadius: 16, padding: "13px 18px", cursor: inputName.trim() ? "pointer" : "not-allowed",
+                background: inputName.trim() ? `linear-gradient(135deg,${NEON},#7DC900)` : "rgba(255,255,255,.06)",
+                border: "none", color: inputName.trim() ? "#000" : "rgba(255,255,255,.25)",
+                fontFamily: "'DM Sans',sans-serif", fontWeight: 800, fontSize: 13,
+                transition: "all 0.15s ease", flexShrink: 0,
+              }}
+            >
+              + Add
+            </motion.button>
+          </motion.div>
+
+          {/* Player list */}
+          <AnimatePresence>
+            {participants.length === 0 ? (
+              <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                style={{ textAlign: "center", padding: "32px 0", color: "rgba(255,255,255,.18)", fontFamily: "'DM Sans',sans-serif", fontSize: 13 }}>
+                No players yet — add at least {MIN}
+              </motion.div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {participants.map((p, i) => {
+                  const tierM = isSeeded && p.tier ? TIER_META[p.tier] : null;
+                  return (
+                    <motion.div
+                      key={p.id}
+                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -16 }}
+                      transition={{ duration: 0.18 }}
+                      className="flex items-center gap-3 rounded-[16px] px-4 py-3"
+                      style={{ background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)" }}
+                    >
+                      {/* Avatar */}
+                      <div style={{
+                        width: 34, height: 34, borderRadius: 12, flexShrink: 0,
+                        background: tierM ? tierM.bg : GRADS[i % GRADS.length],
+                        border: tierM ? `1px solid ${tierM.border}` : "none",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 11, fontWeight: 800, fontFamily: "'DM Sans',sans-serif",
+                        color: tierM ? tierM.color : "#000",
+                      }}>
+                        {p.name.trim().split(/\s+/).map(w => (w[0] || "").toUpperCase()).slice(0, 2).join("")}
+                      </div>
+                      {/* Name */}
+                      <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: "#fff", fontFamily: "'DM Sans',sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {p.name}
+                      </span>
+                      {/* Tier badge — seeded mode: tap to cycle */}
+                      {isSeeded && (
+                        <button
+                          onClick={() => {
+                            const order = ["A", "B", "C"];
+                            const next = order[(order.indexOf(p.tier || "C") + 1) % 3];
+                            handleChangeTier(p.id, next);
+                          }}
+                          style={{
+                            borderRadius: 8, padding: "3px 8px", cursor: "pointer", flexShrink: 0,
+                            background: tierM ? tierM.bg : "rgba(255,255,255,.06)",
+                            border: `1px solid ${tierM ? tierM.border : "rgba(255,255,255,.12)"}`,
+                            fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 800,
+                            color: tierM ? tierM.color : "rgba(255,255,255,.4)",
+                          }}
+                          title="Tap to change tier"
+                        >
+                          {p.tier || "—"}
+                        </button>
+                      )}
+                      {/* Remove */}
+                      <button onClick={() => handleRemove(p.id)}
+                        style={{ background: "none", border: "none", cursor: "pointer", padding: "4px", flexShrink: 0 }}>
+                        <X size={14} style={{ color: "rgba(255,255,255,.25)" }} />
+                      </button>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+          </AnimatePresence>
+
+          {/* Counter */}
+          {participants.length > 0 && (
+            <motion.div variants={fadeUp} style={{ marginTop: 12, textAlign: "center", fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: canContinue ? `${NEON}77` : "rgba(255,255,255,.25)" }}>
+              {participants.length} player{participants.length !== 1 ? "s" : ""}
+              {canContinue ? " · Ready to generate bracket ✓" : ` · Need ${MIN - participants.length} more`}
+            </motion.div>
+          )}
+
+          {/* Tier summary — seeded mode */}
+          {isSeeded && participants.length > 0 && (
+            <motion.div variants={fadeUp} className="flex gap-2 mt-3">
+              {Object.entries(TIER_META).map(([t, meta]) => {
+                const count = participants.filter(p => p.tier === t).length;
+                return (
+                  <div key={t} style={{ flex: 1, borderRadius: 12, padding: "8px 6px", textAlign: "center",
+                    background: count > 0 ? meta.bg : "rgba(255,255,255,.02)",
+                    border: `1px solid ${count > 0 ? meta.border : "rgba(255,255,255,.06)"}` }}>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 18, fontWeight: 800, color: count > 0 ? meta.color : "rgba(255,255,255,.15)" }}>{count}</div>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, color: "rgba(255,255,255,.3)", marginTop: 1 }}>{meta.label}</div>
+                  </div>
+                );
+              })}
+            </motion.div>
+          )}
+        </motion.div>
+      </div>
+
+      <FixedFooter>
+        <PBtn onClick={onNext} disabled={!canContinue}>
+          {canContinue ? `Lock In ${participants.length} Players →` : `Add ${MIN - participants.length} More to Continue`}
+        </PBtn>
+      </FixedFooter>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// STEP 4 — RULE ENGINE
 // ─────────────────────────────────────────────
 function StepRules({ format, setFormat, points, setPoints, customRules, setCustomRules, onNext }) {
   return (
@@ -3571,6 +3873,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const [customSportName,   setCustomSportName]   = useState("");
   const [customSportEmoji,  setCustomSportEmoji]  = useState("🏆");
   const [tournamentFormat,  setTournamentFormat]  = useState("classic");
+  const [participants,      setParticipants]      = useState([]);
   const [format,            setFormat]            = useState("single");
   const [points,            setPoints]            = useState(21);
   const [customRules,       setCustomRules]       = useState("");
@@ -3580,12 +3883,14 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const [saving,            setSaving]            = useState(false);
   const [createErr,         setCreateErr]         = useState("");
 
-  const TOTAL_WIZARD_STEPS = 6;
+  const isKnockout          = tournamentFormat === "knockout";
+  const TOTAL_WIZARD_STEPS  = isKnockout ? 7 : 6;
+  const MAX_STEP            = isKnockout ? 7 : 6;
 
   const goNext = useCallback(() => {
     setDir(1);
-    setStep(s => Math.min(s + 1, 6));
-  }, []);
+    setStep(s => Math.min(s + 1, MAX_STEP));
+  }, [MAX_STEP]);
 
   const goBack = useCallback(() => {
     if (step <= initialStep) { if (onBackToHub) onBackToHub(); return; }
@@ -3598,13 +3903,13 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
     setSaving(true);
     setCreateErr("");
     try {
-      await onFinish({ leagueName, adminName, sport, tournamentFormat, format, points, customSportName, customSportEmoji, customRules, leagueCode });
+      await onFinish({ leagueName, adminName, sport, tournamentFormat, participants, format, points, customSportName, customSportEmoji, customRules, leagueCode });
     } catch (e) {
       console.error(e);
       setCreateErr("Something went wrong. Please try again.");
       setSaving(false);
     }
-  }, [saving, onFinish, leagueName, adminName, sport, tournamentFormat, format, points, customSportName, customSportEmoji, customRules, leagueCode]);
+  }, [saving, onFinish, leagueName, adminName, sport, tournamentFormat, participants, format, points, customSportName, customSportEmoji, customRules, leagueCode]);
 
   const sportProps = { sport, setSport, customSportName, setCustomSportName, customSportEmoji, setCustomSportEmoji };
   const rulesProps = { format, setFormat, points, setPoints, customRules, setCustomRules };
@@ -3617,6 +3922,14 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
       tournamentFormat={tournamentFormat} setTournamentFormat={setTournamentFormat}
       onNext={goNext}
     />,
+    // Knockout only: participant entry before rules
+    ...(isKnockout ? [
+      <StepParticipants
+        key="participants"
+        participants={participants} setParticipants={setParticipants}
+        onNext={goNext}
+      />,
+    ] : []),
     <StepRules   key="rules"   {...rulesProps} onNext={goNext} />,
     <StepBranding
       key="branding"
@@ -3677,7 +3990,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
           }}
         >
           <AnimatePresence>
-            {step > 0 && step < 6 && (
+            {step > 0 && step < MAX_STEP && (
               <motion.div
                 key="topnav"
                 initial={{ opacity: 0, y: -12 }}
@@ -4671,7 +4984,7 @@ export default function Root() {
     if (user) loadLeagues(user.id);
   }, [user, loadLeagues]);
 
-  const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, tournamentFormat, format, points, customSportName, customSportEmoji, customRules, leagueCode }) => {
+  const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, tournamentFormat, participants, format, points, customSportName, customSportEmoji, customRules, leagueCode }) => {
     if (!user) throw new Error("Not logged in");
 
     const name        = leagueName?.trim() || "My League";
@@ -4692,7 +5005,7 @@ export default function Root() {
       name,
       sport:      sportLabel,
       join_code:  code,
-      settings:   { leagueCode: code, tournamentFormat: tournamentFormat || "classic", format, points, customRules, sportEmoji },
+      settings:   { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], format, points, customRules, sportEmoji },
       owner_id:   user.id,
       created_by: user.id,
     });
@@ -4701,7 +5014,7 @@ export default function Root() {
       if (leagueErr.message?.includes("join_code") || leagueErr.code === "42703") {
         const { error: retryErr } = await supabase.from("leagues").insert({
           id: leagueId, name, sport: sportLabel,
-          settings: { leagueCode: code, tournamentFormat: tournamentFormat || "classic", format, points, customRules, sportEmoji },
+          settings: { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], format, points, customRules, sportEmoji },
           owner_id: user.id, created_by: user.id,
         });
         if (retryErr) throw new Error(retryErr.message || "Failed to create league");
