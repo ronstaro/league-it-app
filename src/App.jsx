@@ -128,11 +128,12 @@ function settingsToRules(leagueSport, settings) {
   // sportEmoji: use saved custom emoji if present, otherwise inferred at call-site from SPORTS
   const sportEmoji = s.sportEmoji || "";
   return {
-    sport:      leagueSport || "",
+    sport:            leagueSport || "",
     sportEmoji,
-    format:     fmt,
+    format:           fmt,
     scoring,
-    seasonYear: s.seasonYear || new Date().getFullYear(),
+    seasonYear:       s.seasonYear || new Date().getFullYear(),
+    tournamentFormat: s.tournamentFormat || "classic",
   };
 }
 
@@ -2593,7 +2594,105 @@ function StepSport({ sport, setSport, customSportName, setCustomSportName, custo
 }
 
 // ─────────────────────────────────────────────
-// STEP 2 — RULE ENGINE
+// STEP 2 — TOURNAMENT FORMAT
+// ─────────────────────────────────────────────
+const TOURNAMENT_FORMATS = [
+  {
+    id:    "classic",
+    emoji: "📊",
+    label: "Classic League",
+    sub:   "Everyone plays everyone. Live standings, points table.",
+  },
+  {
+    id:    "knockout",
+    emoji: "⚡",
+    label: "Knockout Tournament",
+    sub:   "Single-elimination bracket. Lose once and you're out.",
+  },
+];
+
+function StepTournamentFormat({ tournamentFormat, setTournamentFormat, onNext }) {
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto px-5 pt-2 pb-4" style={{ WebkitOverflowScrolling: "touch" }}>
+        <motion.div variants={stagger(0.05)} initial="hidden" animate="show">
+          <StepHeading
+            line1="Choose Your"
+            line2="Format"
+            sub="This decides how the competition is structured from day one."
+          />
+
+          <div className="flex flex-col gap-3">
+            {TOURNAMENT_FORMATS.map(tf => {
+              const selected = tournamentFormat === tf.id;
+              return (
+                <motion.button
+                  key={tf.id}
+                  variants={fadeUp}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => setTournamentFormat(tf.id)}
+                  style={{
+                    width: "100%", padding: "18px 20px", borderRadius: 22, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 16, textAlign: "left",
+                    background: selected ? "rgba(170,255,0,0.07)" : "rgba(255,255,255,0.03)",
+                    border: selected
+                      ? `1.5px solid ${NEON}`
+                      : "1.5px solid rgba(255,255,255,0.07)",
+                    boxShadow: selected
+                      ? "0 0 30px rgba(170,255,0,0.14), 0 0 60px rgba(170,255,0,0.05)"
+                      : "none",
+                    transition: "all 0.18s ease",
+                  }}
+                >
+                  <div style={{
+                    width: 52, height: 52, borderRadius: 16, flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 26,
+                    background: selected ? "rgba(170,255,0,0.1)" : "rgba(255,255,255,0.04)",
+                    border: selected ? `1px solid ${NEON}44` : "1px solid rgba(255,255,255,0.08)",
+                  }}>
+                    {tf.emoji}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700,
+                      color: selected ? NEON : "#fff", lineHeight: 1, marginBottom: 5,
+                    }}>
+                      {tf.label}
+                    </div>
+                    <div style={{
+                      fontFamily: "'DM Sans',sans-serif", fontSize: 12,
+                      color: "rgba(255,255,255,0.38)", lineHeight: 1.5,
+                    }}>
+                      {tf.sub}
+                    </div>
+                  </div>
+                  <div style={{
+                    width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                    border: selected ? `2px solid ${NEON}` : "2px solid rgba(255,255,255,0.15)",
+                    background: selected ? NEON : "transparent",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "all 0.18s ease",
+                  }}>
+                    {selected && <Check size={12} strokeWidth={3} color="#000" />}
+                  </div>
+                </motion.button>
+              );
+            })}
+          </div>
+        </motion.div>
+      </div>
+      <FixedFooter>
+        <PBtn onClick={onNext} disabled={!tournamentFormat}>
+          {tournamentFormat === "knockout" ? "Build the Bracket →" : "Set Up Rules →"}
+        </PBtn>
+      </FixedFooter>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// STEP 3 — RULE ENGINE
 // ─────────────────────────────────────────────
 function StepRules({ format, setFormat, points, setPoints, customRules, setCustomRules, onNext }) {
   return (
@@ -3468,23 +3567,24 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const [step, setStep] = useState(initialStep);
   const [dir,  setDir]  = useState(1);
 
-  const [sport,           setSport]           = useState(null);
-  const [customSportName, setCustomSportName] = useState("");
-  const [customSportEmoji,setCustomSportEmoji]= useState("🏆");
-  const [format,          setFormat]          = useState("single");
-  const [points,          setPoints]          = useState(21);
-  const [customRules,     setCustomRules]     = useState("");
-  const [leagueName,      setLeagueName]      = useState("");
-  const [adminName,       setAdminName]       = useState(user?.user_metadata?.full_name || "");
-  const [leagueCode]                          = useState(generateCode);
-  const [saving,          setSaving]          = useState(false);
-  const [createErr,       setCreateErr]       = useState("");
+  const [sport,             setSport]             = useState(null);
+  const [customSportName,   setCustomSportName]   = useState("");
+  const [customSportEmoji,  setCustomSportEmoji]  = useState("🏆");
+  const [tournamentFormat,  setTournamentFormat]  = useState("classic");
+  const [format,            setFormat]            = useState("single");
+  const [points,            setPoints]            = useState(21);
+  const [customRules,       setCustomRules]       = useState("");
+  const [leagueName,        setLeagueName]        = useState("");
+  const [adminName,         setAdminName]         = useState(user?.user_metadata?.full_name || "");
+  const [leagueCode]                              = useState(generateCode);
+  const [saving,            setSaving]            = useState(false);
+  const [createErr,         setCreateErr]         = useState("");
 
-  const TOTAL_WIZARD_STEPS = 5;
+  const TOTAL_WIZARD_STEPS = 6;
 
   const goNext = useCallback(() => {
     setDir(1);
-    setStep(s => Math.min(s + 1, 5));
+    setStep(s => Math.min(s + 1, 6));
   }, []);
 
   const goBack = useCallback(() => {
@@ -3498,13 +3598,13 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
     setSaving(true);
     setCreateErr("");
     try {
-      await onFinish({ leagueName, adminName, sport, format, points, customSportName, customSportEmoji, customRules, leagueCode });
+      await onFinish({ leagueName, adminName, sport, tournamentFormat, format, points, customSportName, customSportEmoji, customRules, leagueCode });
     } catch (e) {
       console.error(e);
       setCreateErr("Something went wrong. Please try again.");
       setSaving(false);
     }
-  }, [saving, onFinish, leagueName, adminName, sport, format, points, customSportName, customSportEmoji, customRules, leagueCode]);
+  }, [saving, onFinish, leagueName, adminName, sport, tournamentFormat, format, points, customSportName, customSportEmoji, customRules, leagueCode]);
 
   const sportProps = { sport, setSport, customSportName, setCustomSportName, customSportEmoji, setCustomSportEmoji };
   const rulesProps = { format, setFormat, points, setPoints, customRules, setCustomRules };
@@ -3512,6 +3612,11 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const screens = [
     <StepLanding key="landing" onNext={goNext} onSignIn={onSignIn} hasPendingJoin={hasPendingJoin} />,
     <StepSport   key="sport"   {...sportProps} onNext={goNext} />,
+    <StepTournamentFormat
+      key="tournament-format"
+      tournamentFormat={tournamentFormat} setTournamentFormat={setTournamentFormat}
+      onNext={goNext}
+    />,
     <StepRules   key="rules"   {...rulesProps} onNext={goNext} />,
     <StepBranding
       key="branding"
@@ -3572,7 +3677,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
           }}
         >
           <AnimatePresence>
-            {step > 0 && step < 5 && (
+            {step > 0 && step < 6 && (
               <motion.div
                 key="topnav"
                 initial={{ opacity: 0, y: -12 }}
@@ -4566,7 +4671,7 @@ export default function Root() {
     if (user) loadLeagues(user.id);
   }, [user, loadLeagues]);
 
-  const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, format, points, customSportName, customSportEmoji, customRules, leagueCode }) => {
+  const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, tournamentFormat, format, points, customSportName, customSportEmoji, customRules, leagueCode }) => {
     if (!user) throw new Error("Not logged in");
 
     const name        = leagueName?.trim() || "My League";
@@ -4587,7 +4692,7 @@ export default function Root() {
       name,
       sport:      sportLabel,
       join_code:  code,
-      settings:   { leagueCode: code, format, points, customRules, sportEmoji },
+      settings:   { leagueCode: code, tournamentFormat: tournamentFormat || "classic", format, points, customRules, sportEmoji },
       owner_id:   user.id,
       created_by: user.id,
     });
@@ -4596,7 +4701,7 @@ export default function Root() {
       if (leagueErr.message?.includes("join_code") || leagueErr.code === "42703") {
         const { error: retryErr } = await supabase.from("leagues").insert({
           id: leagueId, name, sport: sportLabel,
-          settings: { leagueCode: code, format, points, customRules, sportEmoji },
+          settings: { leagueCode: code, tournamentFormat: tournamentFormat || "classic", format, points, customRules, sportEmoji },
           owner_id: user.id, created_by: user.id,
         });
         if (retryErr) throw new Error(retryErr.message || "Failed to create league");
