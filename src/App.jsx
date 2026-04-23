@@ -139,6 +139,8 @@ function settingsToRules(leagueSport, settings) {
     participants:     s.participants || [],
     bracket:          s.bracket || null,
     matchLegs:        s.matchLegs || 1,
+    groups:           s.groups || [],
+    groupMatches:     s.groupMatches || [],
   };
 }
 
@@ -322,9 +324,19 @@ function FeedCard({m,onEdit,onDelete,canDelete=false,players=[]}) {
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 flex-wrap mb-2">
-            <span style={{fontSize:13,fontWeight:700,color:N,fontFamily:"'DM Sans',sans-serif"}}>{winnerStr}</span>
-            <span style={{fontSize:11,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif"}}>def.</span>
-            <span style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.42)",fontFamily:"'DM Sans',sans-serif"}}>{loserStr}</span>
+            {m.isDraw ? (
+              <>
+                <span style={{fontSize:13,fontWeight:700,color:"rgba(255,255,255,.85)",fontFamily:"'DM Sans',sans-serif"}}>{m.p1Name||winnerStr}</span>
+                <span style={{fontSize:11,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif"}}>drew</span>
+                <span style={{fontSize:13,fontWeight:700,color:"rgba(255,255,255,.85)",fontFamily:"'DM Sans',sans-serif"}}>{m.p2Name||loserStr}</span>
+              </>
+            ) : (
+              <>
+                <span style={{fontSize:13,fontWeight:700,color:N,fontFamily:"'DM Sans',sans-serif"}}>{winnerStr}</span>
+                <span style={{fontSize:11,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif"}}>def.</span>
+                <span style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.42)",fontFamily:"'DM Sans',sans-serif"}}>{loserStr}</span>
+              </>
+            )}
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
             {m.sets.map((s,i)=>(
@@ -333,6 +345,9 @@ function FeedCard({m,onEdit,onDelete,canDelete=false,players=[]}) {
             ))}
             <span style={{fontSize:9,color:"rgba(255,255,255,.22)",fontWeight:600,marginLeft:2}}>{totalMG} Mini-Games</span>
             {m.isComeback&&<span style={{fontSize:8,fontWeight:900,letterSpacing:"0.8px",color:"#FFB830",background:"rgba(255,184,48,.12)",border:"1px solid rgba(255,184,48,.35)",borderRadius:4,padding:"1px 5px",fontFamily:"'DM Sans',sans-serif"}}>⚡ COMEBACK</span>}
+            {m.isDraw&&<span style={{fontSize:8,fontWeight:900,letterSpacing:"0.8px",color:"#3B8EFF",background:"rgba(59,142,255,.12)",border:"1px solid rgba(59,142,255,.35)",borderRadius:4,padding:"1px 5px",fontFamily:"'DM Sans',sans-serif"}}>🤝 DRAW</span>}
+            {m.groupLabel&&<span style={{fontSize:8,fontWeight:800,letterSpacing:"0.5px",color:N,background:`${N}12`,border:`1px solid ${N}30`,borderRadius:4,padding:"1px 6px",fontFamily:"'DM Sans',sans-serif"}}>{m.groupLabel}</span>}
+            {m.bracketRoundLabel&&!m.groupLabel&&<span style={{fontSize:8,fontWeight:800,letterSpacing:"0.5px",color:"#AA55FF",background:"rgba(170,85,255,.12)",border:"1px solid rgba(170,85,255,.35)",borderRadius:4,padding:"1px 6px",fontFamily:"'DM Sans',sans-serif"}}>🏆 {m.bracketRoundLabel}</span>}
           </div>
         </div>
         <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
@@ -683,6 +698,7 @@ function HomeTab({
   players, feed, onEditFeed, onDeleteFeed, isAdmin=false, myPlayerId=null,
   isTournament=false, tournamentFormat="classic",
   bracket=null, onMatchTap=null, onGenerateDraw=null, matchLegs=1,
+  groups=[], groupMatches=[], onGroupMatchTap=null,
 }) {
   const [showAll,setShowAll] = useState(false);
   const mvp    = useMemo(()=>players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:{name:"No Players",wins:0,losses:0},[players]);
@@ -723,22 +739,30 @@ function HomeTab({
       {/* ── GROUPS + KNOCKOUT: groups then bracket ── */}
       {isTournament && tournamentFormat === "groups_knockout" && (
         <div style={{ marginBottom: 20 }}>
-          <ST>👥 Group Stage</ST>
-          {bracket ? (
-            <div style={{ borderRadius: 16, padding: "14px 16px", marginBottom: 16,
-              background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)",
-              fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,.35)",
-              textAlign: "center" }}>
-              Group fixtures will appear here once draw is locked in.
-            </div>
-          ) : (
-            <_DrawEmptyState isAdmin={isAdmin} onGenerateDraw={onGenerateDraw}/>
-          )}
+          {!groups.length && <_DrawEmptyState isAdmin={isAdmin} onGenerateDraw={onGenerateDraw}/>}
+          {groups.map(group => (
+            <GroupTable
+              key={group.name}
+              group={group}
+              groupMatches={groupMatches.filter(m => m.groupName === group.name)}
+              feed={feed}
+              allGroupMatches={groupMatches}
+              onMatchTap={onGroupMatchTap}
+              isAdmin={isAdmin}
+            />
+          ))}
           {bracket && (
             <>
               <ST>⚡ Knockout Bracket</ST>
               <TournamentBracket bracket={bracket} isAdmin={isAdmin} onMatchTap={onMatchTap} matchLegs={matchLegs}/>
             </>
+          )}
+          {groups.length > 0 && !bracket && (
+            <div style={{ borderRadius: 14, padding: "12px 16px", marginTop: 8,
+              background: "rgba(255,255,255,.02)", border: "1px dashed rgba(255,255,255,.1)",
+              fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.3)", textAlign: "center" }}>
+              ⚡ Knockout bracket unlocks after all group matches complete
+            </div>
           )}
         </div>
       )}
@@ -1504,6 +1528,14 @@ function styleTitle(wins,comebacks,winRate,totalPlayed) {
 function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,onAvatarUpdate=null}) {
   const enriched  = useMemo(()=>enrichPlayers(players,feed),[players,feed]);
   const me        = players.find(p=>p.isMe);
+  // Admin who hasn't joined as a player — show nothing (caller renders AdminDashboard instead)
+  if (!me) return (
+    <div style={{padding:"60px 20px",textAlign:"center",fontFamily:"'DM Sans',sans-serif",color:"rgba(255,255,255,.35)",fontSize:13}}>
+      <div style={{fontSize:36,marginBottom:12}}>👤</div>
+      <div style={{fontWeight:700,marginBottom:6}}>No player profile yet</div>
+      <div style={{fontSize:11}}>Head to the League tab and tap "Join as Player" to create yours.</div>
+    </div>
+  );
   const meE       = enriched.find(p=>p.isMe);
   const displayName = profile?.display_name || user?.user_metadata?.full_name || me?.name || "Player";
   const [editName, setEditName] = useState(false);
@@ -1989,11 +2021,13 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, matchL
 // ─────────────────────────────────────────────
 // DRAW CONFIRM SHEET
 // ─────────────────────────────────────────────
-function DrawConfirmSheet({ bracket, onConfirm, onCancel, onClose, loading = false }) {
-  if (!bracket) return null;
-  const round1   = bracket.rounds[0] || [];
+function DrawConfirmSheet({ bracket, groups, groupMatches, format, onConfirm, onCancel, onClose, loading = false }) {
+  const isGroups = format === "groups_knockout";
+  if (!bracket && !groups?.length) return null;
+  const round1   = bracket?.rounds?.[0] || [];
   const nonByes  = round1.filter(m => !m.isBye);
   const byeNames = round1.filter(m => m.isBye).map(m => (m.p1 || m.p2)?.name).filter(Boolean);
+  const GROUP_COLORS = ["#AAFF00","#3B8EFF","#FFB830","#FF6B35","#AA55FF","#00E5CC","#FF3355","#FFD700"];
 
   return (
     <motion.div
@@ -2018,7 +2052,10 @@ function DrawConfirmSheet({ bracket, onConfirm, onCancel, onClose, loading = fal
               The Draw is <span style={{ color: N }}>Ready</span>
             </h3>
             <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.35)", marginTop: 4 }}>
-              {bracket.seeded ? "Seeded draw — stronger players kept apart." : "Random draw — all players equal."}
+              {isGroups
+                ? `${groups.length} groups · ${groupMatches?.length || 0} fixtures to play`
+                : bracket?.seeded ? "Seeded draw — stronger players kept apart." : "Random draw — all players equal."
+              }
             </p>
           </div>
           <button onClick={onClose || onCancel} style={{
@@ -2029,53 +2066,84 @@ function DrawConfirmSheet({ bracket, onConfirm, onCancel, onClose, loading = fal
           </button>
         </div>
 
-        <div style={{ padding: "16px 20px", maxHeight: 360, overflowY: "auto" }}>
-          {/* Round 1 matchups */}
-          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "1.5px", color: "rgba(255,255,255,.3)", marginBottom: 10 }}>
-            ROUND 1 MATCHUPS
-          </div>
-          <div className="flex flex-col gap-2">
-            {nonByes.map((m, i) => (
-              <div key={m.id} style={{
-                borderRadius: 14, padding: "12px 14px",
-                background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)",
-                display: "flex", alignItems: "center", gap: 10,
-              }}>
-                <div style={{
-                  fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 800,
-                  color: "rgba(255,255,255,.25)", width: 18, flexShrink: 0, textAlign: "center",
-                }}>{i + 1}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    {m.p1?.tier && <div style={{ width: 5, height: 5, borderRadius: "50%", background: TIER_META[m.p1.tier]?.color, flexShrink: 0 }}/>}
-                    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700, color: "#fff" }}>{m.p1?.name}</span>
+        <div style={{ padding: "16px 20px", maxHeight: 400, overflowY: "auto" }}>
+          {isGroups ? (
+            /* Groups format — show group assignments */
+            <>
+              {(groups || []).map((group, gi) => {
+                const gc = GROUP_COLORS[gi % GROUP_COLORS.length];
+                const gFixtures = (groupMatches || []).filter(m => m.groupName === group.name);
+                return (
+                  <div key={group.name} style={{ marginBottom: 16 }}>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: "1.5px",
+                      color: gc, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: gc, flexShrink: 0 }}/>
+                      GROUP {group.name} — {group.participants.length} players · {gFixtures.length} matches
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                      {group.participants.map(p => (
+                        <div key={p.name} style={{
+                          borderRadius: 10, padding: "6px 10px", display: "flex", alignItems: "center", gap: 6,
+                          background: `${gc}10`, border: `1px solid ${gc}30`,
+                        }}>
+                          {p.tier && <div style={{ width: 5, height: 5, borderRadius: "50%", background: TIER_META[p.tier]?.color || gc, flexShrink: 0 }}/>}
+                          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700, color: "#fff" }}>{p.name}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, color: `${N}66`, fontWeight: 700, letterSpacing: "1px", margin: "2px 0" }}>VS</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    {m.p2?.tier && <div style={{ width: 5, height: 5, borderRadius: "50%", background: TIER_META[m.p2.tier]?.color, flexShrink: 0 }}/>}
-                    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700, color: "#fff" }}>{m.p2?.name}</span>
+                );
+              })}
+            </>
+          ) : (
+            /* Knockout format — show round 1 matchups */
+            <>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "1.5px", color: "rgba(255,255,255,.3)", marginBottom: 10 }}>
+                ROUND 1 MATCHUPS
+              </div>
+              <div className="flex flex-col gap-2">
+                {nonByes.map((m, i) => (
+                  <div key={m.id} style={{
+                    borderRadius: 14, padding: "12px 14px",
+                    background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)",
+                    display: "flex", alignItems: "center", gap: 10,
+                  }}>
+                    <div style={{
+                      fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 800,
+                      color: "rgba(255,255,255,.25)", width: 18, flexShrink: 0, textAlign: "center",
+                    }}>{i + 1}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {m.p1?.tier && <div style={{ width: 5, height: 5, borderRadius: "50%", background: TIER_META[m.p1.tier]?.color, flexShrink: 0 }}/>}
+                        <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700, color: "#fff" }}>{m.p1?.name}</span>
+                      </div>
+                      <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, color: `${N}66`, fontWeight: 700, letterSpacing: "1px", margin: "2px 0" }}>VS</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {m.p2?.tier && <div style={{ width: 5, height: 5, borderRadius: "50%", background: TIER_META[m.p2.tier]?.color, flexShrink: 0 }}/>}
+                        <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700, color: "#fff" }}>{m.p2?.name}</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Byes */}
-          {byeNames.length > 0 && (
-            <div style={{ marginTop: 14 }}>
-              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "1.5px", color: "rgba(255,255,255,.3)", marginBottom: 8 }}>
-                AUTO-ADVANCING (BYE)
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {byeNames.map(n => (
-                  <div key={n} style={{
-                    borderRadius: 10, padding: "6px 10px",
-                    background: `${N}10`, border: `1px solid ${N}30`,
-                    fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700, color: N,
-                  }}>{n}</div>
                 ))}
               </div>
-            </div>
+
+              {byeNames.length > 0 && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "1.5px", color: "rgba(255,255,255,.3)", marginBottom: 8 }}>
+                    AUTO-ADVANCING (BYE)
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {byeNames.map(n => (
+                      <div key={n} style={{
+                        borderRadius: 10, padding: "6px 10px",
+                        background: `${N}10`, border: `1px solid ${N}30`,
+                        fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700, color: N,
+                      }}>{n}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -2086,13 +2154,13 @@ function DrawConfirmSheet({ bracket, onConfirm, onCancel, onClose, loading = fal
             fontFamily: "'DM Sans',sans-serif", fontWeight: 800, fontSize: 13,
             color: "rgba(255,255,255,.6)",
           }}>Re-Draw</button>
-          <button onClick={() => onConfirm(bracket)} disabled={loading} style={{
+          <button onClick={() => isGroups ? onConfirm({ groups, groupMatches }) : onConfirm(bracket)} disabled={loading} style={{
             flex: 2, borderRadius: 16, padding: "14px 0", cursor: loading ? "not-allowed" : "pointer",
             background: loading ? "rgba(255,255,255,.06)" : `linear-gradient(135deg,${N},#7DC900)`,
             border: "none", fontFamily: "'DM Sans',sans-serif", fontWeight: 800, fontSize: 14,
             color: loading ? "rgba(255,255,255,.3)" : "#000",
           }}>
-            {loading ? "Saving…" : "Lock In the Draw ✓"}
+            {loading ? "Saving…" : isGroups ? "Lock In Groups ✓" : "Lock In the Draw ✓"}
           </button>
         </div>
       </motion.div>
@@ -2338,6 +2406,408 @@ function BracketResultSheet({ match, matchLegs = 1, onResult, onClose }) {
   );
 }
 
+// ─────────────────────────────────────────────
+// GROUP MATCH RESULT SHEET
+// ─────────────────────────────────────────────
+function GroupResultSheet({ match, onResult, onClose }) {
+  if (!match) return null;
+  const [p1Goals, setP1Goals] = useState("");
+  const [p2Goals, setP2Goals] = useState("");
+  const canSubmit = p1Goals !== "" && p2Goals !== "";
+  const p1n = Number(p1Goals) || 0;
+  const p2n = Number(p2Goals) || 0;
+  const isDraw = canSubmit && p1n === p2n;
+  const resultLabel = !canSubmit ? "" : isDraw ? "Draw" : p1n > p2n ? `${match.p1?.name} wins` : `${match.p2?.name} wins`;
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-end justify-center"
+      style={{ background: "rgba(0,0,0,.88)", backdropFilter: "blur(16px)" }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <motion.div
+        initial={{ y: "100%", opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: "100%", opacity: 0 }}
+        transition={{ type: "spring", stiffness: 320, damping: 34 }}
+        className="w-full rounded-t-[28px] overflow-hidden"
+        style={{ maxWidth: 430, background: "#111318", border: "1.5px solid rgba(255,255,255,.1)", borderBottom: "none" }}>
+        <div className="flex justify-center pt-3 pb-1">
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,.15)" }}/>
+        </div>
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,.07)" }}>
+          <div>
+            <h3 style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 24, letterSpacing: "2px", color: "#fff", lineHeight: 1 }}>
+              Log <span style={{ color: N }}>Group Match</span>
+            </h3>
+            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: `${N}88`, marginTop: 3, fontWeight: 700 }}>
+              Group {match.groupName}
+            </p>
+          </div>
+          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 16, display: "flex", alignItems: "center",
+            justifyContent: "center", background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)", cursor: "pointer" }}>
+            <X size={14} style={{ color: "rgba(255,255,255,.5)" }}/>
+          </button>
+        </div>
+
+        <div style={{ padding: "20px" }}>
+          {/* Score entry row */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+            {/* P1 */}
+            <div style={{ flex: 1, textAlign: "center" }}>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 8,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{match.p1?.name}</div>
+              <input type="number" min="0" max="99" value={p1Goals} onChange={e => setP1Goals(e.target.value)}
+                placeholder="0" style={{
+                  width: "100%", borderRadius: 14, padding: "14px 8px", textAlign: "center",
+                  fontFamily: "'Bebas Neue',sans-serif", fontSize: 32, fontWeight: 700, color: "#fff",
+                  background: "rgba(255,255,255,.06)", border: `2px solid ${p1Goals !== "" ? N : "rgba(255,255,255,.12)"}`,
+                  outline: "none", caretColor: N,
+                }}/>
+            </div>
+            <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 22, color: "rgba(255,255,255,.25)", flexShrink: 0, paddingTop: 26 }}>–</div>
+            {/* P2 */}
+            <div style={{ flex: 1, textAlign: "center" }}>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 8,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{match.p2?.name}</div>
+              <input type="number" min="0" max="99" value={p2Goals} onChange={e => setP2Goals(e.target.value)}
+                placeholder="0" style={{
+                  width: "100%", borderRadius: 14, padding: "14px 8px", textAlign: "center",
+                  fontFamily: "'Bebas Neue',sans-serif", fontSize: 32, fontWeight: 700, color: "#fff",
+                  background: "rgba(255,255,255,.06)", border: `2px solid ${p2Goals !== "" ? "rgba(59,142,255,.6)" : "rgba(255,255,255,.12)"}`,
+                  outline: "none", caretColor: "#3B8EFF",
+                }}/>
+            </div>
+          </div>
+
+          {/* Live result preview */}
+          {canSubmit && (
+            <div style={{ textAlign: "center", marginBottom: 18, fontFamily: "'DM Sans',sans-serif",
+              fontSize: 12, fontWeight: 700,
+              color: isDraw ? "#3B8EFF" : N }}>
+              {isDraw ? "🤝 " : "🏆 "}{resultLabel}
+            </div>
+          )}
+
+          <button onClick={() => { if (canSubmit) onResult({ match, p1Goals, p2Goals }); }} disabled={!canSubmit} style={{
+            width: "100%", borderRadius: 18, padding: "16px", border: "none", cursor: canSubmit ? "pointer" : "not-allowed",
+            background: canSubmit ? `linear-gradient(135deg,${N},#7DC900)` : "rgba(255,255,255,.06)",
+            fontFamily: "'DM Sans',sans-serif", fontWeight: 800, fontSize: 15,
+            color: canSubmit ? "#000" : "rgba(255,255,255,.2)",
+          }}>
+            {canSubmit ? "Save Result" : "Enter Both Scores"}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// GROUP STANDINGS TABLE
+// ─────────────────────────────────────────────
+const GROUP_COLORS = ["#AAFF00","#3B8EFF","#FFB830","#FF6B35","#AA55FF","#00E5CC","#FF3355","#FFD700"];
+const GROUP_LETTER_IDX = { A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7 };
+
+function GroupTable({ group, groupMatches, feed, allGroupMatches, onMatchTap, isAdmin }) {
+  const gc = GROUP_COLORS[GROUP_LETTER_IDX[group.name] ?? 0];
+  const completedIds = useMemo(() => new Set(feed.map(m => m.id)), [feed]);
+
+  // Compute group standings from feed
+  const standings = useMemo(() => {
+    const fixtureIds = new Set(groupMatches.map(m => m.id));
+    const results = feed.filter(m => fixtureIds.has(m.id));
+    const stats = {};
+    group.participants.forEach(p => {
+      stats[p.name] = { participant: p, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, pts: 0 };
+    });
+    results.forEach(m => {
+      const p1g = Number(m.p1Goals ?? 0);
+      const p2g = Number(m.p2Goals ?? 0);
+      const p1n = m.p1Name, p2n = m.p2Name;
+      if (stats[p1n]) {
+        stats[p1n].played++;
+        stats[p1n].gf += p1g; stats[p1n].ga += p2g;
+        if (p1g > p2g) { stats[p1n].won++; stats[p1n].pts += 3; }
+        else if (p1g === p2g) { stats[p1n].drawn++; stats[p1n].pts += 1; }
+        else stats[p1n].lost++;
+      }
+      if (stats[p2n]) {
+        stats[p2n].played++;
+        stats[p2n].gf += p2g; stats[p2n].ga += p1g;
+        if (p2g > p1g) { stats[p2n].won++; stats[p2n].pts += 3; }
+        else if (p1g === p2g) { stats[p2n].drawn++; stats[p2n].pts += 1; }
+        else stats[p2n].lost++;
+      }
+    });
+    return Object.values(stats).sort((a, b) => {
+      if (b.pts !== a.pts) return b.pts - a.pts;
+      const gdA = a.gf - a.ga, gdB = b.gf - b.ga;
+      if (gdB !== gdA) return gdB - gdA;
+      return b.gf - a.gf;
+    });
+  }, [group, groupMatches, feed]);
+
+  const played = groupMatches.filter(m => completedIds.has(m.id)).length;
+  const total  = groupMatches.length;
+  const done   = played === total && total > 0;
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      {/* Group header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: gc, boxShadow: `0 0 6px ${gc}` }}/>
+          <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 16, letterSpacing: "2px", color: "#fff" }}>
+            Group {group.name}
+          </span>
+          {done && <span style={{ fontSize: 8, fontWeight: 800, color: gc, background: `${gc}15`, border: `1px solid ${gc}40`,
+            borderRadius: 6, padding: "1px 6px", fontFamily: "'DM Sans',sans-serif", letterSpacing: "1px" }}>COMPLETE</span>}
+        </div>
+        <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, color: "rgba(255,255,255,.3)", fontWeight: 700 }}>
+          {played}/{total} played
+        </span>
+      </div>
+
+      {/* Standings mini-table */}
+      <div style={{ borderRadius: 16, overflow: "hidden", border: "1px solid rgba(255,255,255,.07)", marginBottom: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 28px 28px 28px 28px 32px",
+          padding: "7px 12px", background: "rgba(255,255,255,.04)", borderBottom: "1px solid rgba(255,255,255,.06)" }}>
+          {["PLAYER","W","D","L","GD","PTS"].map((h, i) => (
+            <span key={h} style={{ fontSize: 8, fontWeight: 800, letterSpacing: "1px",
+              color: "rgba(255,255,255,.28)", textAlign: i > 0 ? "center" : "left",
+              fontFamily: "'DM Sans',sans-serif" }}>{h}</span>
+          ))}
+        </div>
+        {standings.map((row, i) => {
+          const isAdvancing = i < (allGroupMatches.advancingPerGroup || 2);
+          return (
+            <div key={row.participant.name} style={{
+              display: "grid", gridTemplateColumns: "1fr 28px 28px 28px 28px 32px",
+              padding: "9px 12px", alignItems: "center",
+              borderBottom: i < standings.length - 1 ? "1px solid rgba(255,255,255,.04)" : "none",
+              background: i === 0 ? `${gc}06` : "transparent",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 12,
+                  color: i === 0 ? gc : "rgba(255,255,255,.25)", flexShrink: 0 }}>{i + 1}</span>
+                {row.participant.tier && (
+                  <div style={{ width: 5, height: 5, borderRadius: "50%", flexShrink: 0,
+                    background: TIER_META[row.participant.tier]?.color || gc }}/>
+                )}
+                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700,
+                  color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {row.participant.name}
+                </span>
+              </div>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700, color: N }}>{row.won}</span>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#3B8EFF" }}>{row.drawn}</span>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#FF3355" }}>{row.lost}</span>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: 10,
+                color: row.gf - row.ga >= 0 ? N : "#FF3355" }}>{row.gf - row.ga >= 0 ? "+" : ""}{row.gf - row.ga}</span>
+              <span style={{ textAlign: "center", fontFamily: "'Bebas Neue',sans-serif", fontSize: 14,
+                color: i === 0 ? gc : "#fff" }}>{row.pts}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Fixtures */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {groupMatches.map(fixture => {
+          const result = feed.find(m => m.id === fixture.id);
+          const isPending = !result;
+          const canLog    = isAdmin && isPending;
+          return (
+            <div key={fixture.id}
+              onClick={() => canLog && onMatchTap?.(fixture)}
+              style={{
+                borderRadius: 12, padding: "9px 12px", display: "flex", alignItems: "center", gap: 10,
+                background: result ? `${gc}05` : "rgba(255,255,255,.025)",
+                border: `1px solid ${result ? `${gc}20` : "rgba(255,255,255,.07)"}`,
+                cursor: canLog ? "pointer" : "default",
+              }}>
+              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 700,
+                  color: result && !result.isDraw && result.winnerIds?.includes(players?.find?.(p=>p.name===fixture.p1.name)?.id) ? N : "#fff",
+                  flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {fixture.p1.name}
+                </span>
+                {result ? (
+                  <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 16, letterSpacing: "2px",
+                    color: result.isDraw ? "#3B8EFF" : N, flexShrink: 0, minWidth: 40, textAlign: "center" }}>
+                    {result.p1Goals}–{result.p2Goals}
+                  </span>
+                ) : (
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, color: "rgba(255,255,255,.2)",
+                    flexShrink: 0, minWidth: 40, textAlign: "center" }}>vs</span>
+                )}
+                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 700,
+                  color: "#fff", flex: 1, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {fixture.p2.name}
+                </span>
+              </div>
+              {canLog && (
+                <div style={{ width: 20, height: 20, borderRadius: "50%", background: `${gc}20`, border: `1px solid ${gc}50`,
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Plus size={10} style={{ color: gc }}/>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// ADMIN DASHBOARD (non-participant admin)
+// ─────────────────────────────────────────────
+function AdminDashboard({ players, feed, rules, bracket, groups, groupMatches }) {
+  const isTournament  = rules?.tournamentFormat && rules.tournamentFormat !== "classic";
+  const isGroups      = rules?.tournamentFormat === "groups_knockout";
+  const totalPlayers  = players.length;
+  const totalMatches  = feed.length;
+  const completedIds  = useMemo(() => new Set(feed.map(m => m.id)), [feed]);
+  const groupTotal    = (groupMatches || []).length;
+  const groupPlayed   = (groupMatches || []).filter(m => completedIds.has(m.id)).length;
+  const groupPct      = groupTotal > 0 ? Math.round(groupPlayed / groupTotal * 100) : 0;
+  const bracketTotal  = bracket ? bracket.rounds.reduce((a, r) => a + r.filter(m => !m.isBye).length, 0) : 0;
+  const bracketPlayed = bracket ? bracket.rounds.reduce((a, r) => a + r.filter(m => !m.isBye && m.winner).length, 0) : 0;
+
+  return (
+    <div className="px-5 pt-5 pb-6">
+      {/* Hero card */}
+      <div style={{ borderRadius: 22, padding: "22px 20px", marginBottom: 20, position: "relative", overflow: "hidden",
+        background: "linear-gradient(135deg,rgba(170,255,0,.08),rgba(170,255,0,.02))",
+        border: `1.5px solid ${N}25` }}>
+        <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(135deg,rgba(170,255,0,.04),transparent 60%)" }}/>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, position: "relative" }}>
+          <div style={{ width: 44, height: 44, borderRadius: 14, background: `linear-gradient(135deg,${N},#7DC900)`,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Crown size={22} color="#000"/>
+          </div>
+          <div>
+            <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 20, letterSpacing: "2px", color: N, lineHeight: 1 }}>
+              Admin Dashboard
+            </div>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.4)", marginTop: 2 }}>
+              League overview — you're managing, not playing
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, position: "relative" }}>
+          {[
+            { label: "PLAYERS", value: totalPlayers, color: N },
+            { label: "MATCHES", value: totalMatches, color: "#3B8EFF" },
+            { label: "FORMAT",  value: rules?.tournamentFormat === "classic" ? "Classic" : rules?.tournamentFormat === "knockout" ? "Knockout" : "Groups+KO", color: "#FFB830" },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{ textAlign: "center" }}>
+              <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 26, color, lineHeight: 1 }}>{value}</div>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 8, fontWeight: 800, letterSpacing: "1px", color: "rgba(255,255,255,.35)", marginTop: 2 }}>{label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Tournament progress */}
+      {isTournament && (
+        <>
+          <ST>⚡ Tournament Progress</ST>
+          {isGroups && groupTotal > 0 && (
+            <div style={{ borderRadius: 18, padding: "16px", marginBottom: 12,
+              background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700, color: "#fff" }}>Group Stage</div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 700, color: groupPct === 100 ? N : "rgba(255,255,255,.5)" }}>
+                  {groupPlayed}/{groupTotal}
+                </div>
+              </div>
+              <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,.08)", overflow: "hidden" }}>
+                <div style={{ height: "100%", borderRadius: 3, width: `${groupPct}%`, transition: "width .6s ease",
+                  background: groupPct === 100 ? `linear-gradient(90deg,${N},#7DC900)` : "linear-gradient(90deg,#3B8EFF,#1a6be0)" }}/>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                {(groups || []).map((group, gi) => {
+                  const gMatches = (groupMatches || []).filter(m => m.groupName === group.name);
+                  const gPlayed  = gMatches.filter(m => completedIds.has(m.id)).length;
+                  const gc = GROUP_COLORS[gi % GROUP_COLORS.length];
+                  return (
+                    <div key={group.name} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: gc, flexShrink: 0 }}/>
+                      <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.55)", flex: 1 }}>
+                        Group {group.name}
+                      </div>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: gPlayed === gMatches.length && gMatches.length > 0 ? gc : "rgba(255,255,255,.35)" }}>
+                        {gPlayed}/{gMatches.length}
+                        {gPlayed === gMatches.length && gMatches.length > 0 ? " ✓" : ""}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {bracket && (
+            <div style={{ borderRadius: 18, padding: "16px", marginBottom: 20,
+              background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700, color: "#fff" }}>Knockout Stage</div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 700,
+                  color: bracketPlayed === bracketTotal && bracketTotal > 0 ? N : "rgba(255,255,255,.5)" }}>
+                  {bracketPlayed}/{bracketTotal}
+                </div>
+              </div>
+              <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,.08)", overflow: "hidden" }}>
+                <motion.div style={{ height: "100%", borderRadius: 3,
+                  background: `linear-gradient(90deg,${N},#7DC900)` }}
+                  animate={{ width: `${bracketTotal > 0 ? Math.round(bracketPlayed/bracketTotal*100) : 0}%` }}
+                  transition={{ duration: .6 }}/>
+              </div>
+            </div>
+          )}
+          {!bracket && (!isGroups || groupTotal === 0) && (
+            <div style={{ borderRadius: 18, padding: "20px", textAlign: "center", marginBottom: 20,
+              background: "rgba(255,255,255,.02)", border: "1px dashed rgba(255,255,255,.1)",
+              fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,.3)" }}>
+              🎲 No draw generated yet — go to the Home tab to generate one
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Classic league progress */}
+      {!isTournament && (
+        <>
+          <ST>📊 League Overview</ST>
+          <div style={{ borderRadius: 18, padding: "16px", marginBottom: 20,
+            background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)" }}>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,.55)", marginBottom: 8 }}>
+              {totalMatches} matches logged · {totalPlayers} players
+            </div>
+            {players.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {[...players].sort((a, b) => b.wins - a.wins).slice(0, 5).map((p, i) => (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 12, color: "rgba(255,255,255,.3)", width: 14 }}>{i+1}</span>
+                    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700, color: "#fff", flex: 1 }}>{p.name}</span>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: N }}>{p.wins}W</span>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#FF3355" }}>{p.losses}L</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <div style={{ borderRadius: 16, padding: "12px 16px",
+        background: "rgba(170,255,0,.04)", border: `1px solid ${N}18`,
+        fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.4)", lineHeight: 1.5 }}>
+        💡 Want to appear in standings? Go to the <strong style={{ color: N }}>League</strong> tab and tap "Join as Player".
+      </div>
+    </div>
+  );
+}
+
 /* ── BOTTOM NAV ── */
 function BottomNav({active, onChange}) {
   const tabs = [
@@ -2378,11 +2848,16 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   const [bracket,          setBracket]          = useState(initialRules?.bracket || null);
   const [showDrawConfirm,  setShowDrawConfirm]  = useState(false);
   const [pendingBracket,   setPendingBracket]   = useState(null);
+  const [pendingGroups,    setPendingGroups]    = useState(null);
+  const [pendingGroupMatches, setPendingGroupMatches] = useState(null);
   const [generatingDraw,   setGeneratingDraw]   = useState(false);
-  const [bracketMatchModal,setBracketMatchModal]= useState(null); // match being logged
+  const [bracketMatchModal,setBracketMatchModal]= useState(null);
+  const [groupMatchModal,  setGroupMatchModal]  = useState(null);
 
   const isTournament = rules?.tournamentFormat && rules.tournamentFormat !== "classic";
   const isAdmin      = !!(user?.id && ownerId && user.id === ownerId);
+  const groups       = rules?.groups       || [];
+  const groupMatches = rules?.groupMatches || [];
 
 
   // Derive all stats from match history — single source of truth
@@ -2393,32 +2868,59 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   const handleShowGenerateDraw = useCallback(() => {
     const participants = rules?.participants || [];
     if (participants.length < 2) return;
-    const generated = generateKnockoutBracket(participants);
-    setPendingBracket(generated);
+    const isGroupsFormat = rules?.tournamentFormat === "groups_knockout";
+    if (isGroupsFormat) {
+      const { playersPerGroup } = rules?.groupSettings || { playersPerGroup: 4 };
+      const { groups: g, groupMatches: gm } = generateGroupStage(participants, playersPerGroup);
+      setPendingGroups(g);
+      setPendingGroupMatches(gm);
+      setPendingBracket(null);
+    } else {
+      const generated = generateKnockoutBracket(participants);
+      setPendingBracket(generated);
+      setPendingGroups(null);
+      setPendingGroupMatches(null);
+    }
     setShowDrawConfirm(true);
   }, [rules]);
 
-  const handleConfirmDraw = useCallback(async (confirmedBracket) => {
-    if (!leagueId || !confirmedBracket) return;
+  const handleConfirmDraw = useCallback(async (drawData) => {
+    if (!leagueId) return;
     setGeneratingDraw(true);
     try {
       const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
-      const newSettings = { ...(data?.settings || {}), bracket: confirmedBracket };
-      await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
-      setBracket(confirmedBracket);
-      setRules(r => ({ ...r, bracket: confirmedBracket }));
+      const isGroups = rules?.tournamentFormat === "groups_knockout";
+      let newSettings;
+      if (isGroups) {
+        const { groups: g, groupMatches: gm } = drawData;
+        newSettings = { ...(data?.settings || {}), groups: g, groupMatches: gm };
+        await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
+        setRules(r => ({ ...r, groups: g, groupMatches: gm }));
+      } else {
+        newSettings = { ...(data?.settings || {}), bracket: drawData };
+        await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
+        setBracket(drawData);
+        setRules(r => ({ ...r, bracket: drawData }));
+      }
       setShowDrawConfirm(false);
-      setActiveTab("bracket");
+      setActiveTab("home");
     } catch (e) {
       console.error("Draw save failed:", e);
     }
     setGeneratingDraw(false);
-  }, [leagueId]);
+  }, [leagueId, rules]);
 
   const handleRedraw = useCallback(() => {
     const participants = rules?.participants || [];
     if (participants.length < 2) return;
-    setPendingBracket(generateKnockoutBracket(participants));
+    const isGroupsFormat = rules?.tournamentFormat === "groups_knockout";
+    if (isGroupsFormat) {
+      const { playersPerGroup } = rules?.groupSettings || { playersPerGroup: 4 };
+      const { groups: g, groupMatches: gm } = generateGroupStage(participants, playersPerGroup);
+      setPendingGroups(g); setPendingGroupMatches(gm);
+    } else {
+      setPendingBracket(generateKnockoutBracket(participants));
+    }
   }, [rules]);
 
   const _saveBracket = useCallback(async (updatedBracket) => {
@@ -2429,12 +2931,78 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     setRules(r => ({ ...r, bracket: updatedBracket }));
   }, [leagueId]);
 
+  // Save both groups state and optionally bracket in one write
+  const _saveGroupsState = useCallback(async (newGroups, newGroupMatches, newBracket) => {
+    const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle().catch(() => ({ data: null }));
+    const patch = {};
+    if (newGroups !== undefined)       patch.groups       = newGroups;
+    if (newGroupMatches !== undefined)  patch.groupMatches = newGroupMatches;
+    if (newBracket !== undefined)       patch.bracket      = newBracket;
+    const newSettings = { ...(data?.settings || {}), ...patch };
+    await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId).catch(() => {});
+    setRules(r => ({ ...r, ...patch }));
+    if (newBracket !== undefined) setBracket(newBracket);
+  }, [leagueId]);
+
+  const handleGroupResult = useCallback(async ({ match, p1Goals, p2Goals }) => {
+    if (!leagueId) return;
+    setGroupMatchModal(null);
+    const ts = nowTs();
+    const p1g = Number(p1Goals) || 0;
+    const p2g = Number(p2Goals) || 0;
+    const isDraw     = p1g === p2g;
+    const p1Player   = players.find(p => p.name === match.p1?.name);
+    const p2Player   = players.find(p => p.name === match.p2?.name);
+    const winnerId   = isDraw ? null : (p1g > p2g ? p1Player?.id : p2Player?.id) || null;
+    const loserId    = isDraw ? null : (p1g > p2g ? p2Player?.id : p1Player?.id) || null;
+    const winnerName = isDraw ? match.p1?.name : (p1g > p2g ? match.p1?.name : match.p2?.name);
+    const loserName  = isDraw ? match.p2?.name : (p1g > p2g ? match.p2?.name : match.p1?.name);
+
+    const entry = {
+      id: match.id,
+      winner: winnerName, winnerIds: winnerId ? [winnerId] : [],
+      loser:  loserName,  loserIds:  loserId  ? [loserId]  : [],
+      sets: [`${p1g}–${p2g}`], sport: rules?.sportEmoji || "⚽",
+      dateStr: ts.dateStr, timeStr: ts.timeStr, xp: 80, isComeback: false,
+      groupLabel: `Group ${match.groupName}`,
+      p1Name: match.p1?.name, p2Name: match.p2?.name,
+      p1Goals: p1g, p2Goals: p2g, isDraw,
+    };
+    setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
+    try {
+      await supabase.from("matches").upsert({
+        id: match.id, league_id: leagueId,
+        winner_id: winnerId, loser_id: loserId,
+        is_comeback: false, score: entry, date: new Date().toISOString(),
+      });
+    } catch { /* best-effort */ }
+
+    // Check if all group stage matches are now complete — if so, auto-generate knockout bracket
+    const updatedFeed = [entry, ...feed.filter(m => m.id !== match.id)];
+    const completedIds = new Set(updatedFeed.map(m => m.id));
+    const allComplete  = groupMatches.length > 0 && groupMatches.every(m => completedIds.has(m.id));
+    if (allComplete) {
+      const advancingPerGroup = rules?.groupSettings?.advancingPerGroup || 2;
+      const advancing = getAdvancingParticipants(groups, groupMatches, updatedFeed, advancingPerGroup);
+      if (advancing.length >= 2) {
+        const knockoutBracket = generateKnockoutBracket(advancing);
+        await _saveGroupsState(undefined, undefined, knockoutBracket);
+      }
+    }
+  }, [leagueId, players, feed, groups, groupMatches, rules, _saveGroupsState]);
+
   const handleBracketResult = useCallback(async ({ match, winner, loser, p1Goals, p2Goals, leg, isLeg1Only }) => {
     if (!bracket || !leagueId) return;
     setBracketMatchModal(null);
 
+    // Compute round label for feed display
+    const totalRounds = bracket.rounds.length;
+    const bracketRoundLabel = match.round === totalRounds ? "FINAL"
+      : match.round === totalRounds - 1 && totalRounds > 2 ? "SEMI-FINAL"
+      : match.round === totalRounds - 2 && totalRounds > 3 ? "QTR-FINAL"
+      : `ROUND ${match.round}`;
+
     if (isLeg1Only) {
-      // Just save leg 1 score — no winner determined yet, no match feed entry
       const updated = applyBracketLeg(bracket, match.id, 1, {
         p1Goals: p1Goals || "0", p2Goals: p2Goals || "0",
       });
@@ -2443,12 +3011,10 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     }
 
     if (leg === 2) {
-      // Save leg 2 + determine aggregate winner
       const updated = applyBracketLeg(bracket, match.id, 2, {
         p1Goals: p1Goals || "0", p2Goals: p2Goals || "0",
       });
       await _saveBracket(updated);
-      // If winner determined, save to feed + matches
       if (winner && loser) {
         const ts = nowTs();
         const leg1 = match.leg1;
@@ -2458,7 +3024,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
         const entry = { id: match.id, winner: winner.name, winnerIds: winnerId ? [winnerId] : [],
           loser: loser.name, loserIds: loserId ? [loserId] : [], sets: [scoreStr],
           sport: "🏆", dateStr: ts.dateStr, timeStr: ts.timeStr, xp: 110, isComeback: false,
-          bracketMatchId: match.id, bracketRound: match.round };
+          bracketMatchId: match.id, bracketRound: match.round, bracketRoundLabel };
         setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
         supabase.from("matches").upsert({
           id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
@@ -2479,7 +3045,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       loser: loser?.name || "—", loserIds: loserId ? [loserId] : [],
       sets: [scoreStr], sport: "🏆",
       dateStr: ts.dateStr, timeStr: ts.timeStr, xp: 110, isComeback: false,
-      bracketMatchId: match.id, bracketRound: match.round,
+      bracketMatchId: match.id, bracketRound: match.round, bracketRoundLabel,
     };
     setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
     supabase.from("matches").upsert({
@@ -2621,18 +3187,23 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     }
   }, [leagueId]);
 
+  const myPlayer = players.find(p => p.isMe);
   const content = {
     home:    <HomeTab
                players={enrichedPlayers} feed={feed}
                onEditFeed={handleEdit} onDeleteFeed={handleDeleteMatch}
-               isAdmin={isAdmin} myPlayerId={players.find(p=>p.isMe)?.id||null}
+               isAdmin={isAdmin} myPlayerId={myPlayer?.id || null}
                isTournament={isTournament} tournamentFormat={rules?.tournamentFormat || "classic"}
                bracket={bracket} onMatchTap={m => setBracketMatchModal(m)}
                onGenerateDraw={handleShowGenerateDraw} matchLegs={rules?.matchLegs || 1}
+               groups={groups} groupMatches={groupMatches}
+               onGroupMatchTap={m => setGroupMatchModal(m)}
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw}/>,
-    profile: <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate}/>,
+    profile: isAdmin && !myPlayer
+      ? <AdminDashboard players={enrichedPlayers} feed={feed} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches}/>
+      : <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate}/>,
   };
 
   return (
@@ -2708,19 +3279,17 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
             onSubmit={handleSubmit}/>
         )}
 
-        {showDrawConfirm && pendingBracket && (
+        {showDrawConfirm && (pendingBracket || pendingGroups?.length > 0) && (
           <DrawConfirmSheet
             key="draw-confirm"
             bracket={pendingBracket}
+            groups={pendingGroups}
+            groupMatches={pendingGroupMatches}
+            format={rules?.tournamentFormat}
             loading={generatingDraw}
             onConfirm={handleConfirmDraw}
-            onClose={() => { if (!generatingDraw) { setShowDrawConfirm(false); setPendingBracket(null); } }}
-            onCancel={() => {
-              if (generatingDraw) return;
-              // "Re-Draw" button = regenerate a fresh bracket
-              const participants = rules?.participants || [];
-              if (participants.length >= 2) setPendingBracket(generateKnockoutBracket(participants));
-            }}
+            onClose={() => { if (!generatingDraw) { setShowDrawConfirm(false); setPendingBracket(null); setPendingGroups(null); setPendingGroupMatches(null); } }}
+            onCancel={handleRedraw}
           />
         )}
 
@@ -2731,6 +3300,15 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
             matchLegs={rules?.matchLegs || 1}
             onResult={handleBracketResult}
             onClose={() => setBracketMatchModal(null)}
+          />
+        )}
+
+        {groupMatchModal && (
+          <GroupResultSheet
+            key="group-result"
+            match={groupMatchModal}
+            onResult={handleGroupResult}
+            onClose={() => setGroupMatchModal(null)}
           />
         )}
 
@@ -3519,6 +4097,96 @@ function applyBracketResult(bracket, matchId, winnerObj) {
     break;
   }
   return b;
+}
+
+// ─────────────────────────────────────────────
+// GROUP STAGE GENERATION
+// ─────────────────────────────────────────────
+function generateGroupStage(participants, playersPerGroup) {
+  if (!participants || participants.length < 2) return { groups: [], groupMatches: [] };
+  const numGroups = Math.max(1, Math.ceil(participants.length / playersPerGroup));
+  const groups = Array.from({ length: numGroups }, (_, i) => ({
+    name: String.fromCharCode(65 + i), // A, B, C, D...
+    participants: [],
+  }));
+
+  // Sort by tier (best players first), then snake-draft into groups for balance
+  const TIER_RANK = { A: 0, B: 1, C: 2, D: 3, E: 4 };
+  const sorted = [...participants].sort((a, b) => {
+    const ra = a.tier ? (TIER_RANK[a.tier] ?? 9) : 9;
+    const rb = b.tier ? (TIER_RANK[b.tier] ?? 9) : 9;
+    return ra !== rb ? ra - rb : Math.random() - 0.5;
+  });
+
+  // Snake draft: row 0 → A,B,C... row 1 → ...C,B,A row 2 → A,B,C...
+  sorted.forEach((p, idx) => {
+    const row = Math.floor(idx / numGroups);
+    const col = row % 2 === 0 ? idx % numGroups : numGroups - 1 - (idx % numGroups);
+    if (groups[col]) groups[col].participants.push(p);
+  });
+
+  // Round-robin fixtures within each group
+  const groupMatches = [];
+  for (const group of groups) {
+    const ps = group.participants;
+    for (let i = 0; i < ps.length; i++) {
+      for (let j = i + 1; j < ps.length; j++) {
+        groupMatches.push({
+          id: crypto.randomUUID(),
+          groupName: group.name,
+          p1: ps[i],
+          p2: ps[j],
+        });
+      }
+    }
+  }
+
+  return { groups, groupMatches };
+}
+
+// Derive group standings for a single group from the live feed
+function computeGroupStandings(groupParticipants, groupName, allGroupMatches, feed) {
+  const fixtureIds = new Set(
+    allGroupMatches.filter(m => m.groupName === groupName).map(m => m.id)
+  );
+  const results = feed.filter(m => fixtureIds.has(m.id));
+  const stats = {};
+  groupParticipants.forEach(p => {
+    stats[p.name] = { participant: p, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, pts: 0 };
+  });
+  results.forEach(m => {
+    const p1g = Number(m.p1Goals ?? 0);
+    const p2g = Number(m.p2Goals ?? 0);
+    const p1n = m.p1Name, p2n = m.p2Name;
+    if (stats[p1n]) {
+      stats[p1n].played++; stats[p1n].gf += p1g; stats[p1n].ga += p2g;
+      if (p1g > p2g) { stats[p1n].won++; stats[p1n].pts += 3; }
+      else if (p1g === p2g) { stats[p1n].drawn++; stats[p1n].pts += 1; }
+      else stats[p1n].lost++;
+    }
+    if (stats[p2n]) {
+      stats[p2n].played++; stats[p2n].gf += p2g; stats[p2n].ga += p1g;
+      if (p2g > p1g) { stats[p2n].won++; stats[p2n].pts += 3; }
+      else if (p1g === p2g) { stats[p2n].drawn++; stats[p2n].pts += 1; }
+      else stats[p2n].lost++;
+    }
+  });
+  return Object.values(stats).sort((a, b) => {
+    if (b.pts !== a.pts) return b.pts - a.pts;
+    const gdA = a.gf - a.ga, gdB = b.gf - b.ga;
+    return gdB !== gdA ? gdB - gdA : b.gf - a.gf;
+  });
+}
+
+// Pick the top N players from each group and return them flat for bracket seeding
+function getAdvancingParticipants(groups, allGroupMatches, feed, advancingPerGroup) {
+  const advancing = [];
+  for (const group of groups) {
+    const standings = computeGroupStandings(group.participants, group.name, allGroupMatches, feed);
+    const topX = standings.slice(0, advancingPerGroup);
+    advancing.push(...topX.map(s => s.participant));
+  }
+  return advancing;
 }
 
 // ─────────────────────────────────────────────
