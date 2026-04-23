@@ -138,6 +138,7 @@ function settingsToRules(leagueSport, settings) {
     groupSettings:    s.groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 },
     participants:     s.participants || [],
     bracket:          s.bracket || null,
+    matchLegs:        s.matchLegs || 1,
   };
 }
 
@@ -655,21 +656,95 @@ function LogModal({players, onClose, onSubmit, prefill=null}) {
   );
 }
 
+/* ── DRAW EMPTY STATE (reusable) ── */
+function _DrawEmptyState({ isAdmin, onGenerateDraw }) {
+  return (
+    <div style={{ borderRadius: 20, padding: "32px 20px", textAlign: "center",
+      background: "rgba(255,255,255,.02)", border: "1.5px dashed rgba(255,255,255,.1)",
+      marginBottom: 8 }}>
+      <div style={{ fontSize: 36, marginBottom: 12 }}>🎲</div>
+      <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, color: "rgba(255,255,255,.35)",
+        marginBottom: isAdmin ? 20 : 0, lineHeight: 1.6 }}>
+        {isAdmin ? "The draw hasn't been generated yet." : "Waiting for the admin to generate the draw."}
+      </div>
+      {isAdmin && onGenerateDraw && (
+        <button onClick={onGenerateDraw} style={{
+          borderRadius: 16, padding: "12px 24px", cursor: "pointer",
+          background: `linear-gradient(135deg,${N},#7DC900)`,
+          border: "none", fontFamily: "'DM Sans',sans-serif", fontWeight: 800, fontSize: 13, color: "#000",
+        }}>Generate Draw →</button>
+      )}
+    </div>
+  );
+}
+
 /* ── HOME TAB ── */
-function HomeTab({players,feed,onEditFeed,onDeleteFeed,isAdmin=false,myPlayerId=null}) {
+function HomeTab({
+  players, feed, onEditFeed, onDeleteFeed, isAdmin=false, myPlayerId=null,
+  isTournament=false, tournamentFormat="classic",
+  bracket=null, onMatchTap=null, onGenerateDraw=null, matchLegs=1,
+}) {
   const [showAll,setShowAll] = useState(false);
-  // MVP = highest wins
   const mvp    = useMemo(()=>players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:{name:"No Players",wins:0,losses:0},[players]);
   const streak = useMemo(()=>players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:{name:"No Players",bestStreak:0},[players]);
   const visible = showAll ? feed : feed.slice(0,5);
 
   return (
     <div className="px-5 pt-5 pb-2">
-      <ST>📊 Standings</ST>
-      <StandingsTable players={players} feed={feed}/>
+      {/* ── CLASSIC: standings table ── */}
+      {!isTournament && (
+        <>
+          <ST>📊 Standings</ST>
+          <StandingsTable players={players} feed={feed}/>
+        </>
+      )}
 
-      {/* MVP + Streak — 2-col grid below standings */}
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      {/* ── KNOCKOUT: full bracket ── */}
+      {isTournament && tournamentFormat === "knockout" && (
+        <div style={{ marginBottom: 20 }}>
+          <div className="flex items-center justify-between mb-3">
+            <ST style={{ margin: 0 }}>⚡ Tournament Bracket</ST>
+            {matchLegs === 2 && (
+              <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700,
+                color: `${N}77`, letterSpacing: "1px", background: `${N}10`,
+                border: `1px solid ${N}25`, borderRadius: 8, padding: "3px 8px" }}>
+                HOME & AWAY
+              </span>
+            )}
+          </div>
+          {bracket ? (
+            <TournamentBracket bracket={bracket} isAdmin={isAdmin} onMatchTap={onMatchTap} matchLegs={matchLegs}/>
+          ) : (
+            <_DrawEmptyState isAdmin={isAdmin} onGenerateDraw={onGenerateDraw}/>
+          )}
+        </div>
+      )}
+
+      {/* ── GROUPS + KNOCKOUT: groups then bracket ── */}
+      {isTournament && tournamentFormat === "groups_knockout" && (
+        <div style={{ marginBottom: 20 }}>
+          <ST>👥 Group Stage</ST>
+          {bracket ? (
+            <div style={{ borderRadius: 16, padding: "14px 16px", marginBottom: 16,
+              background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)",
+              fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,.35)",
+              textAlign: "center" }}>
+              Group fixtures will appear here once draw is locked in.
+            </div>
+          ) : (
+            <_DrawEmptyState isAdmin={isAdmin} onGenerateDraw={onGenerateDraw}/>
+          )}
+          {bracket && (
+            <>
+              <ST>⚡ Knockout Bracket</ST>
+              <TournamentBracket bracket={bracket} isAdmin={isAdmin} onMatchTap={onMatchTap} matchLegs={matchLegs}/>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* MVP + Streak — classic only */}
+      {!isTournament && <div className="grid grid-cols-2 gap-3 mb-6">
         <div className="rounded-[20px] p-4 relative overflow-hidden" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,215,0,.22)"}}>
           <div className="absolute inset-0 pointer-events-none" style={{background:"linear-gradient(135deg,rgba(255,215,0,.05),transparent 60%)"}}/>
           <span className="text-[22px] mb-1 block">🎖️</span>
@@ -686,7 +761,7 @@ function HomeTab({players,feed,onEditFeed,onDeleteFeed,isAdmin=false,myPlayerId=
           <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:30,letterSpacing:"2px",color:N,lineHeight:1}}>{streak.bestStreak||0}</div>
           <div style={{fontSize:9,fontWeight:700,color:"rgba(170,255,0,.5)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>WIN STREAK</div>
         </div>
-      </div>
+      </div>}
 
       {/* AI Ref */}
       <div className="flex items-center gap-4 rounded-[20px] p-4 mb-6 relative overflow-hidden cursor-pointer hover:brightness-110 transition-all"
@@ -1150,9 +1225,13 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
         )}
       </div>
 
-      {/* Real Standings Table here too */}
-      <ST>👥 Squad Roster — Standings</ST>
-      <StandingsTable players={players} feed={feed}/>
+      {/* Squad Roster — hidden for tournament leagues (bracket lives on Home tab) */}
+      {!(rules?.tournamentFormat && rules.tournamentFormat !== "classic") && (
+        <>
+          <ST>👥 Squad Roster — Standings</ST>
+          <StandingsTable players={players} feed={feed}/>
+        </>
+      )}
 
       <ST>📜 The Constitution</ST>
       <div className="rounded-[20px] p-4 mb-5" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(170,255,0,.15)"}}>
@@ -1746,7 +1825,7 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
 const SLOT_H      = 80;  // vertical space per r1 match
 const MATCH_H     = 62;  // actual card height
 
-function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false }) {
+function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, matchLegs = 1 }) {
   if (!bracket?.rounds?.length) return null;
   const { rounds } = bracket;
   const r1Count    = rounds[0].length;
@@ -1786,7 +1865,14 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false }) {
                 const top = matchTop(ri, mi);
                 const bothSet   = match.p1 && match.p2;
                 const hasWinner = !!match.winner;
-                const canLog    = isAdmin && bothSet && !hasWinner && !match.isBye;
+                // For 2-leg: also tappable when leg1 done but leg2 not yet
+                const leg1Done  = matchLegs === 2 && match.leg1 && !match.leg2;
+                const canLog    = isAdmin && bothSet && !match.isBye && (!hasWinner || leg1Done);
+
+                // 2-leg score display
+                const showLegs  = matchLegs === 2 && (match.leg1 || match.leg2);
+                const aggP1     = (Number(match.leg1?.p1Goals)||0) + (Number(match.leg2?.p1Goals)||0);
+                const aggP2     = (Number(match.leg1?.p2Goals)||0) + (Number(match.leg2?.p2Goals)||0);
 
                 return (
                   <div key={match.id} style={{
@@ -1830,18 +1916,18 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false }) {
                           const isWinner = player && match.winner?.id === player.id;
                           const isLoser  = player && match.winner && match.winner.id !== player.id;
                           const tierMeta = player?.tier ? TIER_META[player.tier] : null;
+                          // Per-player aggregate goal count
+                          const aggGoals = showLegs ? (pi === 0 ? aggP1 : aggP2) : null;
                           return (
                             <div key={pi} style={{
-                              flex: 1, display: "flex", alignItems: "center", gap: 7, padding: "0 10px",
+                              flex: 1, display: "flex", alignItems: "center", gap: 7,
+                              padding: "0 8px 0 10px",
                               background: isWinner ? `${N}10` : "transparent",
                               borderBottom: pi === 0 ? "1px solid rgba(255,255,255,.06)" : "none",
                             }}>
                               {/* Tier dot */}
                               {tierMeta && (
-                                <div style={{
-                                  width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
-                                  background: tierMeta.color,
-                                }}/>
+                                <div style={{ width: 5, height: 5, borderRadius: "50%", flexShrink: 0, background: tierMeta.color }}/>
                               )}
                               <span style={{
                                 fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 700,
@@ -1850,15 +1936,39 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false }) {
                               }}>
                                 {player?.name || (match.round > 1 ? "TBD" : "—")}
                               </span>
-                              {isWinner && <div style={{ width: 5, height: 5, borderRadius: "50%", background: N, flexShrink: 0 }}/>}
+                              {/* Aggregate score badge for 2-leg */}
+                              {showLegs && aggGoals !== null && (
+                                <span style={{
+                                  fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 800,
+                                  color: isWinner ? N : isLoser ? "rgba(255,255,255,.3)" : "rgba(255,255,255,.5)",
+                                  minWidth: 14, textAlign: "right", flexShrink: 0,
+                                }}>{aggGoals}</span>
+                              )}
+                              {isWinner && !showLegs && <div style={{ width: 5, height: 5, borderRadius: "50%", background: N, flexShrink: 0 }}/>}
                             </div>
                           );
                         })}
+                        {/* 2-leg per-leg score breakdown */}
+                        {showLegs && (
+                          <div style={{
+                            position: "absolute", bottom: 2, left: 10, right: 8,
+                            fontFamily: "'DM Sans',sans-serif", fontSize: 8, fontWeight: 600,
+                            color: "rgba(255,255,255,.3)", letterSpacing: "0.3px",
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }}>
+                            {match.leg1 && `L1 ${match.leg1.p1Goals}–${match.leg1.p2Goals}`}
+                            {match.leg1 && match.leg2 && "  "}
+                            {match.leg2 && `L2 ${match.leg2.p1Goals}–${match.leg2.p2Goals}`}
+                            {!match.leg2 && match.leg1 && (
+                              <span style={{ color: `${N}66` }}> · L2 pending</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
                     {/* "Tap to log" hint for pending admin matches */}
-                    {canLog && (
+                    {canLog && !showLegs && (
                       <div style={{
                         position: "absolute", bottom: 2, right: 8,
                         fontFamily: "'DM Sans',sans-serif", fontSize: 8, fontWeight: 700,
@@ -1993,19 +2103,96 @@ function DrawConfirmSheet({ bracket, onConfirm, onCancel, onClose, loading = fal
 // ─────────────────────────────────────────────
 // BRACKET MATCH RESULT SHEET
 // ─────────────────────────────────────────────
-function BracketResultSheet({ match, onResult, onClose }) {
+function BracketResultSheet({ match, matchLegs = 1, onResult, onClose }) {
   if (!match) return null;
-  const [score1, setScore1] = useState("");
-  const [score2, setScore2] = useState("");
-  const [chosen, setChosen] = useState(null); // "p1" | "p2"
-  const canSubmit = chosen !== null;
+
+  // Determine which leg to log
+  const legToLog = (matchLegs === 2 && match.leg1 && !match.leg2) ? 2 : 1;
+  const isTwoLeg = matchLegs === 2;
+
+  // Single-leg / leg-2 state
+  const [p1Goals, setP1Goals] = useState("");
+  const [p2Goals, setP2Goals] = useState("");
+  const [chosen,  setChosen]  = useState(null); // "p1" | "p2" — only for single-leg or tie-break
+
+  // Aggregate live display for leg-2
+  const l1p1 = Number(match.leg1?.p1Goals) || 0;
+  const l1p2 = Number(match.leg1?.p2Goals) || 0;
+  const l2p1 = Number(p1Goals) || 0;
+  const l2p2 = Number(p2Goals) || 0;
+  const aggP1 = l1p1 + l2p1;
+  const aggP2 = l1p2 + l2p2;
+  const bothGoalsEntered = p1Goals !== "" && p2Goals !== "";
+
+  const canSubmitSingle = isTwoLeg ? false : chosen !== null;
+  const canSubmitLeg1   = isTwoLeg && legToLog === 1 && bothGoalsEntered;
+  const canSubmitLeg2   = isTwoLeg && legToLog === 2 && bothGoalsEntered;
+  const canSubmit = canSubmitSingle || canSubmitLeg1 || canSubmitLeg2;
 
   const handleSubmit = () => {
-    if (!chosen) return;
-    const winner = chosen === "p1" ? match.p1 : match.p2;
-    const loser  = chosen === "p1" ? match.p2 : match.p1;
-    onResult({ match, winner, loser, score1, score2 });
+    if (!canSubmit) return;
+    if (!isTwoLeg) {
+      // Single-leg — old flow
+      const winner = chosen === "p1" ? match.p1 : match.p2;
+      const loser  = chosen === "p1" ? match.p2 : match.p1;
+      onResult({ match, winner, loser, p1Goals, p2Goals, leg: 1, isLeg1Only: false });
+      return;
+    }
+    if (legToLog === 1) {
+      // Save leg 1 only — no winner yet
+      onResult({ match, leg: 1, p1Goals, p2Goals, winner: null, loser: null, isLeg1Only: true });
+      return;
+    }
+    // Leg 2 — determine winner by aggregate
+    const totalP1 = l1p1 + Number(p1Goals);
+    const totalP2 = l1p2 + Number(p2Goals);
+    let winner = null, loser = null;
+    if (totalP1 > totalP2)     { winner = match.p1; loser = match.p2; }
+    else if (totalP2 > totalP1){ winner = match.p2; loser = match.p1; }
+    // tie: winner stays null, sheet still closes — admin can re-open to resolve
+    onResult({ match, leg: 2, p1Goals, p2Goals, winner, loser, isLeg1Only: false });
   };
+
+  const ScoreInputRow = ({ labelL, valueL, onChangeL, labelR, valueR, onChangeR, locked = false }) => (
+    <div className="flex items-center gap-3">
+      <div style={{ flex: 1, textAlign: "center" }}>
+        {labelL && <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 700,
+          color: "rgba(255,255,255,.3)", letterSpacing: "1px", marginBottom: 6 }}>{labelL}</div>}
+        <input value={valueL} onChange={e => !locked && onChangeL(e.target.value)}
+          readOnly={locked} maxLength={4}
+          style={{ width: "100%", borderRadius: 14, padding: "12px 0", textAlign: "center", outline: "none",
+            fontFamily: "'DM Sans',sans-serif", fontSize: 22, fontWeight: 800,
+            background: locked ? "rgba(255,255,255,.03)" : "rgba(255,255,255,.06)",
+            border: `1.5px solid ${valueL && !locked ? N : "rgba(255,255,255,.1)"}`,
+            color: locked ? "rgba(255,255,255,.4)" : "#fff", caretColor: N }}/>
+      </div>
+      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 16, color: "rgba(255,255,255,.25)", fontWeight: 700, flexShrink: 0 }}>—</span>
+      <div style={{ flex: 1, textAlign: "center" }}>
+        {labelR && <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 700,
+          color: "rgba(255,255,255,.3)", letterSpacing: "1px", marginBottom: 6 }}>{labelR}</div>}
+        <input value={valueR} onChange={e => !locked && onChangeR(e.target.value)}
+          readOnly={locked} maxLength={4}
+          style={{ width: "100%", borderRadius: 14, padding: "12px 0", textAlign: "center", outline: "none",
+            fontFamily: "'DM Sans',sans-serif", fontSize: 22, fontWeight: 800,
+            background: locked ? "rgba(255,255,255,.03)" : "rgba(255,255,255,.06)",
+            border: `1.5px solid ${valueR && !locked ? N : "rgba(255,255,255,.1)"}`,
+            color: locked ? "rgba(255,255,255,.4)" : "#fff", caretColor: N }}/>
+      </div>
+    </div>
+  );
+
+  const legLabel = isTwoLeg
+    ? (legToLog === 1 ? "LOG LEG 1" : "LOG LEG 2")
+    : "WHO WON?";
+
+  let ctaLabel = "Pick a Winner";
+  if (isTwoLeg && legToLog === 1 && canSubmit)  ctaLabel = "Save Leg 1 →";
+  if (isTwoLeg && legToLog === 2 && canSubmit) {
+    if (aggP1 > aggP2)      ctaLabel = `${match.p1?.name} Wins (${aggP1}–${aggP2}) →`;
+    else if (aggP2 > aggP1) ctaLabel = `${match.p2?.name} Wins (${aggP2}–${aggP1}) →`;
+    else if (bothGoalsEntered)ctaLabel = `Tie (${aggP1}–${aggP2}) — Confirm`;
+  }
+  if (!isTwoLeg && chosen) ctaLabel = `${chosen === "p1" ? match.p1?.name : match.p2?.name} Wins →`;
 
   return (
     <motion.div
@@ -2031,6 +2218,7 @@ function BracketResultSheet({ match, onResult, onClose }) {
             </h3>
             <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.35)", marginTop: 3 }}>
               Round {match.round} · Match {match.position + 1}
+              {isTwoLeg && <span style={{ color: `${N}88` }}> · {legToLog === 1 ? "1st Leg" : "2nd Leg"}</span>}
             </p>
           </div>
           <button onClick={onClose} style={{
@@ -2042,82 +2230,107 @@ function BracketResultSheet({ match, onResult, onClose }) {
         </div>
 
         <div style={{ padding: "0 20px 32px" }}>
-          {/* Player cards — tap to pick winner */}
-          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700,
-            letterSpacing: "1.5px", color: "rgba(255,255,255,.3)", marginBottom: 12 }}>
-            WHO WON?
-          </div>
-          <div className="flex gap-3 mb-5">
-            {[{key: "p1", player: match.p1}, {key: "p2", player: match.p2}].map(({key, player}) => {
-              const sel  = chosen === key;
+          {/* Player name headers */}
+          <div className="flex mb-3">
+            {[match.p1, match.p2].map((player, pi) => {
               const tier = player?.tier ? TIER_META[player.tier] : null;
               return (
-                <button key={key} onClick={() => setChosen(key)} style={{
-                  flex: 1, borderRadius: 18, padding: "16px 12px", cursor: "pointer", textAlign: "center",
-                  background: sel ? `${N}10` : "rgba(255,255,255,.04)",
-                  border: `2px solid ${sel ? N : "rgba(255,255,255,.1)"}`,
-                  boxShadow: sel ? `0 0 24px ${N}20` : "none",
-                  transition: "all 0.15s ease",
-                }}>
-                  <div style={{
-                    width: 42, height: 42, borderRadius: 14, margin: "0 auto 10px",
-                    background: sel ? `${N}20` : (tier ? tier.bg : "rgba(255,255,255,.07)"),
-                    border: `1.5px solid ${sel ? N : (tier ? tier.border : "rgba(255,255,255,.12)")}`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 800,
-                    color: sel ? N : (tier ? tier.color : "rgba(255,255,255,.6)"),
-                  }}>
-                    {(player?.name || "").split(/\s+/).map(w => (w[0] || "").toUpperCase()).slice(0, 2).join("")}
-                  </div>
-                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700,
-                    color: sel ? N : "#fff", lineHeight: 1.2 }}>
-                    {player?.name || "—"}
-                  </div>
-                  {tier && (
-                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, color: tier.color, marginTop: 4 }}>
-                      {tier.label}
-                    </div>
-                  )}
-                </button>
+                <div key={pi} style={{ flex: 1, textAlign: "center" }}>
+                  {tier && <div style={{ width: 6, height: 6, borderRadius: "50%", background: tier.color,
+                    margin: "0 auto 4px" }}/>}
+                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700,
+                    color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    padding: "0 4px" }}>{player?.name || "—"}</div>
+                </div>
               );
             })}
           </div>
 
-          {/* Optional score */}
-          {chosen && (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} style={{ marginBottom: 16 }}>
-              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700,
-                letterSpacing: "1.5px", color: "rgba(255,255,255,.3)", marginBottom: 10 }}>
-                SCORE (OPTIONAL)
+          {/* Section label */}
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700,
+            letterSpacing: "1.5px", color: "rgba(255,255,255,.3)", marginBottom: 10 }}>
+            {legLabel}
+          </div>
+
+          {/* For 2-leg: show locked leg 1 score if logging leg 2 */}
+          {isTwoLeg && legToLog === 2 && match.leg1 && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ marginBottom: 10 }}>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 700,
+                letterSpacing: "1px", color: "rgba(255,255,255,.25)", marginBottom: 6 }}>LEG 1 (LOCKED)</div>
+              <ScoreInputRow
+                labelL={match.p1?.name} valueL={String(match.leg1.p1Goals || 0)}
+                onChangeL={() => {}} locked
+                labelR={match.p2?.name} valueR={String(match.leg1.p2Goals || 0)}
+                onChangeR={() => {}}
+              />
+            </motion.div>
+          )}
+
+          {/* Current leg score entry */}
+          <div style={{ marginBottom: 14 }}>
+            {isTwoLeg && (
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 700,
+                letterSpacing: "1px", color: `${N}88`, marginBottom: 6 }}>
+                LEG {legToLog}
               </div>
-              <div className="flex items-center gap-3">
-                <input value={score1} onChange={e => setScore1(e.target.value)}
-                  placeholder={chosen === "p1" ? "W" : "L"} maxLength={5}
-                  style={{ flex: 1, borderRadius: 14, padding: "12px 0", textAlign: "center", outline: "none",
-                    fontFamily: "'DM Sans',sans-serif", fontSize: 22, fontWeight: 800,
-                    background: "rgba(255,255,255,.05)", border: `1.5px solid ${score1 ? N : "rgba(255,255,255,.12)"}`,
-                    color: "#fff", caretColor: N }}/>
-                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 14, color: "rgba(255,255,255,.3)", fontWeight: 700 }}>—</span>
-                <input value={score2} onChange={e => setScore2(e.target.value)}
-                  placeholder={chosen === "p2" ? "W" : "L"} maxLength={5}
-                  style={{ flex: 1, borderRadius: 14, padding: "12px 0", textAlign: "center", outline: "none",
-                    fontFamily: "'DM Sans',sans-serif", fontSize: 22, fontWeight: 800,
-                    background: "rgba(255,255,255,.05)", border: `1.5px solid ${score2 ? N : "rgba(255,255,255,.12)"}`,
-                    color: "#fff", caretColor: N }}/>
-              </div>
-              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, color: "rgba(255,255,255,.25)", marginTop: 6, textAlign: "center" }}>
-                {chosen === "p1" ? match.p1?.name : match.p2?.name} · {chosen === "p1" ? match.p2?.name : match.p1?.name}
-              </div>
+            )}
+            <ScoreInputRow
+              valueL={p1Goals} onChangeL={setP1Goals}
+              valueR={p2Goals} onChangeR={setP2Goals}
+            />
+          </div>
+
+          {/* Single-leg: who won buttons if no scores entered */}
+          {!isTwoLeg && (
+            <div className="flex gap-3 mb-5">
+              {[{key:"p1",player:match.p1},{key:"p2",player:match.p2}].map(({key,player}) => {
+                const sel = chosen === key;
+                const tier = player?.tier ? TIER_META[player.tier] : null;
+                return (
+                  <button key={key} onClick={() => setChosen(key)} style={{
+                    flex: 1, borderRadius: 14, padding: "10px 8px", cursor: "pointer", textAlign: "center",
+                    background: sel ? `${N}10` : "rgba(255,255,255,.04)",
+                    border: `1.5px solid ${sel ? N : "rgba(255,255,255,.1)"}`,
+                    transition: "all 0.15s ease",
+                  }}>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700,
+                      color: sel ? N : "rgba(255,255,255,.65)" }}>
+                      {player?.name || "—"}
+                    </div>
+                    {tier && <div style={{ fontSize: 9, color: tier.color, marginTop: 2 }}>{tier.label}</div>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Aggregate live display for leg 2 */}
+          {isTwoLeg && legToLog === 2 && (p1Goals !== "" || p2Goals !== "") && (
+            <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+              style={{ marginBottom: 14, borderRadius: 12, padding: "10px 14px",
+                background: aggP1 === aggP2 ? "rgba(255,183,0,.08)" : `${N}08`,
+                border: `1px solid ${aggP1 === aggP2 ? "rgba(255,183,0,.3)" : `${N}25`}`,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700,
+                color: "rgba(255,255,255,.4)", letterSpacing: "1px" }}>AGGREGATE</span>
+              <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 20, letterSpacing: "2px",
+                color: aggP1 === aggP2 ? "#FFB700" : N }}>
+                {aggP1} – {aggP2}
+              </span>
+              {aggP1 !== aggP2 && (
+                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700,
+                  color: N }}>{aggP1 > aggP2 ? match.p1?.name : match.p2?.name} leads</span>
+              )}
             </motion.div>
           )}
 
           <button onClick={handleSubmit} disabled={!canSubmit} style={{
             width: "100%", borderRadius: 18, padding: "15px 0", cursor: canSubmit ? "pointer" : "not-allowed",
             background: canSubmit ? `linear-gradient(135deg,${N},#7DC900)` : "rgba(255,255,255,.06)",
-            border: "none", fontFamily: "'DM Sans',sans-serif", fontWeight: 800, fontSize: 14,
+            border: "none", fontFamily: "'DM Sans',sans-serif", fontWeight: 800, fontSize: 13,
             color: canSubmit ? "#000" : "rgba(255,255,255,.25)",
           }}>
-            {canSubmit ? `${chosen === "p1" ? match.p1?.name : match.p2?.name} Wins →` : "Pick a Winner"}
+            {ctaLabel}
           </button>
         </div>
       </motion.div>
@@ -2126,11 +2339,10 @@ function BracketResultSheet({ match, onResult, onClose }) {
 }
 
 /* ── BOTTOM NAV ── */
-function BottomNav({active, onChange, showBracket = false}) {
+function BottomNav({active, onChange}) {
   const tabs = [
     {id:"home",    Icon:Home,     lbl:"Home"},
     {id:"stats",   Icon:BarChart2,lbl:"Stats"},
-    ...(showBracket ? [{id:"bracket", Icon:Trophy, lbl:"Bracket"}] : []),
     {id:"league",  Icon:Users,    lbl:"League"},
     {id:"profile", Icon:User,     lbl:"Profile"},
   ];
@@ -2209,42 +2421,74 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     setPendingBracket(generateKnockoutBracket(participants));
   }, [rules]);
 
-  const handleBracketResult = useCallback(async ({ match, winner, loser, score1, score2 }) => {
+  const _saveBracket = useCallback(async (updatedBracket) => {
+    const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle().catch(() => ({ data: null }));
+    const newSettings = { ...(data?.settings || {}), bracket: updatedBracket };
+    supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId).then(() => {}).catch(() => {});
+    setBracket(updatedBracket);
+    setRules(r => ({ ...r, bracket: updatedBracket }));
+  }, [leagueId]);
+
+  const handleBracketResult = useCallback(async ({ match, winner, loser, p1Goals, p2Goals, leg, isLeg1Only }) => {
     if (!bracket || !leagueId) return;
     setBracketMatchModal(null);
 
-    // Build score string
-    const scoreStr = score1 && score2 ? `${score1}–${score2}` : "1–0";
-    const ts = nowTs();
+    if (isLeg1Only) {
+      // Just save leg 1 score — no winner determined yet, no match feed entry
+      const updated = applyBracketLeg(bracket, match.id, 1, {
+        p1Goals: p1Goals || "0", p2Goals: p2Goals || "0",
+      });
+      await _saveBracket(updated);
+      return;
+    }
 
-    // Save result to matches table (for stats)
-    const matchId = match.id;
+    if (leg === 2) {
+      // Save leg 2 + determine aggregate winner
+      const updated = applyBracketLeg(bracket, match.id, 2, {
+        p1Goals: p1Goals || "0", p2Goals: p2Goals || "0",
+      });
+      await _saveBracket(updated);
+      // If winner determined, save to feed + matches
+      if (winner && loser) {
+        const ts = nowTs();
+        const leg1 = match.leg1;
+        const scoreStr = `[${leg1?.p1Goals||0}–${leg1?.p2Goals||0}, ${p1Goals||0}–${p2Goals||0}] Agg`;
+        const winnerId = players.find(p => p.name === winner.name)?.id || null;
+        const loserId  = players.find(p => p.name === loser.name)?.id  || null;
+        const entry = { id: match.id, winner: winner.name, winnerIds: winnerId ? [winnerId] : [],
+          loser: loser.name, loserIds: loserId ? [loserId] : [], sets: [scoreStr],
+          sport: "🏆", dateStr: ts.dateStr, timeStr: ts.timeStr, xp: 110, isComeback: false,
+          bracketMatchId: match.id, bracketRound: match.round };
+        setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
+        supabase.from("matches").upsert({
+          id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
+          is_comeback: false, score: entry, date: new Date().toISOString(),
+        }).then(() => {}).catch(() => {});
+      }
+      return;
+    }
+
+    // Single-leg result
+    if (!winner) return;
+    const ts = nowTs();
+    const scoreStr = (p1Goals !== "" && p2Goals !== "") ? `${p1Goals}–${p2Goals}` : "1–0";
     const winnerId = players.find(p => p.name === winner.name)?.id || null;
-    const loserId  = players.find(p => p.name === loser.name)?.id  || null;
+    const loserId  = players.find(p => p.name === loser?.name)?.id  || null;
     const entry = {
-      id: matchId, winner: winner.name, winnerIds: winnerId ? [winnerId] : [],
-      loser: loser.name, loserIds: loserId ? [loserId] : [],
+      id: match.id, winner: winner.name, winnerIds: winnerId ? [winnerId] : [],
+      loser: loser?.name || "—", loserIds: loserId ? [loserId] : [],
       sets: [scoreStr], sport: "🏆",
       dateStr: ts.dateStr, timeStr: ts.timeStr, xp: 110, isComeback: false,
       bracketMatchId: match.id, bracketRound: match.round,
     };
-    setFeed(prev => [entry, ...prev.filter(m => m.id !== matchId)]);
-    if (leagueId) {
-      supabase.from("matches").upsert({
-        id: matchId, league_id: leagueId,
-        winner_id: winnerId, loser_id: loserId, is_comeback: false,
-        score: entry, date: new Date().toISOString(),
-      }).then(() => {}).catch(() => {});
-    }
-
-    // Update bracket structure
+    setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
+    supabase.from("matches").upsert({
+      id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
+      is_comeback: false, score: entry, date: new Date().toISOString(),
+    }).then(() => {}).catch(() => {});
     const updated = applyBracketResult(bracket, match.id, winner);
-    const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle().catch(() => ({ data: null }));
-    const newSettings = { ...(data?.settings || {}), bracket: updated };
-    supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId).then(() => {}).catch(() => {});
-    setBracket(updated);
-    setRules(r => ({ ...r, bracket: updated }));
-  }, [bracket, leagueId, players]);
+    await _saveBracket(updated);
+  }, [bracket, leagueId, players, _saveBracket]);
 
   const handleSubmit = useCallback(async ({winners,losers,sets,editId,isComeback=false})=>{
     const filled=sets.filter(s=>s.w!==""&&s.l!=="").map(s=>`${s.w}–${s.l}`);
@@ -2378,49 +2622,15 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   }, [leagueId]);
 
   const content = {
-    home:    <HomeTab    players={enrichedPlayers} feed={feed} onEditFeed={handleEdit} onDeleteFeed={handleDeleteMatch} isAdmin={isAdmin} myPlayerId={players.find(p=>p.isMe)?.id||null}/>,
+    home:    <HomeTab
+               players={enrichedPlayers} feed={feed}
+               onEditFeed={handleEdit} onDeleteFeed={handleDeleteMatch}
+               isAdmin={isAdmin} myPlayerId={players.find(p=>p.isMe)?.id||null}
+               isTournament={isTournament} tournamentFormat={rules?.tournamentFormat || "classic"}
+               bracket={bracket} onMatchTap={m => setBracketMatchModal(m)}
+               onGenerateDraw={handleShowGenerateDraw} matchLegs={rules?.matchLegs || 1}
+             />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed}/>,
-    bracket: isTournament ? (
-      <div className="px-0 pt-4 pb-2">
-        {/* Tournament header */}
-        <div style={{ padding: "0 20px 16px" }}>
-          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 28, letterSpacing: "3px", color: "#fff", lineHeight: 1 }}>
-            {rules.tournamentFormat === "groups_knockout" ? "Groups + " : ""}
-            <span style={{ color: N }}>Bracket</span>
-          </div>
-          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.35)", marginTop: 4 }}>
-            {bracket
-              ? `${bracket.seeded ? "Seeded draw" : "Random draw"} · ${bracket.rounds[0]?.filter(m => !m.isBye).length || 0} R1 matches`
-              : "Draw not yet generated"}
-          </div>
-        </div>
-        {bracket ? (
-          <TournamentBracket
-            bracket={bracket}
-            isAdmin={isAdmin}
-            onMatchTap={m => setBracketMatchModal(m)}
-          />
-        ) : (
-          <div style={{ padding: "40px 20px", textAlign: "center" }}>
-            <div style={{ fontSize: 40, marginBottom: 16 }}>🎲</div>
-            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 14, color: "rgba(255,255,255,.35)", marginBottom: 24, lineHeight: 1.6 }}>
-              {isAdmin
-                ? "The draw hasn't been generated yet.\nHead to the League tab to start."
-                : "The admin hasn't generated the draw yet."}
-            </div>
-            {isAdmin && (
-              <button onClick={handleShowGenerateDraw} style={{
-                borderRadius: 18, padding: "14px 28px", cursor: "pointer",
-                background: `linear-gradient(135deg,${N},#7DC900)`,
-                border: "none", fontFamily: "'DM Sans',sans-serif", fontWeight: 800, fontSize: 14, color: "#000",
-              }}>
-                Generate Draw →
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    ) : null,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw}/>,
     profile: <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate}/>,
   };
@@ -2487,7 +2697,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
             </div>
           )}
 
-          <BottomNav active={activeTab} onChange={setActiveTab} showBracket={isTournament}/>
+          <BottomNav active={activeTab} onChange={setActiveTab}/>
         </div>
       </div>
 
@@ -2518,6 +2728,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
           <BracketResultSheet
             key="bracket-result"
             match={bracketMatchModal}
+            matchLegs={rules?.matchLegs || 1}
             onResult={handleBracketResult}
             onClose={() => setBracketMatchModal(null)}
           />
@@ -3258,6 +3469,37 @@ function generateKnockoutBracket(participants) {
   return { rounds, seeded: isSeeded, size, generatedAt: new Date().toISOString() };
 }
 
+// Store a leg score on a bracket match (for Home & Away).
+// If both legs are present, determines winner by aggregate and propagates.
+function applyBracketLeg(bracket, matchId, legNum, legData) {
+  const b = JSON.parse(JSON.stringify(bracket));
+  for (let ri = 0; ri < b.rounds.length; ri++) {
+    const mi = b.rounds[ri].findIndex(m => m.id === matchId);
+    if (mi === -1) continue;
+    const m = b.rounds[ri][mi];
+    if (legNum === 1) {
+      m.leg1 = legData; // { p1Goals, p2Goals }
+    } else {
+      m.leg2 = legData;
+      const p1Total = (Number(m.leg1?.p1Goals) || 0) + (Number(legData.p1Goals) || 0);
+      const p2Total = (Number(m.leg1?.p2Goals) || 0) + (Number(legData.p2Goals) || 0);
+      if (p1Total !== p2Total) {
+        const winner = p1Total > p2Total ? m.p1 : m.p2;
+        m.winner = winner;
+        // Propagate to next round
+        if (ri + 1 < b.rounds.length) {
+          const nextMi   = Math.floor(mi / 2);
+          const next     = b.rounds[ri + 1][nextMi];
+          if (next) { if (mi % 2 === 0) next.p1 = winner; else next.p2 = winner; }
+        }
+      }
+      // Tie: winner stays null, admin must re-log or pick
+    }
+    break;
+  }
+  return b;
+}
+
 // Deep-clone bracket and set winner for a match; propagate to next round
 function applyBracketResult(bracket, matchId, winnerObj) {
   const b = JSON.parse(JSON.stringify(bracket));
@@ -3761,6 +4003,95 @@ function StepParticipants({ participants, setParticipants, onNext }) {
       <FixedFooter>
         <PBtn onClick={onNext} disabled={!canContinue}>
           {canContinue ? `Lock In ${participants.length} Players →` : `Add ${MIN - participants.length} More to Continue`}
+        </PBtn>
+      </FixedFooter>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// STEP — MATCH LEGS (KNOCKOUT/GROUPS ONLY)
+// ─────────────────────────────────────────────
+const MATCH_LEGS_OPTIONS = [
+  {
+    id:    1,
+    emoji: "⚡",
+    label: "Single Match",
+    sub:   "One game decides the tie. First to win moves on.",
+  },
+  {
+    id:    2,
+    emoji: "🔄",
+    label: "Home & Away (2 Legs)",
+    sub:   "Two games, aggregate score decides who advances.",
+  },
+];
+
+function StepMatchLegs({ matchLegs, setMatchLegs, onNext }) {
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto px-5 pt-2 pb-4" style={{ WebkitOverflowScrolling: "touch" }}>
+        <motion.div variants={stagger(0.05)} initial="hidden" animate="show">
+          <StepHeading
+            line1="Match"
+            line2="Format"
+            sub="How many legs does each knockout tie consist of?"
+          />
+
+          <div className="flex flex-col gap-3">
+            {MATCH_LEGS_OPTIONS.map(opt => {
+              const selected = matchLegs === opt.id;
+              return (
+                <motion.button
+                  key={opt.id}
+                  variants={fadeUp}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => setMatchLegs(opt.id)}
+                  style={{
+                    width: "100%", padding: "18px 20px", borderRadius: 22, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 16, textAlign: "left",
+                    background: selected ? "rgba(170,255,0,0.07)" : "rgba(255,255,255,0.03)",
+                    border: selected ? `1.5px solid ${NEON}` : "1.5px solid rgba(255,255,255,0.07)",
+                    boxShadow: selected ? "0 0 30px rgba(170,255,0,0.14)" : "none",
+                    transition: "all 0.18s ease",
+                  }}
+                >
+                  <div style={{
+                    width: 52, height: 52, borderRadius: 16, flexShrink: 0, fontSize: 26,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    background: selected ? "rgba(170,255,0,0.1)" : "rgba(255,255,255,0.04)",
+                    border: selected ? `1px solid ${NEON}44` : "1px solid rgba(255,255,255,0.08)",
+                  }}>
+                    {opt.emoji}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700,
+                      color: selected ? NEON : "#fff", lineHeight: 1, marginBottom: 5 }}>
+                      {opt.label}
+                    </div>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12,
+                      color: "rgba(255,255,255,0.38)", lineHeight: 1.5 }}>
+                      {opt.sub}
+                    </div>
+                  </div>
+                  <div style={{
+                    width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                    border: selected ? `2px solid ${NEON}` : "2px solid rgba(255,255,255,0.15)",
+                    background: selected ? NEON : "transparent",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "all 0.18s ease",
+                  }}>
+                    {selected && <Check size={12} strokeWidth={3} color="#000" />}
+                  </div>
+                </motion.button>
+              );
+            })}
+          </div>
+        </motion.div>
+      </div>
+      <FixedFooter>
+        <PBtn onClick={onNext}>
+          {matchLegs === 2 ? "Home & Away Confirmed →" : "Single Match Confirmed →"}
         </PBtn>
       </FixedFooter>
     </div>
@@ -4748,6 +5079,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const [participants,      setParticipants]      = useState([]);
   const [reportingMode,     setReportingMode]     = useState("admin");
   const [groupSettings,     setGroupSettings]     = useState({ playersPerGroup: 4, advancingPerGroup: 2 });
+  const [matchLegs,         setMatchLegs]         = useState(1);
   const [format,            setFormat]            = useState("single");
   const [points,            setPoints]            = useState(21);
   const [customRules,       setCustomRules]       = useState("");
@@ -4758,8 +5090,8 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const [createErr,         setCreateErr]         = useState("");
 
   const isNonClassic        = tournamentFormat !== "classic";
-  const TOTAL_WIZARD_STEPS  = isNonClassic ? 8 : 6;
-  const MAX_STEP            = isNonClassic ? 8 : 6;
+  const TOTAL_WIZARD_STEPS  = isNonClassic ? 9 : 6;
+  const MAX_STEP            = isNonClassic ? 9 : 6;
 
   const goNext = useCallback(() => {
     setDir(1);
@@ -4777,7 +5109,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
     setSaving(true);
     setCreateErr("");
     try {
-      await onFinish({ leagueName, adminName, sport, tournamentFormat, participants, reportingMode, groupSettings, format, points, customSportName, customSportEmoji, customRules, leagueCode });
+      await onFinish({ leagueName, adminName, sport, tournamentFormat, participants, reportingMode, groupSettings, matchLegs, format, points, customSportName, customSportEmoji, customRules, leagueCode });
     } catch (e) {
       console.error(e);
       setCreateErr("Something went wrong. Please try again.");
@@ -4807,6 +5139,11 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
       <StepReportingMode
         key="reporting-mode"
         reportingMode={reportingMode} setReportingMode={setReportingMode}
+        onNext={goNext}
+      />,
+      <StepMatchLegs
+        key="match-legs"
+        matchLegs={matchLegs} setMatchLegs={setMatchLegs}
         onNext={goNext}
       />,
     ] : []),
@@ -5864,7 +6201,7 @@ export default function Root() {
     if (user) loadLeagues(user.id);
   }, [user, loadLeagues]);
 
-  const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, tournamentFormat, participants, reportingMode, groupSettings, format, points, customSportName, customSportEmoji, customRules, leagueCode }) => {
+  const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, tournamentFormat, participants, reportingMode, groupSettings, matchLegs, format, points, customSportName, customSportEmoji, customRules, leagueCode }) => {
     if (!user) throw new Error("Not logged in");
 
     const name        = leagueName?.trim() || "My League";
@@ -5885,7 +6222,7 @@ export default function Root() {
       name,
       sport:      sportLabel,
       join_code:  code,
-      settings:   { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], reportingMode: reportingMode || "admin", groupSettings: groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 }, format, points, customRules, sportEmoji },
+      settings:   { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], reportingMode: reportingMode || "admin", groupSettings: groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 }, matchLegs: matchLegs || 1, format, points, customRules, sportEmoji },
       owner_id:   user.id,
       created_by: user.id,
     });
@@ -5894,7 +6231,7 @@ export default function Root() {
       if (leagueErr.message?.includes("join_code") || leagueErr.code === "42703") {
         const { error: retryErr } = await supabase.from("leagues").insert({
           id: leagueId, name, sport: sportLabel,
-          settings: { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], reportingMode: reportingMode || "admin", groupSettings: groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 }, format, points, customRules, sportEmoji },
+          settings: { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], reportingMode: reportingMode || "admin", groupSettings: groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 }, matchLegs: matchLegs || 1, format, points, customRules, sportEmoji },
           owner_id: user.id, created_by: user.id,
         });
         if (retryErr) throw new Error(retryErr.message || "Failed to create league");
