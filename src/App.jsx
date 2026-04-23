@@ -2437,9 +2437,16 @@ function GroupResultSheet({ match, onResult, onClose }) {
             <h3 style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 24, letterSpacing: "2px", color: "#fff", lineHeight: 1 }}>
               Log <span style={{ color: N }}>Group Match</span>
             </h3>
-            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: `${N}88`, marginTop: 3, fontWeight: 700 }}>
-              Group {match.groupName}
-            </p>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+              <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: `${N}88`, fontWeight: 700 }}>
+                Group {match.groupName}
+              </span>
+              <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.8px", color: "rgba(255,255,255,.35)",
+                background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)",
+                borderRadius: 5, padding: "1px 6px", fontFamily: "'DM Sans',sans-serif" }}>
+                🔒 PLAYERS LOCKED
+              </span>
+            </div>
           </div>
           <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 16, display: "flex", alignItems: "center",
             justifyContent: "center", background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)", cursor: "pointer" }}>
@@ -2626,7 +2633,7 @@ function GroupTable({ group, groupMatches, feed, allGroupMatches, onMatchTap, is
               }}>
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 700,
-                  color: result && !result.isDraw && result.winnerIds?.includes(players?.find?.(p=>p.name===fixture.p1.name)?.id) ? N : "#fff",
+                  color: result && !result.isDraw && result.p1Goals > result.p2Goals ? N : "#fff",
                   flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {fixture.p1.name}
                 </span>
@@ -2640,14 +2647,25 @@ function GroupTable({ group, groupMatches, feed, allGroupMatches, onMatchTap, is
                     flexShrink: 0, minWidth: 40, textAlign: "center" }}>vs</span>
                 )}
                 <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 700,
-                  color: "#fff", flex: 1, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  color: result && !result.isDraw && result.p2Goals > result.p1Goals ? N : "#fff",
+                  flex: 1, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {fixture.p2.name}
                 </span>
               </div>
               {canLog && (
-                <div style={{ width: 20, height: 20, borderRadius: "50%", background: `${gc}20`, border: `1px solid ${gc}50`,
+                <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 8, fontWeight: 800, letterSpacing: "0.5px",
+                    color: gc, opacity: 0.8 }}>LOG</span>
+                  <div style={{ width: 18, height: 18, borderRadius: "50%", background: `${gc}20`, border: `1px solid ${gc}50`,
+                    display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Plus size={9} style={{ color: gc }}/>
+                  </div>
+                </div>
+              )}
+              {result && (
+                <div style={{ width: 18, height: 18, borderRadius: "50%", background: "rgba(170,255,0,.12)", border: "1px solid rgba(170,255,0,.3)",
                   display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <Plus size={10} style={{ color: gc }}/>
+                  <Check size={9} style={{ color: N }}/>
                 </div>
               )}
             </div>
@@ -2967,13 +2985,15 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       groupLabel: `Group ${match.groupName}`,
       p1Name: match.p1?.name, p2Name: match.p2?.name,
       p1Goals: p1g, p2Goals: p2g, isDraw,
+      is_tournament: true,
     };
     setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
     try {
       await supabase.from("matches").upsert({
         id: match.id, league_id: leagueId,
         winner_id: winnerId, loser_id: loserId,
-        is_comeback: false, score: entry, date: new Date().toISOString(),
+        is_comeback: false, is_tournament: true,
+        score: entry, date: new Date().toISOString(),
       });
     } catch { /* best-effort */ }
 
@@ -3024,11 +3044,11 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
         const entry = { id: match.id, winner: winner.name, winnerIds: winnerId ? [winnerId] : [],
           loser: loser.name, loserIds: loserId ? [loserId] : [], sets: [scoreStr],
           sport: "🏆", dateStr: ts.dateStr, timeStr: ts.timeStr, xp: 110, isComeback: false,
-          bracketMatchId: match.id, bracketRound: match.round, bracketRoundLabel };
+          bracketMatchId: match.id, bracketRound: match.round, bracketRoundLabel, is_tournament: true };
         setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
         supabase.from("matches").upsert({
           id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
-          is_comeback: false, score: entry, date: new Date().toISOString(),
+          is_comeback: false, is_tournament: true, score: entry, date: new Date().toISOString(),
         }).then(() => {}).catch(() => {});
       }
       return;
@@ -3045,12 +3065,12 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       loser: loser?.name || "—", loserIds: loserId ? [loserId] : [],
       sets: [scoreStr], sport: "🏆",
       dateStr: ts.dateStr, timeStr: ts.timeStr, xp: 110, isComeback: false,
-      bracketMatchId: match.id, bracketRound: match.round, bracketRoundLabel,
+      bracketMatchId: match.id, bracketRound: match.round, bracketRoundLabel, is_tournament: true,
     };
     setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
     supabase.from("matches").upsert({
       id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
-      is_comeback: false, score: entry, date: new Date().toISOString(),
+      is_comeback: false, is_tournament: true, score: entry, date: new Date().toISOString(),
     }).then(() => {}).catch(() => {});
     const updated = applyBracketResult(bracket, match.id, winner);
     await _saveBracket(updated);
@@ -3255,8 +3275,8 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
             </AnimatePresence>
           </div>
 
-          {/* FAB */}
-          {activeTab==="home"&&(
+          {/* FAB — hidden in tournament mode (all fixtures are pre-generated) */}
+          {activeTab==="home"&&!isTournament&&(
             <div className="fixed z-30" style={{bottom:80,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 40px)",maxWidth:390}}>
               <motion.button onClick={()=>{setEditMatch(null);setShowLog(true);}}
                 whileHover={{scale:1.03,y:-3}} whileTap={{scale:.96}}
