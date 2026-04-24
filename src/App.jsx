@@ -3289,6 +3289,8 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   const [players,  setPlayers]   = useState(initialPlayers);
   const [feed,     setFeed]      = useState(initialFeed);
   const [rules,    setRules]     = useState(initialRules || INIT_RULES);
+  const rulesRef = useRef(initialRules || INIT_RULES);
+  useEffect(() => { rulesRef.current = rules; }, [rules]);
   const [showLog,         setShowLog]         = useState(false);
   const [editMatch,       setEditMatch]       = useState(null);
   const [showAddPlayer,   setShowAddPlayer]   = useState(false);
@@ -3321,20 +3323,30 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     let alive = true;
     (async () => {
       try {
-        const [{ data: leagueRow }, { data: mData }] = await Promise.all([
+        const [{ data: leagueRow, error: leagueErr }, { data: mData, error: matchErr }] = await Promise.all([
           supabase.from("leagues").select("settings, sport").eq("id", leagueId).maybeSingle(),
           supabase.from("matches").select("*").eq("league_id", leagueId).order("date", { ascending: false }),
         ]);
+        if (leagueErr) console.error("[mount] leagues fetch error:", leagueErr);
+        if (matchErr)  console.error("[mount] matches fetch error:", matchErr);
         if (!alive) return;
         if (leagueRow?.settings) {
           const freshRules = settingsToRules(leagueRow.sport, leagueRow.settings);
-          setRules(freshRules);
-          setBracket(freshRules.bracket || null);
+          // Preserve groups/groupMatches from initialRules if the DB row doesn't carry them
+          // (can happen when a settings write succeeded but didn't include groups)
+          const mergedRules = {
+            ...freshRules,
+            groups:       freshRules.groups?.length       ? freshRules.groups       : (initialRules?.groups       || []),
+            groupMatches: freshRules.groupMatches?.length ? freshRules.groupMatches : (initialRules?.groupMatches || []),
+          };
+          console.log("[mount] loaded rules — groups:", mergedRules.groups?.length, "groupMatches:", mergedRules.groupMatches?.length, "bracket:", !!mergedRules.bracket);
+          setRules(mergedRules);
+          setBracket(mergedRules.bracket || null);
         }
         if (mData) {
           setFeed(mData.map(m => ({ id: m.id, ...m.score })));
         }
-      } catch { /* best-effort — initial props already have last-known state */ }
+      } catch (e) { console.error("[mount] sync failed:", e); }
     })();
     return () => { alive = false; };
   }, [leagueId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -3402,23 +3414,44 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     setBracket(updatedBracket);
     setRules(r => ({ ...r, bracket: updatedBracket }));
     try {
-      const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
-      const newSettings = { ...(data?.settings || {}), bracket: updatedBracket };
+      const { data, error } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
+      if (error) throw error;
+      const localRules = rulesRef.current;
+      const dbSettings = data?.settings || {};
+      // Never drop groups/groupMatches — prefer DB value, fall back to live local state
+      const newSettings = {
+        ...dbSettings,
+        groups:       dbSettings.groups?.length       ? dbSettings.groups       : (localRules?.groups       || []),
+        groupMatches: dbSettings.groupMatches?.length ? dbSettings.groupMatches : (localRules?.groupMatches || []),
+        bracket:      updatedBracket,
+      };
       await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
     } catch (e) { console.error("[tournament] _saveBracket failed:", e); }
   }, [leagueId]);
 
   // Save both groups state and optionally bracket in one write
   const _saveGroupsState = useCallback(async (newGroups, newGroupMatches, newBracket) => {
-    const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle().catch(() => ({ data: null }));
+    const localRules = rulesRef.current;
     const patch = {};
     if (newGroups !== undefined)       patch.groups       = newGroups;
     if (newGroupMatches !== undefined)  patch.groupMatches = newGroupMatches;
     if (newBracket !== undefined)       patch.bracket      = newBracket;
-    const newSettings = { ...(data?.settings || {}), ...patch };
-    await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId).catch(e => console.error("[tournament] _saveGroupsState failed:", e));
+    // Optimistic local update first
     setRules(r => ({ ...r, ...patch }));
     if (newBracket !== undefined) setBracket(newBracket);
+    try {
+      const { data, error } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
+      if (error) throw error;
+      const dbSettings = data?.settings || {};
+      // Preserve existing groups from DB or local state — never silently drop them
+      const newSettings = {
+        ...dbSettings,
+        groups:       patch.groups       ?? (dbSettings.groups?.length       ? dbSettings.groups       : (localRules?.groups       || [])),
+        groupMatches: patch.groupMatches ?? (dbSettings.groupMatches?.length ? dbSettings.groupMatches : (localRules?.groupMatches || [])),
+        ...(patch.bracket !== undefined ? { bracket: patch.bracket } : {}),
+      };
+      await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
+    } catch (e) { console.error("[tournament] _saveGroupsState failed:", e); }
   }, [leagueId]);
 
   const handleGroupResult = useCallback(async ({ match, p1Goals, p2Goals }) => {
