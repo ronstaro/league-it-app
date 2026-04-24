@@ -703,7 +703,7 @@ function HomeTab({
   groups=[], groupMatches=[], onGroupMatchTap=null, advancingPerGroup=2,
 }) {
   const [showAll,setShowAll]               = useState(false);
-  const [showFingerPicker,setFP]           = useState(false);
+  const [showDT,setDT]                     = useState(false);
   const mvp    = useMemo(()=>players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:{name:"No Players",wins:0,losses:0},[players]);
   const streak = useMemo(()=>players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:{name:"No Players",bestStreak:0},[players]);
 
@@ -831,8 +831,8 @@ function HomeTab({
         </div>
       </div>}
 
-      {/* Finger Picker */}
-      <motion.div whileTap={{scale:.98}} onClick={()=>setFP(true)}
+      {/* Decision Touch */}
+      <motion.div whileTap={{scale:.98}} onClick={()=>setDT(true)}
         className="flex items-center gap-4 rounded-[20px] p-4 mb-3 relative overflow-hidden cursor-pointer hover:brightness-110 transition-all"
         style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(170,85,255,.28)"}}>
         <div className="absolute inset-0 pointer-events-none" style={{background:"linear-gradient(135deg,rgba(170,85,255,.06),transparent 60%)"}}/>
@@ -840,10 +840,10 @@ function HomeTab({
           style={{background:"linear-gradient(135deg,#AA55FF,#7B2FBE)",boxShadow:"0 4px 16px rgba(170,85,255,.35)"}}>☝️</div>
         <div className="relative z-10 flex-1">
           <div className="flex items-center gap-2 mb-0.5">
-            <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,color:"#fff"}}>Finger Picker</span>
+            <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,color:"#fff"}}>Decision Touch</span>
             <span style={{fontSize:8,fontWeight:900,letterSpacing:"1px",background:"rgba(170,85,255,.18)",color:"#AA55FF",border:"1px solid rgba(170,85,255,.4)",borderRadius:5,padding:"2px 6px"}}>NEW</span>
           </div>
-          <p style={{fontSize:11,color:"rgba(255,255,255,.38)",fontFamily:"'DM Sans',sans-serif"}}>Who goes first? Place fingers · last one wins</p>
+          <p style={{fontSize:11,color:"rgba(255,255,255,.38)",fontFamily:"'DM Sans',sans-serif"}}>Who goes first? Place fingers · last one standing wins</p>
         </div>
         <ChevronRight size={18} style={{color:"#AA55FF",flexShrink:0,position:"relative",zIndex:10}}/>
       </motion.div>
@@ -864,9 +864,9 @@ function HomeTab({
         <ChevronRight size={18} style={{color:N,flexShrink:0,position:"relative",zIndex:10}}/>
       </div>
 
-      {/* Finger Picker Overlay */}
+      {/* Decision Touch Overlay */}
       <AnimatePresence>
-        {showFingerPicker && <FingerPickerOverlay onClose={()=>setFP(false)}/>}
+        {showDT && <DecisionTouchOverlay onClose={()=>setDT(false)}/>}
       </AnimatePresence>
 
       {/* League feed — classic leagues only; tournament results live in group tables + bracket */}
@@ -887,61 +887,83 @@ function HomeTab({
   );
 }
 
-/* ── FINGER PICKER OVERLAY ── */
-const FP_COLORS = ["#AAFF00","#3B8EFF","#FF3355","#FFB830","#AA55FF","#FF6B35","#00E5CC","#FF55AA","#7DC900","#FFD700"];
+/* ── DECISION TOUCH OVERLAY ── */
+const DT_COLORS = ["#AAFF00","#3B8EFF","#FF3355","#FFB830","#AA55FF","#FF6B35","#00E5CC","#FF55AA","#7DC900","#4ECDC4"];
+const DT_GOLD   = "#FFD700";
+const DT_BASE   = 90; // base circle diameter px
 
-function FingerPickerOverlay({ onClose }) {
-  const [circles,  setCircles]  = useState([]);
-  const [phase,    setPhase]    = useState("waiting"); // waiting | countdown | winner
-  const [countdown,setCountdown]= useState(3);
-  const [winnerId, setWinnerId] = useState(null);
+function DecisionTouchOverlay({ onClose }) {
+  const [circles,    setCircles]    = useState([]);
+  const [phase,      setPhase]      = useState("waiting"); // waiting | countdown | winner
+  const [countdown,  setCountdown]  = useState(4);
+  const [winnerIds,  setWinnerIds]  = useState([]);
+  const [numWins,    setNumWins]    = useState(1);
+  const [isTouchDev, setIsTouchDev] = useState(false);
 
-  const stRef  = useRef({ circles: [], phase: "waiting", colorMap: {}, colorCount: 0 });
-  const tmrRef = useRef(null);
-  const intRef = useRef(null);
+  // All mutable state shared across handlers lives here to avoid stale closures
+  const st = useRef({
+    circles:[], phase:"waiting", colorMap:{}, colorCount:0,
+    numWins:1, tmr:null, intvl:null, mouseCount:0
+  });
 
-  const stopTimers = () => { clearTimeout(tmrRef.current); clearInterval(intRef.current); };
+  // Keep numWins synced into ref so the 4s timeout reads the latest value
+  useEffect(() => { st.current.numWins = numWins; }, [numWins]);
 
-  const startCD = () => {
-    stopTimers();
-    let cnt = 3;
-    stRef.current.phase = "countdown";
-    setPhase("countdown"); setCountdown(3);
-    intRef.current = setInterval(() => { cnt--; setCountdown(cnt); }, 1000);
-    tmrRef.current = setTimeout(() => {
-      clearInterval(intRef.current);
-      const cur = stRef.current.circles;
-      if (!cur.length) return;
-      const w = cur[Math.floor(Math.random() * cur.length)];
-      stRef.current.phase = "winner";
-      setWinnerId(w.id); setPhase("winner");
+  const doStop = () => { clearTimeout(st.current.tmr); clearInterval(st.current.intvl); };
+
+  const doStart = useCallback(() => {
+    const s = st.current;
+    doStop();
+    let cnt = 4;
+    s.phase = "countdown";
+    setPhase("countdown"); setCountdown(4);
+    s.intvl = setInterval(() => { cnt--; setCountdown(cnt); }, 1000);
+    s.tmr = setTimeout(() => {
+      clearInterval(s.intvl);
+      if (!s.circles.length) return;
+      const shuffled = [...s.circles].sort(() => Math.random() - 0.5);
+      const nw = Math.min(s.numWins, s.circles.length);
+      const wIds = shuffled.slice(0, nw).map(c => c.id);
+      s.phase = "winner";
+      setWinnerIds(wIds); setPhase("winner");
       try { navigator.vibrate([80,40,160,40,80]); } catch {}
-    }, 3000);
-  };
+    }, 4000);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const cancelCD = () => {
-    stopTimers();
-    stRef.current.phase = "waiting";
-    setPhase("waiting"); setCountdown(3); setWinnerId(null);
-  };
+  const doCancel = useCallback(() => {
+    doStop();
+    st.current.phase = "waiting";
+    setPhase("waiting"); setCountdown(4); setWinnerIds([]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const addPt = useCallback((id, x, y) => {
+    const s = st.current;
+    if (s.phase === "winner") return;
+    if (!s.colorMap[id])
+      s.colorMap[id] = DT_COLORS[s.colorCount++ % DT_COLORS.length];
+    if (!s.circles.find(c => c.id === id))
+      s.circles.push({ id, x, y, color: s.colorMap[id] });
+    setCircles([...s.circles]);
+    if (s.circles.length >= 2 && s.phase === "waiting") doStart();
+  }, [doStart]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const removePt = useCallback((id) => {
+    const s = st.current;
+    if (s.phase === "winner") return;
+    s.circles = s.circles.filter(c => c.id !== id);
+    setCircles([...s.circles]);
+    if (s.circles.length < 2) doCancel();
+  }, [doCancel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onTS = useCallback((e) => {
     e.preventDefault();
-    const s = stRef.current;
-    if (s.phase === "winner") return;
-    for (const t of e.changedTouches) {
-      if (!s.colorMap[t.identifier])
-        s.colorMap[t.identifier] = FP_COLORS[s.colorCount++ % FP_COLORS.length];
-      if (!s.circles.find(c => c.id === t.identifier))
-        s.circles.push({ id: t.identifier, x: t.clientX, y: t.clientY, color: s.colorMap[t.identifier] });
-    }
-    setCircles([...s.circles]);
-    if (s.circles.length >= 2 && s.phase === "waiting") startCD();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    setIsTouchDev(true);
+    for (const t of e.changedTouches) addPt(t.identifier, t.clientX, t.clientY);
+  }, [addPt]);
 
   const onTM = useCallback((e) => {
     e.preventDefault();
-    const s = stRef.current;
+    const s = st.current;
     for (const t of e.changedTouches) {
       const c = s.circles.find(c => c.id === t.identifier);
       if (c) { c.x = t.clientX; c.y = t.clientY; }
@@ -951,120 +973,181 @@ function FingerPickerOverlay({ onClose }) {
 
   const onTE = useCallback((e) => {
     e.preventDefault();
-    const s = stRef.current;
-    if (s.phase === "winner") return;
-    const removed = new Set(Array.from(e.changedTouches).map(t => t.identifier));
-    s.circles = s.circles.filter(c => !removed.has(c.id));
-    setCircles([...s.circles]);
-    cancelCD();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    for (const t of e.changedTouches) removePt(t.identifier);
+  }, [removePt]);
 
-  useEffect(() => () => stopTimers(), []);
+  // Desktop: click anywhere in the touch zone adds a persistent virtual circle
+  const onMD = (e) => {
+    if (isTouchDev || st.current.phase === "winner") return;
+    const id = `m${st.current.mouseCount++}`;
+    addPt(id, e.clientX, e.clientY);
+  };
+
+  useEffect(() => () => doStop(), []);
+
+  // Pulse frequency increases as countdown shrinks: 4→0.72s, 3→0.54s, 2→0.36s, 1→0.18s
+  const pulseDur = phase === "countdown" ? Math.max(0.18, countdown * 0.18) : 0.88;
+  const pulseAmt = phase === "countdown" ? 1 + 0.025 * (5 - countdown) : 1.06;
 
   return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
-      style={{position:"fixed",inset:0,zIndex:9998,background:"rgba(0,0,0,.93)",backdropFilter:"blur(20px)",
-        touchAction:"none",userSelect:"none",WebkitUserSelect:"none"}}
-      onTouchStart={onTS} onTouchMove={onTM} onTouchEnd={onTE}>
+    <motion.div
+      initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+      style={{position:"fixed",inset:0,zIndex:9998,
+        background:"rgba(0,0,0,.97)",backdropFilter:"blur(24px)",
+        touchAction:"none",userSelect:"none",WebkitUserSelect:"none",
+        display:"flex",flexDirection:"column",overflow:"hidden"}}
+      onTouchStart={onTS} onTouchMove={onTM} onTouchEnd={onTE}
+      onMouseDown={!isTouchDev ? onMD : undefined}>
 
-      {/* Header */}
-      <div style={{position:"absolute",top:0,left:0,right:0,display:"flex",alignItems:"center",
-        justifyContent:"space-between",padding:"52px 20px 0",pointerEvents:"auto"}}>
+      {/* Compact header — fixed height, no scroll */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+        padding:"12px 20px 10px",
+        paddingTop:"max(env(safe-area-inset-top,12px),12px)",
+        background:"rgba(0,0,0,.5)",borderBottom:"1px solid rgba(255,255,255,.06)",
+        flexShrink:0,pointerEvents:"auto",zIndex:10}}>
         <div>
-          <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:24,letterSpacing:"3px",color:"#fff",lineHeight:1}}>FINGER PICKER</div>
-          <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.35)",marginTop:4}}>Everyone place a finger · last one standing wins</div>
+          <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:19,letterSpacing:"3px",color:"#fff",lineHeight:1}}>
+            DECISION TOUCH
+          </div>
+          <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:9,color:"rgba(255,255,255,.28)",marginTop:2}}>
+            Place fingers · last one{numWins>1?" two":""} standing win{numWins>1?"":"s"}
+          </div>
         </div>
-        <button onClick={onClose} style={{width:38,height:38,borderRadius:"50%",
-          background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.15)",
-          display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
-          <X size={16} style={{color:"rgba(255,255,255,.6)"}}/>
-        </button>
+        <div style={{display:"flex",alignItems:"center",gap:10,pointerEvents:"auto"}}>
+          {phase==="waiting" && (
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:9,fontWeight:700,letterSpacing:"1px",
+                color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>WINNERS</span>
+              {[1,2].map(n=>(
+                <button key={n} onClick={()=>setNumWins(n)}
+                  style={{width:26,height:26,borderRadius:7,cursor:"pointer",
+                    border:`1.5px solid ${numWins===n?"#AA55FF":"rgba(255,255,255,.1)"}`,
+                    background:numWins===n?"rgba(170,85,255,.2)":"transparent",
+                    color:numWins===n?"#AA55FF":"rgba(255,255,255,.38)",
+                    fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:700,
+                    transition:"all .2s"}}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={onClose}
+            style={{width:34,height:34,borderRadius:"50%",flexShrink:0,
+              background:"rgba(255,255,255,.07)",border:"1px solid rgba(255,255,255,.1)",
+              display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
+            <X size={14} style={{color:"rgba(255,255,255,.5)"}}/>
+          </button>
+        </div>
       </div>
 
-      {/* Center content */}
-      <AnimatePresence mode="wait">
-        {phase === "waiting" && (
-          <motion.div key="inst" initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-10}}
-            style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",
-              textAlign:"center",pointerEvents:"none",width:"80%"}}>
-            <motion.div animate={{scale:[1,1.1,1],opacity:[.6,1,.6]}} transition={{duration:2,repeat:Infinity}}>
-              <div style={{fontSize:56,marginBottom:16}}>☝️</div>
-            </motion.div>
-            <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:28,letterSpacing:"3px",color:"#fff",marginBottom:8}}>
-              {circles.length === 0 ? "PLACE YOUR FINGERS" : circles.length === 1 ? "NEED 1 MORE..." : "HOLD STILL"}
-            </div>
-            <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,.35)"}}>
-              {circles.length === 0 ? "Everyone touch the screen at the same time" : circles.length === 1 ? "At least 2 fingers required" : ""}
-            </div>
-          </motion.div>
-        )}
+      {/* Touch zone — fills all remaining viewport height */}
+      <div style={{flex:1,position:"relative",overflow:"hidden"}}>
 
-        {phase === "countdown" && (
-          <motion.div key="cd" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
-            style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",
-              textAlign:"center",pointerEvents:"none"}}>
-            <AnimatePresence mode="wait">
-              <motion.div key={countdown} initial={{scale:2,opacity:0}} animate={{scale:1,opacity:1}}
-                exit={{scale:.5,opacity:0}} transition={{duration:.35}}
-                style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:120,letterSpacing:"4px",
-                  color:N,lineHeight:1,textShadow:`0 0 60px ${N}99`}}>
-                {countdown}
+        {/* Phase instructions / countdown / result — centered in touch zone */}
+        <AnimatePresence mode="wait">
+          {phase==="waiting" && (
+            <motion.div key="inst"
+              initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-10}}
+              style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",
+                textAlign:"center",pointerEvents:"none",width:"80%",zIndex:5}}>
+              <motion.div animate={{scale:[1,1.12,1],opacity:[.5,1,.5]}} transition={{duration:2,repeat:Infinity}}>
+                <div style={{fontSize:48,marginBottom:12}}>☝️</div>
               </motion.div>
-            </AnimatePresence>
-            <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,color:"rgba(255,255,255,.4)",marginTop:8}}>
-              Keep holding...
-            </div>
-          </motion.div>
-        )}
-
-        {phase === "winner" && (
-          <motion.div key="win" initial={{opacity:0,scale:.8}} animate={{opacity:1,scale:1}}
-            style={{position:"absolute",top:120,left:"50%",transform:"translateX(-50%)",
-              textAlign:"center",zIndex:11,pointerEvents:"auto",whiteSpace:"nowrap"}}>
-            <motion.div animate={{scale:[1,1.08,1]}} transition={{duration:.5,repeat:3}}
-              style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:36,letterSpacing:"4px",color:"#fff",marginBottom:8}}>
-              🎉 WINNER CHOSEN!
+              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"3px",
+                color:"rgba(255,255,255,.85)",marginBottom:6}}>
+                {circles.length===0?"PLACE YOUR FINGERS":circles.length===1?"NEED 1 MORE...":"HOLD STILL..."}
+              </div>
+              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.28)"}}>
+                {circles.length===0
+                  ?(isTouchDev?"Everyone touch the screen at the same time":"Click to place fingers · 2+ to start")
+                  :circles.length===1?"At least 2 fingers required":""}
+              </div>
             </motion.div>
-            <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,.45)",marginBottom:20}}>
-              The glowing finger is the chosen one
-            </div>
-            <button onClick={onClose} style={{padding:"14px 40px",borderRadius:18,
-              background:`linear-gradient(135deg,${N},#7DC900)`,border:"none",
-              fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,color:"#000",
-              cursor:"pointer",boxShadow:"0 6px 24px rgba(170,255,0,.4)"}}>
-              Done ✓
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
 
-      {/* Touch circles */}
-      {circles.map(c => {
-        const isWinner = phase === "winner" && c.id === winnerId;
-        const size = isWinner ? 130 : 88;
-        return (
-          <motion.div key={c.id}
-            style={{position:"absolute",left:c.x,top:c.y,
-              transform:"translate(-50%,-50%)",
-              width:size,height:size,borderRadius:"50%",
-              background:`radial-gradient(circle,${c.color}44 0%,${c.color}15 60%,transparent 100%)`,
-              border:`3px solid ${c.color}`,
-              boxShadow:`0 0 24px ${c.color}77,0 0 48px ${c.color}33`,
-              display:"flex",alignItems:"center",justifyContent:"center",
-              pointerEvents:"none",
-              opacity:phase==="winner"&&!isWinner?.15:1}}
-            animate={isWinner
-              ? {scale:[1,1.3,1],boxShadow:[`0 0 24px ${c.color}77`,`0 0 80px ${c.color}cc,0 0 120px ${c.color}66`,`0 0 24px ${c.color}77`]}
-              : phase==="countdown"
-                ? {scale:[1,1.05,1]}
-                : {scale:1}}
-            transition={isWinner
-              ? {duration:.55,repeat:Infinity,ease:"easeInOut"}
-              : {duration:.9,repeat:Infinity,ease:"easeInOut"}}>
-            {isWinner && <div style={{fontSize:32}}>🎉</div>}
-          </motion.div>
-        );
-      })}
+          {phase==="countdown" && (
+            <motion.div key="cd"
+              initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+              style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",
+                textAlign:"center",pointerEvents:"none",zIndex:5}}>
+              <AnimatePresence mode="wait">
+                <motion.div key={countdown}
+                  initial={{scale:1.7,opacity:0}} animate={{scale:1,opacity:1}}
+                  exit={{scale:.4,opacity:0}} transition={{duration:.28}}
+                  style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:100,letterSpacing:"4px",
+                    color:N,lineHeight:1,textShadow:`0 0 50px ${N}88`}}>
+                  {countdown}
+                </motion.div>
+              </AnimatePresence>
+              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.32)",marginTop:6}}>
+                Keep holding...
+              </div>
+            </motion.div>
+          )}
+
+          {phase==="winner" && (
+            <motion.div key="win"
+              initial={{opacity:0,scale:.85}} animate={{opacity:1,scale:1}}
+              style={{position:"absolute",top:"28%",left:"50%",transform:"translate(-50%,-50%)",
+                textAlign:"center",zIndex:11,pointerEvents:"auto",whiteSpace:"nowrap"}}>
+              <motion.div animate={{scale:[1,1.06,1]}} transition={{duration:.55,repeat:3}}
+                style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:30,letterSpacing:"4px",
+                  color:"#fff",marginBottom:6}}>
+                🏆 {winnerIds.length>1?"WINNERS CHOSEN!":"WINNER CHOSEN!"}
+              </motion.div>
+              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.38)",marginBottom:18}}>
+                {winnerIds.length>1?"The golden fingers are the chosen ones":"The golden finger is the chosen one"}
+              </div>
+              <button onClick={onClose}
+                style={{padding:"12px 34px",borderRadius:14,
+                  background:`linear-gradient(135deg,${N},#7DC900)`,border:"none",
+                  fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:800,color:"#000",
+                  cursor:"pointer",boxShadow:"0 6px 22px rgba(170,255,0,.35)"}}>
+                Done ✓
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Touch circles — marginLeft/Top centering lets Framer Motion own transform for scale */}
+        {circles.map(c => {
+          const isWinner = phase==="winner" && winnerIds.includes(c.id);
+          const isLoser  = phase==="winner" && !winnerIds.includes(c.id);
+          const col = isWinner ? DT_GOLD : c.color;
+          return (
+            <motion.div key={c.id}
+              initial={{scale:0,opacity:1}}
+              animate={
+                isLoser  ? {opacity:0,scale:0}
+                : isWinner ? {scale:[1,1.55,1.4,1.55,1.4]}
+                : {scale:[1,pulseAmt,1]}
+              }
+              transition={
+                isLoser  ? {duration:.45,ease:"easeOut"}
+                : isWinner ? {duration:.65,repeat:Infinity,ease:"easeInOut"}
+                : {duration:pulseDur,repeat:Infinity,ease:"easeInOut"}
+              }
+              style={{
+                position:"absolute",
+                left:c.x, top:c.y,
+                width:DT_BASE, height:DT_BASE,
+                marginLeft:-DT_BASE/2, marginTop:-DT_BASE/2,
+                borderRadius:"50%",
+                background:`radial-gradient(circle,${col}55 0%,${col}18 60%,transparent 100%)`,
+                border:`3px solid ${col}`,
+                boxShadow:isWinner
+                  ?`0 0 50px ${DT_GOLD}cc,0 0 90px ${DT_GOLD}66,0 0 130px ${DT_GOLD}33`
+                  :`0 0 22px ${c.color}77,0 0 44px ${c.color}33`,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                pointerEvents:"none",zIndex:8
+              }}>
+              {isWinner && (
+                <motion.div initial={{scale:0}} animate={{scale:1}} style={{fontSize:24}}>🏆</motion.div>
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
     </motion.div>
   );
 }
