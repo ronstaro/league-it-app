@@ -3449,7 +3449,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       await supabase.from("matches").upsert({
         id: match.id, league_id: leagueId,
         winner_id: winnerId, loser_id: loserId,
-        is_comeback: false,
+        is_comeback: false, is_tournament: true, tournament_stage: 'group',
         score: entry, date: new Date().toISOString(),
       });
     } catch (e) { console.error("[tournament] group match save failed:", e); }
@@ -3514,7 +3514,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
         try {
           await supabase.from("matches").upsert({
             id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
-            is_comeback: false,
+            is_comeback: false, is_tournament: true, tournament_stage: bracketRoundLabel,
             score: entry, date: new Date().toISOString(),
           });
         } catch (e) { console.error("[tournament] leg-2 match save failed:", e); }
@@ -3540,7 +3540,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     try {
       await supabase.from("matches").upsert({
         id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
-        is_comeback: false,
+        is_comeback: false, is_tournament: true, tournament_stage: bracketRoundLabel,
         score: entry, date: new Date().toISOString(),
       });
     } catch (e) { console.error("[tournament] bracket match save failed:", e); }
