@@ -704,19 +704,20 @@ function HomeTab({
   const mvp    = useMemo(()=>players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:{name:"No Players",wins:0,losses:0},[players]);
   const streak = useMemo(()=>players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:{name:"No Players",bestStreak:0},[players]);
 
-  // TBD bracket — shown before real bracket is generated; deterministic via fake tiers
+  // TBD bracket — shown before real bracket is generated; uses crossover pairing to match actual seeding
   const tdbBracket = useMemo(() => {
     if (bracket || !groups.length || tournamentFormat !== "groups_knockout") return null;
     const ordinals = ["1st","2nd","3rd","4th","5th","6th"];
-    const tierByRank = ["A","B","C","D","E"];
-    const parts = [];
-    for (let rank = 0; rank < advancingPerGroup; rank++) {
-      for (const g of groups) {
-        parts.push({ id:`tbd_${rank}_${g.name}`, name:`${ordinals[rank]??`${rank+1}th`} Group ${g.name}`,
-          tier: tierByRank[Math.min(rank, 4)], isTBD: true });
-      }
-    }
-    return generateKnockoutBracket(parts);
+    const tdbByGroup = groups.map(g =>
+      Array.from({ length: advancingPerGroup }, (_, rank) => ({
+        id: `tbd_${rank}_${g.name}`,
+        name: `${ordinals[rank] ?? `${rank+1}th`} Group ${g.name}`,
+        isTBD: true,
+      }))
+    );
+    return groups.length >= 2
+      ? generateCrossoverBracket(tdbByGroup)
+      : generateKnockoutBracket(tdbByGroup.flat());
   }, [bracket, groups, advancingPerGroup, tournamentFormat]);
   const visible = showAll ? feed : feed.slice(0,5);
 
@@ -3312,6 +3313,30 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   const enrichedPlayers = useMemo(()=>derivePlayerStats(players, feed),[players, feed]);
   const sortedPlayers   = useMemo(()=>byWins(enrichedPlayers),[enrichedPlayers]);
 
+  // ── ON-MOUNT SYNC: pull fresh settings + matches from Supabase ───────────
+  useEffect(() => {
+    if (!leagueId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const [{ data: leagueRow }, { data: mData }] = await Promise.all([
+          supabase.from("leagues").select("settings, sport").eq("id", leagueId).maybeSingle(),
+          supabase.from("matches").select("*").eq("league_id", leagueId).order("date", { ascending: false }),
+        ]);
+        if (!alive) return;
+        if (leagueRow?.settings) {
+          const freshRules = settingsToRules(leagueRow.sport, leagueRow.settings);
+          setRules(freshRules);
+          setBracket(freshRules.bracket || null);
+        }
+        if (mData) {
+          setFeed(mData.map(m => ({ id: m.id, ...m.score })));
+        }
+      } catch { /* best-effort — initial props already have last-known state */ }
+    })();
+    return () => { alive = false; };
+  }, [leagueId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── BRACKET DRAW HANDLERS ─────────────────────────────────────────────────
   const handleShowGenerateDraw = useCallback(() => {
     const participants = rules?.participants || [];
@@ -3433,9 +3458,16 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     const allComplete  = groupMatches.length > 0 && groupMatches.every(m => completedIds.has(m.id));
     if (allComplete) {
       const advancingPerGroup = rules?.groupSettings?.advancingPerGroup || 2;
-      const advancing = getAdvancingParticipants(groups, groupMatches, updatedFeed, advancingPerGroup);
-      if (advancing.length >= 2) {
-        const knockoutBracket = generateKnockoutBracket(advancing);
+      const advancingByGroup = groups.map(g =>
+        computeGroupStandings(g.participants, g.name, groupMatches, updatedFeed)
+          .slice(0, advancingPerGroup)
+          .map(s => s.participant)
+      );
+      const totalAdvancing = advancingByGroup.reduce((s, g) => s + g.length, 0);
+      if (totalAdvancing >= 2) {
+        const knockoutBracket = groups.length >= 2
+          ? generateCrossoverBracket(advancingByGroup)
+          : generateKnockoutBracket(advancingByGroup.flat());
         await _saveGroupsState(undefined, undefined, knockoutBracket);
       }
     }
@@ -4502,6 +4534,65 @@ function generateKnockoutBracket(participants) {
   }
 
   return { rounds, seeded: isSeeded, size, generatedAt: new Date().toISOString() };
+}
+
+// Cross-group seeded bracket: pairs consecutive groups (A+B, C+D…) with crossover.
+// advancingByGroup: [[1stA, 2ndA], [1stB, 2ndB], …] — one array per group.
+function generateCrossoverBracket(advancingByGroup) {
+  if (!advancingByGroup?.length) return null;
+  // Fallback for single group (no crossover possible)
+  if (advancingByGroup.length < 2) return generateKnockoutBracket(advancingByGroup.flat());
+
+  const numGroups = advancingByGroup.length;
+  const perGroup  = advancingByGroup[0]?.length || 2;
+  const pairs     = []; // each element is { p1, p2 } for one R1 match
+
+  // Pair consecutive groups: (A+B), (C+D), …
+  for (let gi = 0; gi < numGroups - 1; gi += 2) {
+    const gA = advancingByGroup[gi]     || [];
+    const gB = advancingByGroup[gi + 1] || [];
+    for (let rank = 0; rank < perGroup; rank++) {
+      const crossRank = perGroup - 1 - rank; // top of A vs bottom of B
+      pairs.push({ p1: gA[rank] ?? null, p2: gB[crossRank] ?? null });
+    }
+  }
+
+  // Odd number of groups: last group's players get automatic BYEs
+  if (numGroups % 2 === 1) {
+    for (const p of (advancingByGroup[numGroups - 1] || [])) {
+      pairs.push({ p1: p, p2: null });
+    }
+  }
+
+  const size     = _nextPow2(pairs.length);
+  const padCount = size - pairs.length;
+  for (let i = 0; i < padCount; i++) pairs.push({ p1: null, p2: null });
+
+  const r1 = pairs.map((pair, i) => {
+    const { p1, p2 } = pair;
+    const isBye = Boolean(p1) !== Boolean(p2);
+    return {
+      id: crypto.randomUUID(), round: 1, position: i,
+      p1: p1 || null, p2: p2 || null,
+      winner: isBye ? (p1 || p2) : null, isBye,
+    };
+  });
+
+  const totalRounds = Math.log2(size);
+  const rounds = [r1];
+  for (let r = 2; r <= totalRounds; r++) {
+    const prev  = rounds[r - 2];
+    const count = prev.length / 2;
+    const rnd   = Array.from({ length: count }, (_, i) => ({
+      id: crypto.randomUUID(), round: r, position: i,
+      p1: prev[i * 2]?.isBye     ? prev[i * 2].winner     : null,
+      p2: prev[i * 2 + 1]?.isBye ? prev[i * 2 + 1].winner : null,
+      winner: null, isBye: false,
+    }));
+    rounds.push(rnd);
+  }
+
+  return { rounds, seeded: true, crossover: true, size, generatedAt: new Date().toISOString() };
 }
 
 // Store a leg score on a bracket match (for Home & Away).
