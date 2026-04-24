@@ -869,6 +869,27 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
   const [sub,setSub] = useState("lb");
   const enriched = useMemo(()=>enrichPlayers(players,feed),[players,feed]);
 
+  // Derive all unique tournament participants from fixtures and bracket
+  const allParticipants = useMemo(() => {
+    if (!isTournament) return [];
+    const seen = new Set();
+    const list = [];
+    const add = (p) => { if (p?.name && !seen.has(p.name)) { seen.add(p.name); list.push({ id: p.id, name: p.name }); } };
+    for (const m of groupMatches) { add(m.p1); add(m.p2); }
+    if (bracket?.rounds) {
+      for (const round of bracket.rounds) {
+        for (const m of round) { if (!m.isBye) { add(m.p1); add(m.p2); } }
+      }
+    }
+    return list;
+  }, [isTournament, groupMatches, bracket]);
+
+  const mePlayer = players.find(p => p.isMe) || enriched.find(p => p.isMe);
+  const [selectedName, setSelectedName] = useState(() => mePlayer?.name || "");
+  useEffect(() => {
+    if (!selectedName && mePlayer?.name) setSelectedName(mePlayer.name);
+  }, [mePlayer?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Combined feed for tournament mode: group results (matched by fixture ID) + bracket results
   const tournamentFeed = useMemo(() => {
     if (!isTournament) return feed;
@@ -923,18 +944,21 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
 
       let totalMatches = 0;
 
-      // SOURCE 1: Group stage — iterate fixture definitions, look up result in feed by ID
+      // SOURCE 1: Group stage — check fixture for embedded scores (settings-stored) or fall back to feed
       for (const fixture of (groupMatches || [])) {
         const result = feed.find(m => String(m.id) === String(fixture.id));
-        if (!result) continue;
+        // Scores may live directly on the fixture object (settings.groupMatches) or in the feed
+        const hasResult = result != null || fixture.winner != null || fixture.p1Goals != null || fixture.isDraw === true;
+        if (!hasResult) continue;
         totalMatches++;
         const p1 = lookup(fixture.p1?.id, fixture.p1?.name);
         const p2 = lookup(fixture.p2?.id, fixture.p2?.name);
-        const p1g = Number(result.p1Goals) || 0;
-        const p2g = Number(result.p2Goals) || 0;
+        const p1g = fixture.p1Goals != null ? Number(fixture.p1Goals) : (Number(result?.p1Goals) || 0);
+        const p2g = fixture.p2Goals != null ? Number(fixture.p2Goals) : (Number(result?.p2Goals) || 0);
+        const isDraw = fixture.isDraw ?? result?.isDraw ?? (p1g === p2g && (p1g > 0 || result != null));
         if (p1) { p1.gf += p1g; p1.ga += p2g; }
         if (p2) { p2.gf += p2g; p2.ga += p1g; }
-        if (result.isDraw) {
+        if (isDraw) {
           if (p1) { p1.played++; p1.streak = 0; }
           if (p2) { p2.played++; p2.streak = 0; }
         } else {
@@ -982,8 +1006,9 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
       const byGA    = pArr.length ? [...pArr].sort((a,b)=>a.ga-b.ga)[0]                 : FALLBACK_P;
       const bySieve = pArr.length ? [...pArr].sort((a,b)=>b.ga-a.ga)[0]                 : FALLBACK_P;
 
-      const me = players.find(p => p.isMe) || enriched.find(p => p.isMe);
-      const meStats = me ? (lookup(me.id, me.name) || null) : null;
+      const activeName = selectedName || mePlayer?.name || (allParticipants[0]?.name ?? "");
+      const selectedDbPlayer = players.find(p => p.name === activeName) || enriched.find(p => p.name === activeName);
+      const meStats = activeName ? (lookup(selectedDbPlayer?.id, activeName) || null) : null;
 
       const T_AWARDS = [
         {icon:"🏆",lbl:"THE WINNER",         lc:"rgba(255,215,0,.8)",  sc:"#FFD700", bdr:"rgba(255,215,0,.25)",  name:champName||"TBD",  bigNum:champName?"🥇":"—",       unit:"CHAMPION",   stat:"Tournament Champion"},
@@ -1003,28 +1028,64 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
 
       return (
         <div>
-          {/* Personal Score Ratio — always visible */}
-          <ST>📊 Personal Score Ratio</ST>
-          {meStats && meStats.played > 0 ? (
-            <div className="rounded-[20px] p-4 mb-5" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                {[{v:meStats.gf,l:"GOALS SCORED",c:N},{v:meStats.ga,l:"GOALS CONCEDED",c:"#FF3355"}].map(({v,l,c})=>(
-                  <div key={l} className="text-center">
-                    <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:38,letterSpacing:"2px",lineHeight:1,color:c,marginBottom:4}}>{v}</div>
-                    <div style={{fontSize:9,fontWeight:700,letterSpacing:"1.5px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{l}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="flex rounded-[4px] overflow-hidden" style={{height:8}}>
-                {(()=>{ const tot=(meStats.gf+meStats.ga)||1; const p=Math.round(meStats.gf/tot*100); return(<><div style={{width:`${p}%`,background:`linear-gradient(90deg,${N},#7DC900)`,transition:"width .4s ease"}}/><div style={{flex:1,background:"linear-gradient(90deg,#FF3355,#C0143C)"}}/></>); })()}
-              </div>
-              <div className="flex justify-between mt-2">
-                <span style={{fontSize:10,fontWeight:700,color:N,fontFamily:"'DM Sans',sans-serif"}}>{meStats.gf} scored</span>
-                <span style={{fontSize:10,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{meStats.played} matches</span>
-                <span style={{fontSize:10,fontWeight:700,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>{meStats.ga} conceded</span>
+          {/* Player selector — pick any participant */}
+          {allParticipants.length > 0 && (
+            <div className="mb-4">
+              <div style={{fontSize:9,fontWeight:800,letterSpacing:"1.5px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",marginBottom:8}}>SELECT PLAYER</div>
+              <div className="relative">
+                <select value={activeName} onChange={e => setSelectedName(e.target.value)}
+                  className="w-full rounded-[14px] py-3 px-4 text-[13px] font-bold appearance-none"
+                  style={{background:"rgba(255,255,255,.06)",border:`1px solid ${N}40`,color:"#fff",fontFamily:"'DM Sans',sans-serif",
+                    outline:"none",cursor:"pointer",WebkitAppearance:"none",paddingRight:36}}>
+                  {allParticipants.map(p => (
+                    <option key={p.name} value={p.name} style={{background:"#111",color:"#fff"}}>{p.name}{p.name===mePlayer?.name?" (me)":""}</option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" style={{color:N,fontSize:14}}>▾</div>
               </div>
             </div>
-          ) : noDataMsg}
+          )}
+
+          {/* Personal Score Ratio — always visible even at 0 */}
+          <ST>📊 Score Ratio — {activeName||"Select player"}</ST>
+          <div className="rounded-[20px] p-4 mb-5" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
+            {meStats && meStats.played > 0 ? (
+              <>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  {[{v:meStats.gf,l:"GOALS SCORED",c:"#AAFF00"},{v:meStats.ga,l:"GOALS CONCEDED",c:"#FF3355"}].map(({v,l,c})=>(
+                    <div key={l} className="text-center">
+                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:38,letterSpacing:"2px",lineHeight:1,color:c,marginBottom:4}}>{v}</div>
+                      <div style={{fontSize:9,fontWeight:700,letterSpacing:"1.5px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex rounded-[8px] overflow-hidden" style={{height:16}}>
+                  {(()=>{ const tot=(meStats.gf+meStats.ga)||1; const p=Math.round(meStats.gf/tot*100); return(<><div style={{width:`${p}%`,background:"linear-gradient(90deg,#AAFF00,#7DC900)",minWidth:p>0?4:0,transition:"width .4s ease"}}/><div style={{flex:1,background:"linear-gradient(90deg,#FF3355,#C0143C)"}}/></>); })()}
+                </div>
+                <div className="flex justify-between mt-2">
+                  <span style={{fontSize:10,fontWeight:700,color:"#AAFF00",fontFamily:"'DM Sans',sans-serif"}}>{meStats.gf} scored</span>
+                  <span style={{fontSize:10,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{meStats.played} matches</span>
+                  <span style={{fontSize:10,fontWeight:700,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>{meStats.ga} conceded</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  {[{v:0,l:"GOALS SCORED",c:"#AAFF00"},{v:0,l:"GOALS CONCEDED",c:"#FF3355"}].map(({v,l,c})=>(
+                    <div key={l} className="text-center">
+                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:38,letterSpacing:"2px",lineHeight:1,color:c,marginBottom:4,opacity:.35}}>{v}</div>
+                      <div style={{fontSize:9,fontWeight:700,letterSpacing:"1.5px",color:"rgba(255,255,255,.25)",fontFamily:"'DM Sans',sans-serif"}}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex rounded-[8px] overflow-hidden" style={{height:16}}>
+                  <div style={{width:"50%",background:"linear-gradient(90deg,#AAFF00,#7DC900)",opacity:.25}}/>
+                  <div style={{flex:1,background:"linear-gradient(90deg,#FF3355,#C0143C)",opacity:.25}}/>
+                </div>
+                <div className="text-center mt-2" style={{fontSize:10,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif"}}>No matches yet</div>
+              </>
+            )}
+          </div>
 
           <ST>🏅 Tournament Awards</ST>
           {totalMatches === 0 ? noDataMsg : (
@@ -3509,6 +3570,12 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
         ]);
         if (leagueErr) console.error("[mount] leagues fetch error:", leagueErr);
         if (matchErr)  console.error("[mount] matches fetch error:", matchErr);
+        // If both requests failed and env vars are missing, the client is misconfigured — reload to pick up fresh Vercel env vars
+        if (leagueErr && matchErr && (!SUPABASE_URL || !SUPABASE_KEY)) {
+          console.warn("[mount] Supabase client misconfigured — reloading to pick up env vars");
+          setTimeout(() => window.location.reload(), 800);
+          return;
+        }
         if (!alive) return;
         if (leagueRow?.settings) {
           const freshRules = settingsToRules(leagueRow.sport, leagueRow.settings);
