@@ -3397,11 +3397,13 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   }, [rules]);
 
   const _saveBracket = useCallback(async (updatedBracket) => {
-    const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle().catch(() => ({ data: null }));
-    const newSettings = { ...(data?.settings || {}), bracket: updatedBracket };
-    supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId).then(() => {}).catch(() => {});
     setBracket(updatedBracket);
     setRules(r => ({ ...r, bracket: updatedBracket }));
+    try {
+      const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
+      const newSettings = { ...(data?.settings || {}), bracket: updatedBracket };
+      await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
+    } catch { /* best-effort */ }
   }, [leagueId]);
 
   // Save both groups state and optionally bracket in one write
@@ -3440,14 +3442,14 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       groupLabel: `Group ${match.groupName}`,
       p1Name: match.p1?.name, p2Name: match.p2?.name,
       p1Goals: p1g, p2Goals: p2g, isDraw,
-      is_tournament: true,
+      is_tournament: true, tournament_stage: 'group',
     };
     setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
     try {
       await supabase.from("matches").upsert({
         id: match.id, league_id: leagueId,
         winner_id: winnerId, loser_id: loserId,
-        is_comeback: false, is_tournament: true,
+        is_comeback: false, is_tournament: true, tournament_stage: 'group',
         score: entry, date: new Date().toISOString(),
       });
     } catch { /* best-effort */ }
@@ -3506,11 +3508,13 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
         const entry = { id: match.id, winner: winner.name, winnerIds: winnerId ? [winnerId] : [],
           loser: loser.name, loserIds: loserId ? [loserId] : [], sets: [scoreStr],
           sport: "🏆", dateStr: ts.dateStr, timeStr: ts.timeStr, xp: 110, isComeback: false,
-          bracketMatchId: match.id, bracketRound: match.round, bracketRoundLabel, is_tournament: true };
+          bracketMatchId: match.id, bracketRound: match.round, bracketRoundLabel,
+          is_tournament: true, tournament_stage: bracketRoundLabel };
         setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
         supabase.from("matches").upsert({
           id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
-          is_comeback: false, is_tournament: true, score: entry, date: new Date().toISOString(),
+          is_comeback: false, is_tournament: true, tournament_stage: bracketRoundLabel,
+          score: entry, date: new Date().toISOString(),
         }).then(() => {}).catch(() => {});
       }
       return;
@@ -3527,12 +3531,14 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       loser: loser?.name || "—", loserIds: loserId ? [loserId] : [],
       sets: [scoreStr], sport: "🏆",
       dateStr: ts.dateStr, timeStr: ts.timeStr, xp: 110, isComeback: false,
-      bracketMatchId: match.id, bracketRound: match.round, bracketRoundLabel, is_tournament: true,
+      bracketMatchId: match.id, bracketRound: match.round, bracketRoundLabel,
+      is_tournament: true, tournament_stage: bracketRoundLabel,
     };
     setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
     supabase.from("matches").upsert({
       id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
-      is_comeback: false, is_tournament: true, score: entry, date: new Date().toISOString(),
+      is_comeback: false, is_tournament: true, tournament_stage: bracketRoundLabel,
+      score: entry, date: new Date().toISOString(),
     }).then(() => {}).catch(() => {});
     const updated = applyBracketResult(bracket, match.id, winner, { p1Goals: Number(p1Goals)||0, p2Goals: Number(p2Goals)||0 });
     await _saveBracket(updated);
@@ -4564,8 +4570,8 @@ function generateCrossoverBracket(advancingByGroup) {
     }
   }
 
-  const size     = _nextPow2(pairs.length);
-  const padCount = size - pairs.length;
+  const r1Size   = _nextPow2(pairs.length);
+  const padCount = r1Size - pairs.length;
   for (let i = 0; i < padCount; i++) pairs.push({ p1: null, p2: null });
 
   const r1 = pairs.map((pair, i) => {
@@ -4578,7 +4584,7 @@ function generateCrossoverBracket(advancingByGroup) {
     };
   });
 
-  const totalRounds = Math.log2(size);
+  const totalRounds = Math.round(Math.log2(r1Size)) + 1;
   const rounds = [r1];
   for (let r = 2; r <= totalRounds; r++) {
     const prev  = rounds[r - 2];
@@ -4592,7 +4598,7 @@ function generateCrossoverBracket(advancingByGroup) {
     rounds.push(rnd);
   }
 
-  return { rounds, seeded: true, crossover: true, size, generatedAt: new Date().toISOString() };
+  return { rounds, seeded: true, crossover: true, size: r1Size, generatedAt: new Date().toISOString() };
 }
 
 // Store a leg score on a bracket match (for Home & Away).
