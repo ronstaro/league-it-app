@@ -865,7 +865,7 @@ function HomeTab({
 }
 
 /* ── STATS TAB ── */
-function StatsTab({players,feed}) {
+function StatsTab({players, feed, isTournament = false}) {
   const [sub,setSub] = useState("lb");
   const enriched = useMemo(()=>enrichPlayers(players,feed),[players,feed]);
 
@@ -883,6 +883,109 @@ function StatsTab({players,feed}) {
     const mStreak   = players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:FALLBACK;
     const mComeback = players.length>0?[...players].sort((a,b)=>(b.comebacks||0)-(a.comebacks||0))[0]:FALLBACK;
     const barC = pc=>pc>=70?`linear-gradient(90deg,${N},#7DC900)`:pc>=50?"linear-gradient(90deg,#FFB830,#E08A00)":"linear-gradient(90deg,#FF3355,#C0143C)";
+
+    // ── TOURNAMENT AWARDS (computed from tournament-only matches) ──
+    if (isTournament) {
+      const tFeed = feed.filter(m => m.is_tournament);
+      const pStats = {};
+      for (const p of players) pStats[p.name] = { name: p.name, wins: 0, losses: 0, played: 0, gf: 0, ga: 0, bestStreak: 0, streak: 0 };
+      for (const m of tFeed) {
+        // Goals
+        if (m.p1Name != null && m.p1Goals != null) {
+          const a = pStats[m.p1Name], b = pStats[m.p2Name];
+          if (a) { a.gf += Number(m.p1Goals)||0; a.ga += Number(m.p2Goals)||0; }
+          if (b) { b.gf += Number(m.p2Goals)||0; b.ga += Number(m.p1Goals)||0; }
+        } else if (m.sets?.length && m.winner && m.loser) {
+          const raw = (m.sets[0]||"").replace(/–/g,"-").replace(/\[.*?\]/g,"");
+          const [a,b] = raw.split("-").map(Number);
+          if (!isNaN(a)&&!isNaN(b)) {
+            const wg=Math.max(a,b), lg=Math.min(a,b);
+            if (pStats[m.winner]) { pStats[m.winner].gf+=wg; pStats[m.winner].ga+=lg; }
+            if (pStats[m.loser])  { pStats[m.loser].gf+=lg;  pStats[m.loser].ga+=wg; }
+          }
+        }
+        // W/L
+        if (!m.isDraw) {
+          if (m.winner && pStats[m.winner]) { const p=pStats[m.winner]; p.wins++; p.played++; p.streak++; p.bestStreak=Math.max(p.bestStreak,p.streak); }
+          if (m.loser  && pStats[m.loser])  { const p=pStats[m.loser];  p.losses++; p.played++; p.streak=0; }
+        } else {
+          if (m.p1Name && pStats[m.p1Name]) { pStats[m.p1Name].played++; pStats[m.p1Name].streak=0; }
+          if (m.p2Name && pStats[m.p2Name]) { pStats[m.p2Name].played++; pStats[m.p2Name].streak=0; }
+        }
+      }
+      const pArr = Object.values(pStats).filter(p => p.played > 0);
+      const FALLBACK_P = { name: "N/A", wins: 0, losses: 0, played: 0, gf: 0, ga: 0, bestStreak: 0 };
+      const byWin  = pArr.length ? [...pArr].sort((a,b)=>b.wins-a.wins)[0]       : FALLBACK_P;
+      const byStr  = pArr.length ? [...pArr].sort((a,b)=>b.bestStreak-a.bestStreak)[0] : FALLBACK_P;
+      const byPlay = pArr.length ? [...pArr].sort((a,b)=>b.played-a.played)[0]   : FALLBACK_P;
+      const byLoss = pArr.length ? [...pArr].sort((a,b)=>b.losses-a.losses)[0]   : FALLBACK_P;
+      const byGF   = pArr.length ? [...pArr].sort((a,b)=>b.gf-a.gf)[0]           : FALLBACK_P;
+      const byGA   = pArr.length ? [...pArr].sort((a,b)=>a.ga-b.ga)[0]           : FALLBACK_P;
+      const bySieve= pArr.length ? [...pArr].sort((a,b)=>b.ga-a.ga)[0]           : FALLBACK_P;
+      const finalMatch = tFeed.find(m => m.tournament_stage==="FINAL"||m.bracketRoundLabel==="FINAL");
+      const champName = finalMatch?.winner || null;
+      const T_AWARDS = [
+        {icon:"🏆",lbl:"THE WINNER",         lc:"rgba(255,215,0,.8)",  sc:"#FFD700", bdr:"rgba(255,215,0,.25)",  name:champName||"TBD",     bigNum:champName?"🥇":"—",  unit:"CHAMPION",   stat:"Tournament Champion"},
+        {icon:"🔥",lbl:"SUPER STREAK",        lc:"rgba(170,255,0,.7)",  sc:N,         bdr:"rgba(170,255,0,.2)",   name:byStr.name,           bigNum:byStr.bestStreak,    unit:"WIN STREAK", stat:"Longest consecutive wins"},
+        {icon:"⚙️",lbl:"THE GRINDER",         lc:"rgba(255,184,48,.7)", sc:"#FFB830", bdr:"rgba(255,184,48,.2)",  name:byPlay.name,          bigNum:byPlay.played,       unit:"MATCHES",    stat:"Most matches played"},
+        {icon:"💀",lbl:"PROFESSIONAL LOSER",  lc:"rgba(255,51,85,.7)",  sc:"#FF3355", bdr:"rgba(255,51,85,.2)",   name:byLoss.name,          bigNum:byLoss.losses,       unit:"LOSSES",     stat:"Most losses in tournament"},
+        {icon:"⚽",lbl:"HIGHEST SCORE",       lc:"rgba(59,142,255,.7)", sc:"#3B8EFF", bdr:"rgba(59,142,255,.2)",  name:byGF.name,            bigNum:byGF.gf,             unit:"GOALS",      stat:"Most goals scored"},
+        {icon:"🧱",lbl:"THE WALL",            lc:"rgba(170,255,0,.7)",  sc:N,         bdr:"rgba(170,255,0,.2)",   name:byGA.name,            bigNum:byGA.ga,             unit:"CONCEDED",   stat:"Fewest goals conceded"},
+        {icon:"🕳️",lbl:"THE SIEVE",           lc:"rgba(255,107,53,.7)", sc:"#FF6B35", bdr:"rgba(255,107,53,.2)",  name:bySieve.name,         bigNum:bySieve.ga,          unit:"CONCEDED",   stat:"Most goals conceded"},
+      ];
+      const me = enriched.find(p => p.isMe);
+      const meStats = me ? pStats[me.name] : null;
+      return (
+        <div>
+          <ST>🏅 Tournament Awards</ST>
+          <div className="flex flex-col gap-3 mb-5">
+            {T_AWARDS.map(c => (
+              <div key={c.lbl} className="rounded-[20px] p-4 relative overflow-hidden" style={{background:"rgba(255,255,255,.03)",border:`1px solid ${c.bdr}`}}>
+                <div className="absolute inset-0 pointer-events-none" style={{background:`linear-gradient(135deg,${c.sc}08,transparent 60%)`}}/>
+                <div className="flex items-center justify-between gap-3 relative">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <span className="text-[22px] flex-shrink-0 mt-0.5">{c.icon}</span>
+                    <div className="min-w-0">
+                      <div style={{fontSize:9,fontWeight:800,letterSpacing:"1.5px",color:c.lc,fontFamily:"'DM Sans',sans-serif",marginBottom:3}}>{c.lbl}</div>
+                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:18,color:"#fff",marginBottom:2}}>{c.name}</div>
+                      <div style={{fontSize:10,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{c.stat}</div>
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:38,letterSpacing:"2px",color:c.sc,lineHeight:1}}>{c.bigNum}</div>
+                    <div style={{fontSize:8,fontWeight:700,letterSpacing:"1px",color:`${c.sc}99`,fontFamily:"'DM Sans',sans-serif",marginTop:2}}>{c.unit}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {meStats && (
+            <>
+              <ST>⚽ יחס סקור אישי</ST>
+              <div className="rounded-[20px] p-4 mb-5" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  {[{v:meStats.gf,l:"GOALS SCORED",c:N},{v:meStats.ga,l:"GOALS CONCEDED",c:"#FF3355"}].map(({v,l,c})=>(
+                    <div key={l} className="text-center">
+                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:38,letterSpacing:"2px",lineHeight:1,color:c,marginBottom:4}}>{v}</div>
+                      <div style={{fontSize:9,fontWeight:700,letterSpacing:"1.5px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex rounded-[4px] overflow-hidden" style={{height:6}}>
+                  {(() => { const tot=(meStats.gf+meStats.ga)||1; return (<><div style={{width:`${Math.round(meStats.gf/tot*100)}%`,background:`linear-gradient(90deg,${N},#7DC900)`}}/><div style={{flex:1,background:"linear-gradient(90deg,#FF3355,#C0143C)"}}/></>); })()}
+                </div>
+                <div className="flex justify-between mt-2">
+                  <span style={{fontSize:10,fontWeight:700,color:N,fontFamily:"'DM Sans',sans-serif"}}>{meStats.gf} scored</span>
+                  <span style={{fontSize:10,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{meStats.played} matches</span>
+                  <span style={{fontSize:10,fontWeight:700,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>{meStats.ga} conceded</span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      );
+    }
+
     const ALL_AWARDS = [
       {icon:"🏆",lbl:"THE WINNER",        lc:"rgba(170,255,0,.7)",   sc:N,         bdr:"rgba(170,255,0,.2)",   p:mW,        bigNum:mW.wins,                   unit:"WINS",        stat:`${pct(mW.wins,mW.losses)}% win rate`,       hasTrend:true},
       {icon:"⚡",lbl:"CLUTCH PLAYER",     lc:"rgba(59,142,255,.7)",  sc:"#3B8EFF", bdr:"rgba(59,142,255,.2)",  p:mClutch,   bigNum:mClutch.clutchWins||0,     unit:"CLUTCH WINS", stat:`Tight-score wins`,                           hasTrend:false},
@@ -923,19 +1026,20 @@ function StatsTab({players,feed}) {
           ))}
         </div>
 
-        <ST>🤝 My Partner Rate</ST>
-        <div className="rounded-[20px] p-4 mb-5" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
-          {partners.map(({pp,pc:ppc})=>(
-            <div key={pp.id} className="flex items-center gap-2.5 mb-3">
-              <div style={{width:72,fontSize:12,fontWeight:600,color:"rgba(255,255,255,.65)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0,fontFamily:"'DM Sans',sans-serif"}}>{pp.name}</div>
-              <AnimBar value={ppc} color={barC(ppc)}/>
-              <div style={{width:32,fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:"rgba(255,255,255,.5)",textAlign:"right"}}>{ppc}%</div>
-            </div>
-          ))}
-        </div>
+        {!isTournament && <ST>🤝 My Partner Rate</ST>}
+        {!isTournament && (
+          <div className="rounded-[20px] p-4 mb-5" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
+            {partners.map(({pp,pc:ppc})=>(
+              <div key={pp.id} className="flex items-center gap-2.5 mb-3">
+                <div style={{width:72,fontSize:12,fontWeight:600,color:"rgba(255,255,255,.65)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0,fontFamily:"'DM Sans',sans-serif"}}>{pp.name}</div>
+                <AnimBar value={ppc} color={barC(ppc)}/>
+                <div style={{width:32,fontFamily:"'JetBrains Mono',monospace",fontSize:10,fontWeight:700,color:"rgba(255,255,255,.5)",textAlign:"right"}}>{ppc}%</div>
+              </div>
+            ))}
+          </div>
+        )}
 
-        {/* Mini-Games Breakdown — uses gamesWon/gamesLost from parseMG, not setsWon */}
-        <ST>🎮 My Mini-Games Breakdown</ST>
+        <ST>⚽ יחס סקור אישי</ST>
         <div className="rounded-[20px] p-4 mb-2" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
           <div className="grid grid-cols-2 gap-4 mb-4">
             {[{v:me.gamesWon,l:"MINI-GAMES WON",c:N},{v:me.gamesLost,l:"MINI-GAMES LOST",c:"#FF3355"}].map(({v,l,c})=>(
@@ -2120,7 +2224,7 @@ function KnockoutFixtures({ bracket, onMatchTap, isAdmin, matchLegs, feed }) {
               const bothKnown = p1 && p2 && !p1.isTBD && !p2.isTBD;
               const isDone = !!match.winner;
               const leg1Done = matchLegs === 2 && match.leg1 && !match.leg2;
-              const tappable = isAdmin && bothKnown && (!isDone || leg1Done);
+              const tappable = isAdmin && bothKnown && (matchLegs === 2 ? (!isDone || leg1Done) : !p1.isTBD && !p2.isTBD);
 
               let scoreDisplay = null;
               if (match.score) {
@@ -2683,8 +2787,12 @@ function GroupResultSheet({ match, onResult, onClose }) {
 // ─────────────────────────────────────────────
 function TournamentLogModal({ match, matchType, matchLegs = 1, contextLabel = "", onGroupResult, onBracketResult, onClose }) {
   if (!match) return null;
-  const [p1Score, setP1Score] = useState("");
-  const [p2Score, setP2Score] = useState("");
+  const initP1 = match.existingP1Goals != null ? String(match.existingP1Goals)
+    : match.score?.p1Goals != null ? String(match.score.p1Goals) : "";
+  const initP2 = match.existingP2Goals != null ? String(match.existingP2Goals)
+    : match.score?.p2Goals != null ? String(match.score.p2Goals) : "";
+  const [p1Score, setP1Score] = useState(initP1);
+  const [p2Score, setP2Score] = useState(initP2);
   const [tieWinner, setTieWinner] = useState(null); // "p1"|"p2" — only for tied bracket matches
   const [saved, setSaved] = useState(false);
 
@@ -3054,10 +3162,10 @@ function GroupTable({ group, groupMatches, feed, allGroupMatches, onMatchTap, is
         {groupMatches.map(fixture => {
           const result = feed.find(m => m.id === fixture.id);
           const isPending = !result;
-          const canLog    = isAdmin && isPending;
+          const canLog    = isAdmin;
           return (
             <div key={fixture.id}
-              onClick={() => canLog && onMatchTap?.(fixture)}
+              onClick={() => canLog && onMatchTap?.({ ...fixture, existingP1Goals: result?.p1Goals, existingP2Goals: result?.p2Goals })}
               style={{
                 borderRadius: 12, padding: "9px 12px", display: "flex", alignItems: "center", gap: 10,
                 background: result ? `${gc}05` : "rgba(255,255,255,.025)",
@@ -3085,7 +3193,7 @@ function GroupTable({ group, groupMatches, feed, allGroupMatches, onMatchTap, is
                   {fixture.p2.name}
                 </span>
               </div>
-              {canLog && (
+              {isPending && canLog && (
                 <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
                   <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 8, fontWeight: 800, letterSpacing: "0.5px",
                     color: gc, opacity: 0.8 }}>LOG</span>
@@ -3096,9 +3204,11 @@ function GroupTable({ group, groupMatches, feed, allGroupMatches, onMatchTap, is
                 </div>
               )}
               {result && (
-                <div style={{ width: 18, height: 18, borderRadius: "50%", background: "rgba(170,255,0,.12)", border: "1px solid rgba(170,255,0,.3)",
-                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <Check size={9} style={{ color: N }}/>
+                <div style={{ width: 18, height: 18, borderRadius: "50%", background: isAdmin ? "rgba(170,255,0,.08)" : "rgba(170,255,0,.12)",
+                  border: `1px solid ${isAdmin ? "rgba(170,255,0,.4)" : "rgba(170,255,0,.3)"}`,
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                  cursor: isAdmin ? "pointer" : "default" }}>
+                  {isAdmin ? <Edit2 size={9} style={{ color: N }}/> : <Check size={9} style={{ color: N }}/>}
                 </div>
               )}
             </div>
@@ -3492,6 +3602,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     };
     setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
     const { error: matchSaveErr } = await supabase.from("matches").upsert({
+      id:        match.id,
       league_id: leagueId,
       winner_id: winnerId ?? null,
       loser_id:  loserId  ?? null,
@@ -3595,12 +3706,13 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
     const { id: _bid, ...scoreData3 } = entry;
     try {
-      await supabase.from("matches").insert({
+      await supabase.from("matches").upsert({
+        id:        match.id,
         league_id: leagueId,
         winner_id: winnerId,
-        loser_id: loserId,
-        score: scoreData3,
-        date: new Date().toISOString(),
+        loser_id:  loserId ?? null,
+        score:     entry,
+        date:      new Date().toISOString(),
       });
     } catch (e) { console.error("[tournament] bracket match save failed:", e); }
     const updated = applyBracketResult(bracket, match.id, winner, { p1Goals: Number(p1Goals)||0, p2Goals: Number(p2Goals)||0 });
@@ -3763,7 +3875,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                onGroupMatchTap={m => setTournamentModal({ match: m, type: "group", contextLabel: `Group ${m.groupName}` })}
                advancingPerGroup={rules?.groupSettings?.advancingPerGroup || 2}
              />,
-    stats:   <StatsTab   players={enrichedPlayers} feed={feed}/>,
+    stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw}/>,
     profile: isAdmin && !myPlayer
       ? <AdminDashboard players={enrichedPlayers} feed={feed} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches}/>
