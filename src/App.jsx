@@ -937,6 +937,29 @@ function StatsTab({players, feed, isTournament = false}) {
       const meStats = me ? pStats[me.name] : null;
       return (
         <div>
+          {meStats && (
+            <>
+              <ST>📊 Personal Score Ratio</ST>
+              <div className="rounded-[20px] p-4 mb-5" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  {[{v:meStats.gf,l:"GOALS SCORED",c:N},{v:meStats.ga,l:"GOALS CONCEDED",c:"#FF3355"}].map(({v,l,c})=>(
+                    <div key={l} className="text-center">
+                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:38,letterSpacing:"2px",lineHeight:1,color:c,marginBottom:4}}>{v}</div>
+                      <div style={{fontSize:9,fontWeight:700,letterSpacing:"1.5px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex rounded-[4px] overflow-hidden" style={{height:8}}>
+                  {(() => { const tot=(meStats.gf+meStats.ga)||1; const pct=Math.round(meStats.gf/tot*100); return (<><div style={{width:`${pct}%`,background:`linear-gradient(90deg,${N},#7DC900)`,transition:"width .4s ease"}}/><div style={{flex:1,background:"linear-gradient(90deg,#FF3355,#C0143C)"}}/></>); })()}
+                </div>
+                <div className="flex justify-between mt-2">
+                  <span style={{fontSize:10,fontWeight:700,color:N,fontFamily:"'DM Sans',sans-serif"}}>{meStats.gf} scored</span>
+                  <span style={{fontSize:10,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{meStats.played} matches</span>
+                  <span style={{fontSize:10,fontWeight:700,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>{meStats.ga} conceded</span>
+                </div>
+              </div>
+            </>
+          )}
           <ST>🏅 Tournament Awards</ST>
           <div className="flex flex-col gap-3 mb-5">
             {T_AWARDS.map(c => (
@@ -959,29 +982,6 @@ function StatsTab({players, feed, isTournament = false}) {
               </div>
             ))}
           </div>
-          {meStats && (
-            <>
-              <ST>⚽ יחס סקור אישי</ST>
-              <div className="rounded-[20px] p-4 mb-5" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  {[{v:meStats.gf,l:"GOALS SCORED",c:N},{v:meStats.ga,l:"GOALS CONCEDED",c:"#FF3355"}].map(({v,l,c})=>(
-                    <div key={l} className="text-center">
-                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:38,letterSpacing:"2px",lineHeight:1,color:c,marginBottom:4}}>{v}</div>
-                      <div style={{fontSize:9,fontWeight:700,letterSpacing:"1.5px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{l}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex rounded-[4px] overflow-hidden" style={{height:6}}>
-                  {(() => { const tot=(meStats.gf+meStats.ga)||1; return (<><div style={{width:`${Math.round(meStats.gf/tot*100)}%`,background:`linear-gradient(90deg,${N},#7DC900)`}}/><div style={{flex:1,background:"linear-gradient(90deg,#FF3355,#C0143C)"}}/></>); })()}
-                </div>
-                <div className="flex justify-between mt-2">
-                  <span style={{fontSize:10,fontWeight:700,color:N,fontFamily:"'DM Sans',sans-serif"}}>{meStats.gf} scored</span>
-                  <span style={{fontSize:10,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{meStats.played} matches</span>
-                  <span style={{fontSize:10,fontWeight:700,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>{meStats.ga} conceded</span>
-                </div>
-              </div>
-            </>
-          )}
         </div>
       );
     }
@@ -1039,7 +1039,7 @@ function StatsTab({players, feed, isTournament = false}) {
           </div>
         )}
 
-        <ST>⚽ יחס סקור אישי</ST>
+        <ST>⚽ Personal Score Ratio</ST>
         <div className="rounded-[20px] p-4 mb-2" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
           <div className="grid grid-cols-2 gap-4 mb-4">
             {[{v:me.gamesWon,l:"MINI-GAMES WON",c:N},{v:me.gamesLost,l:"MINI-GAMES LOST",c:"#FF3355"}].map(({v,l,c})=>(
@@ -2018,9 +2018,9 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, matchL
 
   const roundLabel = (ri) => {
     const n = rounds.length;
-    const fromEnd = n - 1 - ri; // 0 = final, 1 = semis, 2 = quarters, 3 = R16...
+    const fromEnd = n - 1 - ri; // 0 = final, 1 = semis, 2 = quarters
     if (fromEnd === 0) return "Final";
-    if (fromEnd === 1) return n <= 2 ? "Final" : "Semi-Finals";
+    if (fromEnd === 1) return "Semi-Finals";
     if (fromEnd === 2) return "Quarter-Finals";
     const playersAtRound = rounds[ri].length * 2;
     return `Round of ${playersAtRound}`;
