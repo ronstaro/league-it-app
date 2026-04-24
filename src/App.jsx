@@ -1017,8 +1017,9 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
       const selectedDbPlayer = players.find(p => p.name === activeName) || enriched.find(p => p.name === activeName);
       const meStats = activeName ? (lookup(selectedDbPlayer?.id, activeName) || null) : null;
 
+      const byMostW = pArr.length ? [...pArr].sort((a,b)=>b.wins-a.wins)[0]           : FALLBACK_P;
       const T_AWARDS = [
-        {icon:"🏆",lbl:"THE WINNER",         lc:"rgba(255,215,0,.8)",  sc:"#FFD700", bdr:"rgba(255,215,0,.25)",  name:champName||"TBD",  bigNum:champName?"🥇":"—",       unit:"CHAMPION",   stat:"Tournament Champion"},
+        {icon:"🏆",lbl:"MOST WINS",           lc:"rgba(255,215,0,.8)",  sc:"#FFD700", bdr:"rgba(255,215,0,.25)",  name:byMostW.name,      bigNum:byMostW.wins,              unit:"WINS",       stat:"Most wins in tournament"},
         {icon:"🔥",lbl:"SUPER STREAK",        lc:"rgba(170,255,0,.7)",  sc:N,         bdr:"rgba(170,255,0,.2)",   name:byStr.name,        bigNum:byStr.bestStreak,          unit:"WIN STREAK", stat:"Longest consecutive wins"},
         {icon:"⚙️",lbl:"THE GRINDER",         lc:"rgba(255,184,48,.7)", sc:"#FFB830", bdr:"rgba(255,184,48,.2)",  name:byPlay.name,       bigNum:byPlay.played,             unit:"MATCHES",    stat:"Most matches played"},
         {icon:"💀",lbl:"PROFESSIONAL LOSER",  lc:"rgba(255,51,85,.7)",  sc:"#FF3355", bdr:"rgba(255,51,85,.2)",   name:byLoss.name,       bigNum:byLoss.losses,             unit:"LOSSES",     stat:"Most losses in tournament"},
@@ -2391,13 +2392,13 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, matchL
                       </div>
                     )}
 
-                    {/* "Tap to log" hint for pending admin matches */}
+                    {/* Log indicator — icon only, no text */}
                     {canLog && !showLegs && (
-                      <div style={{
-                        position: "absolute", bottom: 2, right: 8,
-                        fontFamily: "'DM Sans',sans-serif", fontSize: 8, fontWeight: 700,
-                        letterSpacing: "0.8px", color: `${N}55`,
-                      }}>TAP TO LOG</div>
+                      <div style={{ position: "absolute", bottom: 4, right: 8,
+                        width: 16, height: 16, borderRadius: "50%", background: `${N}20`, border: `1px solid ${N}50`,
+                        display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Plus size={8} style={{ color: N }}/>
+                      </div>
                     )}
                   </div>
                 );
@@ -2494,13 +2495,9 @@ function KnockoutFixtures({ bracket, onMatchTap, isAdmin, matchLegs, feed }) {
                     </span>
                   </div>
                   {tappable && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-                      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 8, fontWeight: 800,
-                        letterSpacing: "0.5px", color: N, opacity: 0.8 }}>LOG</span>
-                      <div style={{ width: 18, height: 18, borderRadius: "50%", background: `${N}20`,
-                        border: `1px solid ${N}50`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <Plus size={9} style={{ color: N }}/>
-                      </div>
+                    <div style={{ width: 18, height: 18, borderRadius: "50%", background: `${N}20`,
+                      border: `1px solid ${N}50`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Plus size={9} style={{ color: N }}/>
                     </div>
                   )}
                   {isDone && !tappable && (
@@ -3421,13 +3418,9 @@ function GroupTable({ group, groupMatches, feed, allGroupMatches, onMatchTap, is
                 </span>
               </div>
               {isPending && canLog && (
-                <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 8, fontWeight: 800, letterSpacing: "0.5px",
-                    color: gc, opacity: 0.8 }}>LOG</span>
-                  <div style={{ width: 18, height: 18, borderRadius: "50%", background: `${gc}20`, border: `1px solid ${gc}50`,
-                    display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <Plus size={9} style={{ color: gc }}/>
-                  </div>
+                <div style={{ width: 18, height: 18, borderRadius: "50%", background: `${gc}20`, border: `1px solid ${gc}50`,
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Plus size={9} style={{ color: gc }}/>
                 </div>
               )}
               {result && (
