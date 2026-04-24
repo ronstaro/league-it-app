@@ -3450,8 +3450,22 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
         groupMatches: patch.groupMatches ?? (dbSettings.groupMatches?.length ? dbSettings.groupMatches : (localRules?.groupMatches || [])),
         ...(patch.bracket !== undefined ? { bracket: patch.bracket } : {}),
       };
-      await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
-    } catch (e) { console.error("[tournament] _saveGroupsState failed:", e); }
+      console.log("[saveGroupsState] writing settings — league_id:", leagueId, "keys:", Object.keys(newSettings));
+      const { error: updateErr } = await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
+      if (updateErr) {
+        console.error("[saveGroupsState] UPDATE FAILED", {
+          message: updateErr.message,
+          details: updateErr.details,
+          hint:    updateErr.hint,
+          code:    updateErr.code,
+          full:    updateErr,
+        });
+        window.alert(`Settings save failed:\n${updateErr.message}\n${updateErr.hint || ""}`);
+      }
+    } catch (e) {
+      console.error("[saveGroupsState] unexpected error:", e);
+      window.alert(`Settings save error:\n${e?.message || e}`);
+    }
   }, [leagueId]);
 
   const handleGroupResult = useCallback(async ({ match, p1Goals, p2Goals }) => {
@@ -3481,15 +3495,24 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     };
     setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
     const { id: _gid, ...scoreData } = entry;
-    try {
-      await supabase.from("matches").insert({
-        league_id: leagueId,
-        winner_id: winnerId,
-        loser_id: loserId,
-        score: scoreData,
-        date: new Date().toISOString(),
+    console.log("[groupResult] saving match — league_id:", leagueId, "winner_id:", winnerId, "loser_id:", loserId);
+    const { error: matchSaveErr } = await supabase.from("matches").upsert({
+      league_id: leagueId,
+      winner_id: winnerId,
+      loser_id: loserId,
+      score: scoreData,
+      date: new Date().toISOString(),
+    });
+    if (matchSaveErr) {
+      console.error("[groupResult] SAVE FAILED", {
+        message: matchSaveErr.message,
+        details: matchSaveErr.details,
+        hint:    matchSaveErr.hint,
+        code:    matchSaveErr.code,
+        full:    matchSaveErr,
       });
-    } catch (e) { console.error("[tournament] group match save failed:", e); }
+      window.alert(`Tournament save failed:\n${matchSaveErr.message}\n${matchSaveErr.hint || ""}`);
+    }
 
     // Check if all group stage matches are now complete — if so, auto-generate knockout bracket
     const updatedFeed = [entry, ...feed.filter(m => m.id !== match.id)];
