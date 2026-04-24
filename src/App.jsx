@@ -1193,177 +1193,237 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
   }
 
   function H2HView() {
-    const [rivalId, setRivalId] = useState(null);
-    const me     = players.find(p => p.isMe);
-    const rivals = players.filter(p => !p.isMe);
-    const rival  = rivalId ? players.find(p => p.id === rivalId) : null;
+    // All selectable names: DB players + tournament-only participants (from fixtures/bracket)
+    const allNames = useMemo(() => {
+      const seen = new Set();
+      const list = [];
+      const add = (name) => { if (name && !seen.has(name)) { seen.add(name); list.push(name); } };
+      players.forEach(p => add(p?.name));
+      allParticipants.forEach(p => add(p?.name));
+      return list;
+    }, [players, allParticipants]);
 
-    // ── Dynamic H2H from feed (uses tournamentFeed in tournament mode) ───────────────────────────────
-    const h2h = useMemo(() => {
-      if (!rival || !me) return null;
-      let w = 0, l = 0;
-      (tournamentFeed || []).forEach(m => {
-        const wIds = m.winnerIds || [];
-        const lIds = m.loserIds  || [];
-        const meId = String(me.id), rivId = String(rival.id);
-        const meW  = wIds.map(String).includes(meId),   meL  = lIds.map(String).includes(meId);
-        const rivW = wIds.map(String).includes(rivId), rivL = lIds.map(String).includes(rivId);
-        if ((meW || meL) && (rivW || rivL)) {
-          if (meW && rivL) w++;
-          else if (meL && rivW) l++;
+    const mePlayer = players.find(p => p?.isMe);
+    const defaultP1 = mePlayer?.name || allNames[0] || "";
+    const defaultP2 = allNames.find(n => n !== defaultP1) || "";
+    const [p1Name, setP1Name] = useState(defaultP1);
+    const [p2Name, setP2Name] = useState(defaultP2);
+
+    // Unified match data from all sources, deduped by ID
+    const allMatchData = useMemo(() => {
+      const result = [];
+      const seenIds = new Set();
+      for (const m of (feed || [])) {
+        if (!m?.id || seenIds.has(String(m.id))) continue;
+        seenIds.add(String(m.id));
+        result.push({ source: "feed", raw: m });
+      }
+      for (const fx of (groupMatches || [])) {
+        if (!fx?.id || seenIds.has(String(fx.id))) continue;
+        if (fx.p1Goals == null && fx.winner == null && fx.isDraw !== true) continue;
+        seenIds.add(String(fx.id));
+        result.push({ source: "group", raw: fx });
+      }
+      for (const round of (bracket?.rounds || [])) {
+        for (const bm of (round || [])) {
+          if (!bm?.id || bm?.isBye || !bm?.winner || seenIds.has(String(bm.id))) continue;
+          seenIds.add(String(bm.id));
+          result.push({ source: "bracket", raw: bm });
         }
-      });
-      return { w, l };
-    }, [rival, me, tournamentFeed]);
+      }
+      return result;
+    }, [feed, groupMatches, bracket]);
 
-    // ── Mini-Games Balance (total games won/lost in H2H matches) ──
-    const mgBalance = useMemo(() => {
-      if (!rival || !me) return { my: 0, their: 0 };
-      let my = 0, their = 0;
-      (tournamentFeed || []).forEach(m => {
-        const wIds = m.winnerIds || [];
-        const lIds = m.loserIds  || [];
-        const meId = String(me.id), rivId = String(rival.id);
-        const meW  = wIds.map(String).includes(meId),   meL  = lIds.map(String).includes(meId);
-        const rivW = wIds.map(String).includes(rivId), rivL = lIds.map(String).includes(rivId);
-        if ((meW || meL) && (rivW || rivL)) {
-          if (meW) { my += countGames(m.sets,"w"); their += countGames(m.sets,"l"); }
-          else     { my += countGames(m.sets,"l"); their += countGames(m.sets,"w"); }
-        }
-      });
-      return { my, their };
-    }, [rival, me, tournamentFeed]);
+    // Compute H2H stats between p1Name and p2Name
+    const stats = useMemo(() => {
+      if (!p1Name || !p2Name || p1Name === p2Name) return null;
+      let p1w = 0, p2w = 0, draws = 0, p1gf = 0, p2gf = 0;
+      const p1Obj = players.find(p => p?.name === p1Name);
+      const p2Obj = players.find(p => p?.name === p2Name);
 
-    const total = h2h ? h2h.w + h2h.l : 0;
-    const yp    = total ? Math.round(h2h.w / total * 100) : 50;
-    const tp    = 100 - yp;
+      for (const { source, raw } of allMatchData) {
+        try {
+          if (source === "feed") {
+            const m = raw;
+            const nameIn = (n) => m?.p1Name === n || m?.p2Name === n || m?.winner === n || m?.loser === n;
+            const idIn   = (o) => o?.id && [...(m?.winnerIds||[]),...(m?.loserIds||[])].map(String).includes(String(o.id));
+            if ((!nameIn(p1Name) && !idIn(p1Obj)) || (!nameIn(p2Name) && !idIn(p2Obj))) continue;
+
+            if (m?.isDraw) {
+              draws++;
+            } else {
+              const p1wins =
+                m?.winner === p1Name ||
+                (m?.p1Name === p1Name && Number(m?.p1Goals||0) > Number(m?.p2Goals||0)) ||
+                (p1Obj?.id && (m?.winnerIds||[]).map(String).includes(String(p1Obj.id)));
+              const p2wins =
+                m?.winner === p2Name ||
+                (m?.p2Name === p2Name && Number(m?.p2Goals||0) > Number(m?.p1Goals||0)) ||
+                (p2Obj?.id && (m?.winnerIds||[]).map(String).includes(String(p2Obj.id)));
+              if (p1wins) p1w++;
+              else if (p2wins) p2w++;
+              else continue;
+            }
+            if (m?.p1Name === p1Name)      { p1gf += Number(m?.p1Goals)||0; p2gf += Number(m?.p2Goals)||0; }
+            else if (m?.p2Name === p1Name) { p1gf += Number(m?.p2Goals)||0; p2gf += Number(m?.p1Goals)||0; }
+
+          } else if (source === "group") {
+            const fx = raw;
+            const fp1 = fx?.p1?.name, fp2 = fx?.p2?.name;
+            const normal = fp1 === p1Name && fp2 === p2Name;
+            const flipped = fp1 === p2Name && fp2 === p1Name;
+            if (!normal && !flipped) continue;
+            const rawG1 = Number(fx?.p1Goals)||0, rawG2 = Number(fx?.p2Goals)||0;
+            const [g1, g2] = normal ? [rawG1, rawG2] : [rawG2, rawG1];
+            const isDraw = fx?.isDraw === true || (rawG1 === rawG2 && (rawG1 > 0 || fx?.winner != null));
+            if (isDraw) draws++;
+            else if (g1 > g2) p1w++;
+            else p2w++;
+            p1gf += g1; p2gf += g2;
+
+          } else if (source === "bracket") {
+            const bm = raw;
+            const bp1 = bm?.p1?.name, bp2 = bm?.p2?.name;
+            const normal = bp1 === p1Name && bp2 === p2Name;
+            const flipped = bp1 === p2Name && bp2 === p1Name;
+            if (!normal && !flipped) continue;
+            const wn = bm?.winner?.name;
+            if (wn === p1Name) p1w++;
+            else if (wn === p2Name) p2w++;
+            else continue;
+            const sc = bm?.score || {};
+            const rawG1 = Number(sc?.p1Goals)||0, rawG2 = Number(sc?.p2Goals)||0;
+            const [g1, g2] = normal ? [rawG1, rawG2] : [rawG2, rawG1];
+            p1gf += g1; p2gf += g2;
+          }
+        } catch { /* skip malformed entries */ }
+      }
+      return { p1w, p2w, draws, p1gf, p2gf, total: p1w + p2w + draws };
+    }, [p1Name, p2Name, allMatchData, players]);
 
     const vrd = useMemo(() => {
-      if (!rival || !h2h) return null;
-      const t = h2h.w + h2h.l;
-      if (!t)      return { icon:"❓", title:"NO DATA YET",          text:"Haven't played yet.",                          bg:"rgba(255,255,255,.04)", bdr:"rgba(255,255,255,.12)", color:"rgba(255,255,255,.5)", badge:null          };
-      const r = h2h.w / t;
-      if (!h2h.l)  return { icon:"👑", title:"UNTOUCHABLE",          text:`${rival.name} has NEVER beaten you.`,          bg:"rgba(170,255,0,.07)",   bdr:"rgba(170,255,0,.25)",  color:N,           badge:"PERFECT RECORD" };
-      if (!h2h.w)  return { icon:"😰", title:"YOUR NIGHTMARE",       text:`Zero wins vs ${rival.name}. Trauma.`,          bg:"rgba(255,51,85,.07)",   bdr:"rgba(255,51,85,.25)",  color:"#FF3355",   badge:"0 WINS"         };
-      if (r >= .8) return { icon:"💪", title:"DELIVERY BOY",         text:`${Math.round(r*100)}% win rate vs them.`,      bg:"rgba(170,255,0,.07)",   bdr:"rgba(170,255,0,.22)",  color:N,           badge:"DOMINANT"       };
-      if (r >= .6) return { icon:"📈", title:"SLIGHT EDGE",          text:`You lead ${h2h.w}–${h2h.l}.`,                  bg:"rgba(170,255,0,.05)",   bdr:"rgba(170,255,0,.15)",  color:N,           badge:"AHEAD"          };
-      if (r >= .45)return { icon:"⚔️", title:"DEAD HEAT",            text:`${h2h.w}–${h2h.l}. Every match counts.`,      bg:"rgba(255,184,48,.06)",  bdr:"rgba(255,184,48,.22)", color:"#FFB830",   badge:"EVEN"           };
-      if (r >= .3) return { icon:"📉", title:"LOSING GROUND",        text:`${rival.name} leads ${h2h.l}–${h2h.w}.`,      bg:"rgba(255,107,53,.06)",  bdr:"rgba(255,107,53,.22)", color:"#FF6B35",   badge:"BEHIND"         };
-      return         { icon:"🚨", title:"NIGHTMARE MATCHUP",         text:`${rival.name} dominates ${h2h.l}–${h2h.w}.`,  bg:"rgba(255,51,85,.07)",   bdr:"rgba(255,51,85,.25)",  color:"#FF3355",   badge:"LOSING BADLY"   };
-    }, [rival, h2h]);
+      if (!stats || !p1Name || !p2Name) return null;
+      const { p1w, p2w, draws, total } = stats;
+      if (!total) return { icon:"❓", title:"NO DATA YET",       text:"These two haven't faced each other yet.",         bg:"rgba(255,255,255,.04)", bdr:"rgba(255,255,255,.12)", color:"rgba(255,255,255,.5)", badge:null           };
+      const r = p1w / total;
+      if (!p2w&&!draws) return { icon:"👑", title:"UNTOUCHABLE",   text:`${p1Name} has NEVER lost to ${p2Name}.`,        bg:"rgba(170,255,0,.07)",   bdr:"rgba(170,255,0,.25)",  color:N,           badge:"PERFECT RECORD"  };
+      if (!p1w&&!draws) return { icon:"😰", title:"NIGHTMARE",     text:`${p1Name} has ZERO wins vs ${p2Name}.`,         bg:"rgba(255,51,85,.07)",   bdr:"rgba(255,51,85,.25)",  color:"#FF3355",   badge:"0 WINS"          };
+      if (r >= .8)      return { icon:"💪", title:"DOMINANT",      text:`${p1Name} wins ${Math.round(r*100)}% of H2Hs.`, bg:"rgba(170,255,0,.07)",   bdr:"rgba(170,255,0,.22)",  color:N,           badge:"DOMINANT"        };
+      if (r >= .6)      return { icon:"📈", title:"SLIGHT EDGE",   text:`${p1Name} leads ${p1w}–${p2w}.`,               bg:"rgba(170,255,0,.05)",   bdr:"rgba(170,255,0,.15)",  color:N,           badge:"AHEAD"           };
+      if (r >= .4)      return { icon:"⚔️", title:"DEAD HEAT",    text:`${p1w}–${draws}–${p2w}. Every match counts.`,  bg:"rgba(255,184,48,.06)",  bdr:"rgba(255,184,48,.22)", color:"#FFB830",   badge:"EVEN"            };
+      if (r >= .25)     return { icon:"📉", title:"LOSING GROUND", text:`${p2Name} leads ${p2w}–${p1w}.`,               bg:"rgba(255,107,53,.06)",  bdr:"rgba(255,107,53,.22)", color:"#FF6B35",   badge:"BEHIND"          };
+      return              { icon:"🚨", title:"NIGHTMARE",          text:`${p2Name} dominates ${p2w}–${p1w}.`,           bg:"rgba(255,51,85,.07)",   bdr:"rgba(255,51,85,.25)",  color:"#FF3355",   badge:"LOSING BADLY"    };
+    }, [stats, p1Name, p2Name]);
+
+    const p1Obj = players.find(p => p?.name === p1Name);
+    const p2Obj = players.find(p => p?.name === p2Name);
+    const C1 = "#AAFF00", C2 = "#FF3355";
+    const total = stats?.total || 0;
+    const yp = total ? Math.round((stats.p1w / total) * 100) : 50;
+    const tp = 100 - yp;
+    const canCompare = p1Name && p2Name && p1Name !== p2Name;
+
+    const Selector = ({ label, value, onChange, exclude }) => (
+      <div className="flex-1">
+        <div style={{fontSize:9,fontWeight:800,letterSpacing:"1.5px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",marginBottom:6}}>{label}</div>
+        <div className="relative">
+          <select value={value} onChange={e => onChange(e.target.value)}
+            className="w-full rounded-[14px] py-3 px-3 text-[12px] font-bold appearance-none"
+            style={{background:"rgba(255,255,255,.06)",border:`1px solid ${label==="PLAYER 1"?C1+"50":C2+"50"}`,color:"#fff",
+              fontFamily:"'DM Sans',sans-serif",outline:"none",cursor:"pointer",WebkitAppearance:"none",paddingRight:28}}>
+            {allNames.filter(n => n !== exclude).map(n => (
+              <option key={n} value={n} style={{background:"#111",color:"#fff"}}>{n}{n===mePlayer?.name?" (me)":""}</option>
+            ))}
+          </select>
+          <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2"
+            style={{color:label==="PLAYER 1"?C1:C2,fontSize:12}}>▾</div>
+        </div>
+      </div>
+    );
 
     return (
       <div>
-        {/* ── Rival selector ── */}
-        <p style={{fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",marginBottom:10}}>SELECT YOUR RIVAL</p>
-        <div className="grid grid-cols-2 gap-2 mb-5">
-          {rivals.map(p => (
-            <motion.button key={p.id} whileTap={{scale:.96}}
-              onClick={() => setRivalId(prev => prev === p.id ? null : p.id)}
-              className="flex items-center gap-2 rounded-[14px] px-3 py-3 text-left"
-              style={{
-                background: rivalId === p.id ? "rgba(170,255,0,.07)" : "rgba(255,255,255,.03)",
-                border:     rivalId === p.id ? `1.5px solid ${N}` : "1.5px solid rgba(255,255,255,.07)",
-                minWidth: 0,
-              }}>
-              <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-black text-[11px]"
-                style={{background:pg(p),color:"#000",fontFamily:"'Bebas Neue',sans-serif"}}>
-                {p.initials}
-              </div>
-              <div style={{minWidth:0, flex:1}}>
-                <div style={{
-                  fontSize:12, fontWeight:700,
-                  color: rivalId === p.id ? "#fff" : "rgba(255,255,255,.65)",
-                  fontFamily:"'DM Sans',sans-serif",
-                  overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
-                }}>{p.name}</div>
-              </div>
-            </motion.button>
-          ))}
+        {/* Dual player selectors */}
+        <div className="flex gap-3 mb-5">
+          <Selector label="PLAYER 1" value={p1Name} onChange={setP1Name} exclude={p2Name}/>
+          <Selector label="PLAYER 2" value={p2Name} onChange={setP2Name} exclude={p1Name}/>
         </div>
 
         <AnimatePresence mode="wait">
-          {rival ? (
-            <motion.div key={rival.id} initial={{opacity:0,y:16}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-12}} transition={{duration:.25}}>
+          {canCompare ? (
+            <motion.div key={`${p1Name}||${p2Name}`} initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}} transition={{duration:.22}}>
 
-              {/* ── VS Header — 3-column grid ── */}
+              {/* VS Header */}
               <div className="rounded-t-[22px] px-5 py-5"
                 style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.09)",borderBottom:"none"}}>
                 <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",alignItems:"center",gap:0}}>
-                  {/* Me */}
                   <div className="flex flex-col items-center gap-2">
                     <div className="flex items-center justify-center rounded-full font-black"
-                      style={{width:52,height:52,background:pg(me),color:"#000",fontFamily:"'Bebas Neue',sans-serif",fontSize:18,letterSpacing:"1px",flexShrink:0}}>
-                      {me.initials}
+                      style={{width:52,height:52,background:p1Obj?pg(p1Obj):"linear-gradient(135deg,#AAFF00,#7DC900)",color:"#000",fontFamily:"'Bebas Neue',sans-serif",fontSize:16,flexShrink:0}}>
+                      {p1Obj?.initials || (p1Name?.slice(0,2).toUpperCase())}
                     </div>
-                    <div style={{fontSize:13,fontWeight:700,color:"#fff",fontFamily:"'DM Sans',sans-serif",textAlign:"center",wordBreak:"break-word",maxWidth:90}}>
-                      {me.name}
-                    </div>
-                    <div style={{fontSize:8,fontWeight:800,letterSpacing:"1.5px",color:N,fontFamily:"'DM Sans',sans-serif"}}>YOU</div>
+                    <div style={{fontSize:13,fontWeight:700,color:"#fff",fontFamily:"'DM Sans',sans-serif",textAlign:"center",wordBreak:"break-word",maxWidth:90}}>{p1Name}</div>
+                    <div style={{fontSize:8,fontWeight:800,letterSpacing:"1.5px",color:C1,fontFamily:"'DM Sans',sans-serif"}}>P1</div>
                   </div>
-                  {/* VS */}
                   <div className="flex items-center justify-center" style={{padding:"0 12px"}}>
                     <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"2px",color:"rgba(255,255,255,.2)",lineHeight:1}}>VS</div>
                   </div>
-                  {/* Rival */}
                   <div className="flex flex-col items-center gap-2">
                     <div className="flex items-center justify-center rounded-full font-black"
-                      style={{width:52,height:52,background:pg(rival),color:"#000",fontFamily:"'Bebas Neue',sans-serif",fontSize:18,letterSpacing:"1px",flexShrink:0}}>
-                      {rival.initials}
+                      style={{width:52,height:52,background:p2Obj?pg(p2Obj):"linear-gradient(135deg,#FF3355,#C0143C)",color:p2Obj?"#000":"#fff",fontFamily:"'Bebas Neue',sans-serif",fontSize:16,flexShrink:0}}>
+                      {p2Obj?.initials || (p2Name?.slice(0,2).toUpperCase())}
                     </div>
-                    <div style={{fontSize:13,fontWeight:700,color:"#fff",fontFamily:"'DM Sans',sans-serif",textAlign:"center",wordBreak:"break-word",maxWidth:90}}>
-                      {rival.name}
-                    </div>
-                    <div style={{fontSize:8,fontWeight:800,letterSpacing:"1.5px",color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif"}}>RIVAL</div>
+                    <div style={{fontSize:13,fontWeight:700,color:"#fff",fontFamily:"'DM Sans',sans-serif",textAlign:"center",wordBreak:"break-word",maxWidth:90}}>{p2Name}</div>
+                    <div style={{fontSize:8,fontWeight:800,letterSpacing:"1.5px",color:C2,fontFamily:"'DM Sans',sans-serif"}}>P2</div>
                   </div>
                 </div>
               </div>
 
-              {/* ── Score + progress bar ── */}
+              {/* Score + bar */}
               <div className="rounded-b-[22px] px-5 py-4 mb-4"
                 style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",borderTop:"1px solid rgba(255,255,255,.07)"}}>
                 <div className="flex items-center justify-center gap-4 mb-4">
                   <div className="text-center">
-                    <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:52,letterSpacing:"2px",lineHeight:1,color:N}}>{h2h.w}</div>
-                    <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.35)",marginTop:4,fontFamily:"'DM Sans',sans-serif"}}>YOUR WINS</div>
+                    <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:52,letterSpacing:"2px",lineHeight:1,color:C1}}>{stats?.p1w ?? 0}</div>
+                    <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.35)",marginTop:4,fontFamily:"'DM Sans',sans-serif"}}>P1 WINS</div>
                   </div>
-                  <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:30,color:"rgba(255,255,255,.18)",lineHeight:1}}>–</div>
+                  <div className="flex flex-col items-center gap-1">
+                    <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,color:"rgba(255,255,255,.3)",lineHeight:1}}>{stats?.draws ?? 0}</div>
+                    <div style={{fontSize:8,fontWeight:700,color:"rgba(255,255,255,.25)",fontFamily:"'DM Sans',sans-serif"}}>DRAWS</div>
+                  </div>
                   <div className="text-center">
-                    <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:52,letterSpacing:"2px",lineHeight:1,color:"#FF3355"}}>{h2h.l}</div>
-                    <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.35)",marginTop:4,fontFamily:"'DM Sans',sans-serif"}}>THEIR WINS</div>
+                    <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:52,letterSpacing:"2px",lineHeight:1,color:C2}}>{stats?.p2w ?? 0}</div>
+                    <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.35)",marginTop:4,fontFamily:"'DM Sans',sans-serif"}}>P2 WINS</div>
                   </div>
                 </div>
-                {/* Progress bar */}
-                <div className="flex rounded-[6px] overflow-hidden" style={{height:8,background:"rgba(255,255,255,.08)"}}>
-                  <motion.div style={{background:`linear-gradient(90deg,${N},#7DC900)`,borderRadius:total===0?"6px":"6px 0 0 6px"}}
+                <div className="flex rounded-[8px] overflow-hidden" style={{height:14,background:"rgba(255,255,255,.08)"}}>
+                  <motion.div style={{background:"linear-gradient(90deg,#AAFF00,#7DC900)"}}
                     initial={{width:"0%"}} animate={{width:`${yp}%`}} transition={{duration:.7}}/>
-                  <motion.div style={{background:"linear-gradient(90deg,#FF3355,#C0143C)",borderRadius:"0 6px 6px 0"}}
+                  <motion.div style={{background:"linear-gradient(90deg,#FF3355,#C0143C)"}}
                     initial={{width:"0%"}} animate={{width:`${tp}%`}} transition={{duration:.7,delay:.05}}/>
                 </div>
                 <div className="flex justify-between mt-2">
-                  <span style={{fontSize:10,fontWeight:700,color:N,fontFamily:"'DM Sans',sans-serif"}}>{total ? `${yp}%` : "—"}</span>
-                  <span style={{fontSize:10,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif"}}>{total} match{total !== 1 ? "es" : ""}</span>
-                  <span style={{fontSize:10,fontWeight:700,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>{total ? `${tp}%` : "—"}</span>
+                  <span style={{fontSize:10,fontWeight:700,color:C1,fontFamily:"'DM Sans',sans-serif"}}>{total ? `${yp}%` : "—"}</span>
+                  <span style={{fontSize:10,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif"}}>{total} match{total!==1?"es":""}</span>
+                  <span style={{fontSize:10,fontWeight:700,color:C2,fontFamily:"'DM Sans',sans-serif"}}>{total ? `${tp}%` : "—"}</span>
                 </div>
-
-                {/* Mini-Games Balance */}
-                {(mgBalance.my + mgBalance.their) > 0 && (
+                {((stats?.p1gf??0)+(stats?.p2gf??0)) > 0 && (
                   <div className="flex items-center justify-between mt-4 rounded-[12px] px-4 py-3"
                     style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.07)"}}>
                     <div className="text-center">
-                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"1px",lineHeight:1,color:N}}>{mgBalance.my}</div>
-                      <div style={{fontSize:8,fontWeight:700,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>YOUR GAMES</div>
+                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"1px",lineHeight:1,color:C1}}>{stats?.p1gf??0}</div>
+                      <div style={{fontSize:8,fontWeight:700,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>P1 GOALS</div>
                     </div>
-                    <div style={{fontSize:9,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.2)",fontFamily:"'DM Sans',sans-serif"}}>MINI-GAMES</div>
+                    <div style={{fontSize:9,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.2)",fontFamily:"'DM Sans',sans-serif"}}>GOALS</div>
                     <div className="text-center">
-                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"1px",lineHeight:1,color:"#FF3355"}}>{mgBalance.their}</div>
-                      <div style={{fontSize:8,fontWeight:700,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>THEIR GAMES</div>
+                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"1px",lineHeight:1,color:C2}}>{stats?.p2gf??0}</div>
+                      <div style={{fontSize:8,fontWeight:700,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>P2 GOALS</div>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* ── Verdict ── */}
+              {/* Verdict */}
               {vrd && (
                 <div className="rounded-[18px] p-4 flex items-start gap-4 mb-4" style={{background:vrd.bg,border:`1px solid ${vrd.bdr}`}}>
                   <span style={{fontSize:28,flexShrink:0,marginTop:2}}>{vrd.icon}</span>
@@ -1380,13 +1440,13 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
                 </div>
               )}
 
-              {/* ── Stats chips ── */}
+              {/* Stats chips */}
               <div className="grid grid-cols-4 gap-2 mb-4">
                 {[
-                  { l:"WIN RATE", v: total ? `${yp}%` : "—",                                       c: yp >= 50 ? N : "#FF3355"           },
-                  { l:"MATCHES",  v: total,                                                          c: "rgba(255,255,255,.7)"             },
-                  { l:"BALANCE",  v: h2h.w > h2h.l ? `+${h2h.w-h2h.l}` : h2h.w < h2h.l ? `-${h2h.l-h2h.w}` : "0", c: h2h.w >= h2h.l ? N : "#FF3355" },
-                  { l:"MG BALANCE", v: (() => { const diff = mgBalance.my - mgBalance.their; return (mgBalance.my + mgBalance.their) > 0 ? (diff > 0 ? `+${diff}` : diff < 0 ? `${diff}` : "0") : "—"; })(), c: mgBalance.my >= mgBalance.their ? N : "#FF3355" },
+                  { l:"WIN RATE", v:total?`${yp}%`:"—",                                                              c:yp>=50?C1:C2          },
+                  { l:"MATCHES",  v:total,                                                                             c:"rgba(255,255,255,.7)" },
+                  { l:"BALANCE",  v:(stats?.p1w||0)>(stats?.p2w||0)?`+${(stats?.p1w||0)-(stats?.p2w||0)}`:(stats?.p1w||0)<(stats?.p2w||0)?`-${(stats?.p2w||0)-(stats?.p1w||0)}`:"0", c:(stats?.p1w||0)>=(stats?.p2w||0)?C1:C2 },
+                  { l:"DRAWS",    v:stats?.draws??0,                                                                   c:"#FFB830"             },
                 ].map(s => (
                   <div key={s.l} className="text-center rounded-[12px] py-3 px-2" style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.07)"}}>
                     <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"1px",lineHeight:1,color:s.c,marginBottom:4}}>{s.v}</div>
@@ -1400,7 +1460,8 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
               className="flex flex-col items-center justify-center rounded-[20px] py-12 text-center"
               style={{background:"rgba(255,255,255,.03)",border:"1px dashed rgba(255,255,255,.1)"}}>
               <span style={{fontSize:32,marginBottom:12}}>⚔️</span>
-              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"2px",color:"rgba(255,255,255,.35)"}}>PICK A RIVAL</div>
+              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"2px",color:"rgba(255,255,255,.35)"}}>SELECT TWO PLAYERS</div>
+              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.25)",marginTop:6}}>Choose Player 1 and Player 2 above</div>
             </motion.div>
           )}
         </AnimatePresence>
