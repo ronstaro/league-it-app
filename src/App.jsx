@@ -698,11 +698,26 @@ function HomeTab({
   players, feed, onEditFeed, onDeleteFeed, isAdmin=false, myPlayerId=null,
   isTournament=false, tournamentFormat="classic",
   bracket=null, onMatchTap=null, onGenerateDraw=null, matchLegs=1,
-  groups=[], groupMatches=[], onGroupMatchTap=null,
+  groups=[], groupMatches=[], onGroupMatchTap=null, advancingPerGroup=2,
 }) {
   const [showAll,setShowAll] = useState(false);
   const mvp    = useMemo(()=>players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:{name:"No Players",wins:0,losses:0},[players]);
   const streak = useMemo(()=>players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:{name:"No Players",bestStreak:0},[players]);
+
+  // TBD bracket — shown before real bracket is generated; deterministic via fake tiers
+  const tdbBracket = useMemo(() => {
+    if (bracket || !groups.length || tournamentFormat !== "groups_knockout") return null;
+    const ordinals = ["1st","2nd","3rd","4th","5th","6th"];
+    const tierByRank = ["A","B","C","D","E"];
+    const parts = [];
+    for (let rank = 0; rank < advancingPerGroup; rank++) {
+      for (const g of groups) {
+        parts.push({ id:`tbd_${rank}_${g.name}`, name:`${ordinals[rank]??`${rank+1}th`} Group ${g.name}`,
+          tier: tierByRank[Math.min(rank, 4)], isTBD: true });
+      }
+    }
+    return generateKnockoutBracket(parts);
+  }, [bracket, groups, advancingPerGroup, tournamentFormat]);
   const visible = showAll ? feed : feed.slice(0,5);
 
   return (
@@ -736,10 +751,12 @@ function HomeTab({
         </div>
       )}
 
-      {/* ── GROUPS + KNOCKOUT: groups then bracket ── */}
+      {/* ── GROUPS + KNOCKOUT: groups → bracket tree → knockout fixtures ── */}
       {isTournament && tournamentFormat === "groups_knockout" && (
         <div style={{ marginBottom: 20 }}>
           {!groups.length && <_DrawEmptyState isAdmin={isAdmin} onGenerateDraw={onGenerateDraw}/>}
+
+          {/* Group standings + fixtures (repeated per group) */}
           {groups.map(group => (
             <GroupTable
               key={group.name}
@@ -749,20 +766,43 @@ function HomeTab({
               allGroupMatches={groupMatches}
               onMatchTap={onGroupMatchTap}
               isAdmin={isAdmin}
+              advancingPerGroup={advancingPerGroup}
             />
           ))}
-          {bracket && (
-            <>
-              <ST>⚡ Knockout Bracket</ST>
-              <TournamentBracket bracket={bracket} isAdmin={isAdmin} onMatchTap={onMatchTap} matchLegs={matchLegs}/>
-            </>
-          )}
-          {groups.length > 0 && !bracket && (
-            <div style={{ borderRadius: 14, padding: "12px 16px", marginTop: 8,
-              background: "rgba(255,255,255,.02)", border: "1px dashed rgba(255,255,255,.1)",
-              fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.3)", textAlign: "center" }}>
-              ⚡ Knockout bracket unlocks after all group matches complete
+
+          {/* Bracket tree — real if generated, TBD preview while groups in progress */}
+          {groups.length > 0 && (bracket || tdbBracket) && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 16, letterSpacing: "2px", color: "#fff" }}>
+                  ⚡ Knockout <span style={{ color: N }}>Bracket</span>
+                </div>
+                {!bracket && (
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 800,
+                    letterSpacing: "1px", color: "rgba(255,255,255,.28)", background: "rgba(255,255,255,.05)",
+                    border: "1px solid rgba(255,255,255,.1)", borderRadius: 6, padding: "2px 7px" }}>
+                    PREVIEW
+                  </span>
+                )}
+              </div>
+              <TournamentBracket
+                bracket={bracket || tdbBracket}
+                isAdmin={!!bracket && isAdmin}
+                onMatchTap={bracket ? onMatchTap : null}
+                matchLegs={matchLegs}
+              />
             </div>
+          )}
+
+          {/* Knockout fixtures list (below bracket tree) */}
+          {groups.length > 0 && (bracket || tdbBracket) && (
+            <KnockoutFixtures
+              bracket={bracket || tdbBracket}
+              onMatchTap={bracket ? onMatchTap : null}
+              isAdmin={!!bracket && isAdmin}
+              matchLegs={matchLegs}
+              feed={feed}
+            />
           )}
         </div>
       )}
@@ -1872,8 +1912,8 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, matchL
   const roundLabel = (ri) => {
     const n = rounds.length;
     const fromEnd = n - 1 - ri; // 0 = final, 1 = semis, 2 = quarters, 3 = R16...
-    if (fromEnd === 0) return "Grand Final";
-    if (fromEnd === 1) return n <= 2 ? "Grand Final" : "Semi-Finals";
+    if (fromEnd === 0) return "Final";
+    if (fromEnd === 1) return n <= 2 ? "Final" : "Semi-Finals";
     if (fromEnd === 2) return "Quarter-Finals";
     const playersAtRound = rounds[ri].length * 2;
     return `Round of ${playersAtRound}`;
@@ -2032,6 +2072,116 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, matchL
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// KNOCKOUT FIXTURES LIST
+// ─────────────────────────────────────────────
+function KnockoutFixtures({ bracket, onMatchTap, isAdmin, matchLegs, feed }) {
+  if (!bracket?.rounds?.length) return null;
+  const n = bracket.rounds.length;
+
+  const rlabel = (roundNum) => {
+    const fromEnd = n - roundNum;
+    if (fromEnd === 0) return "Final";
+    if (fromEnd === 1 && n > 1) return "Semi-Finals";
+    if (fromEnd === 2 && n > 2) return "Quarter-Finals";
+    const mc = bracket.rounds[roundNum - 1]?.length || 0;
+    return `Round of ${mc * 2}`;
+  };
+
+  const groups = bracket.rounds.map((round, ri) => ({
+    label: rlabel(ri + 1),
+    matches: round.filter(m => !m.isBye),
+  })).filter(g => g.matches.length > 0);
+
+  if (!groups.length) return null;
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 16, letterSpacing: "2px",
+        color: "#fff", marginBottom: 14 }}>
+        ⚡ Knockout <span style={{ color: N }}>Fixtures</span>
+      </div>
+      {groups.map(({ label, matches }) => (
+        <div key={label} style={{ marginBottom: 18 }}>
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 800,
+            letterSpacing: "1.5px", color: "rgba(255,255,255,.3)", marginBottom: 8 }}>
+            {label.toUpperCase()}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {matches.map(match => {
+              const p1 = match.p1, p2 = match.p2;
+              const bothKnown = p1 && p2 && !p1.isTBD && !p2.isTBD;
+              const isDone = !!match.winner;
+              const leg1Done = matchLegs === 2 && match.leg1 && !match.leg2;
+              const tappable = isAdmin && bothKnown && (!isDone || leg1Done);
+
+              let scoreDisplay = null;
+              if (match.score) {
+                scoreDisplay = `${match.score.p1Goals}–${match.score.p2Goals}`;
+              } else if (match.leg1) {
+                const a1 = (Number(match.leg1?.p1Goals)||0)+(Number(match.leg2?.p1Goals)||0);
+                const a2 = (Number(match.leg1?.p2Goals)||0)+(Number(match.leg2?.p2Goals)||0);
+                scoreDisplay = match.leg2 ? `${a1}–${a2}` : null;
+              }
+
+              return (
+                <div key={match.id}
+                  onClick={() => tappable && onMatchTap?.(match)}
+                  style={{
+                    borderRadius: 12, padding: "10px 12px",
+                    display: "flex", alignItems: "center", gap: 10,
+                    background: isDone ? "rgba(170,255,0,.04)" : "rgba(255,255,255,.025)",
+                    border: `1px solid ${isDone ? "rgba(170,255,0,.2)" : tappable ? "rgba(255,255,255,.15)" : "rgba(255,255,255,.07)"}`,
+                    cursor: tappable ? "pointer" : "default",
+                  }}>
+                  <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 700,
+                      color: match.winner?.id === p1?.id ? N : !bothKnown ? "rgba(255,255,255,.28)" : "#fff",
+                      flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {p1?.name || "TBD"}
+                    </span>
+                    {scoreDisplay ? (
+                      <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 16, letterSpacing: "2px",
+                        color: N, flexShrink: 0, minWidth: 40, textAlign: "center" }}>
+                        {scoreDisplay}
+                      </span>
+                    ) : (
+                      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10,
+                        color: "rgba(255,255,255,.2)", flexShrink: 0, minWidth: 40, textAlign: "center" }}>vs</span>
+                    )}
+                    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 700,
+                      color: match.winner?.id === p2?.id ? N : !bothKnown ? "rgba(255,255,255,.28)" : "#fff",
+                      flex: 1, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {p2?.name || "TBD"}
+                    </span>
+                  </div>
+                  {tappable && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 8, fontWeight: 800,
+                        letterSpacing: "0.5px", color: N, opacity: 0.8 }}>LOG</span>
+                      <div style={{ width: 18, height: 18, borderRadius: "50%", background: `${N}20`,
+                        border: `1px solid ${N}50`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Plus size={9} style={{ color: N }}/>
+                      </div>
+                    </div>
+                  )}
+                  {isDone && !tappable && (
+                    <div style={{ width: 18, height: 18, borderRadius: "50%",
+                      background: "rgba(170,255,0,.12)", border: "1px solid rgba(170,255,0,.3)",
+                      display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <Check size={9} style={{ color: N }}/>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -2792,7 +2942,7 @@ function TournamentLogModal({ match, matchType, matchLegs = 1, contextLabel = ""
 const GROUP_COLORS = ["#AAFF00","#3B8EFF","#FFB830","#FF6B35","#AA55FF","#00E5CC","#FF3355","#FFD700"];
 const GROUP_LETTER_IDX = { A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7 };
 
-function GroupTable({ group, groupMatches, feed, allGroupMatches, onMatchTap, isAdmin }) {
+function GroupTable({ group, groupMatches, feed, allGroupMatches, onMatchTap, isAdmin, advancingPerGroup = 2 }) {
   const gc = GROUP_COLORS[GROUP_LETTER_IDX[group.name] ?? 0];
   const completedIds = useMemo(() => new Set(feed.map(m => m.id)), [feed]);
 
@@ -2854,26 +3004,26 @@ function GroupTable({ group, groupMatches, feed, allGroupMatches, onMatchTap, is
 
       {/* Standings mini-table */}
       <div style={{ borderRadius: 16, overflow: "hidden", border: "1px solid rgba(255,255,255,.07)", marginBottom: 10 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 28px 28px 28px 28px 32px",
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 24px 24px 24px 24px 28px 32px",
           padding: "7px 12px", background: "rgba(255,255,255,.04)", borderBottom: "1px solid rgba(255,255,255,.06)" }}>
-          {["PLAYER","W","D","L","GD","PTS"].map((h, i) => (
+          {["PLAYER","MP","W","D","L","GD","PTS"].map((h, i) => (
             <span key={h} style={{ fontSize: 8, fontWeight: 800, letterSpacing: "1px",
               color: "rgba(255,255,255,.28)", textAlign: i > 0 ? "center" : "left",
               fontFamily: "'DM Sans',sans-serif" }}>{h}</span>
           ))}
         </div>
         {standings.map((row, i) => {
-          const isAdvancing = i < (allGroupMatches.advancingPerGroup || 2);
+          const isAdvancing = i < advancingPerGroup;
           return (
             <div key={row.participant.name} style={{
-              display: "grid", gridTemplateColumns: "1fr 28px 28px 28px 28px 32px",
+              display: "grid", gridTemplateColumns: "1fr 24px 24px 24px 24px 28px 32px",
               padding: "9px 12px", alignItems: "center",
               borderBottom: i < standings.length - 1 ? "1px solid rgba(255,255,255,.04)" : "none",
-              background: i === 0 ? `${gc}06` : "transparent",
+              background: isAdvancing ? `${gc}06` : "transparent",
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                 <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 12,
-                  color: i === 0 ? gc : "rgba(255,255,255,.25)", flexShrink: 0 }}>{i + 1}</span>
+                  color: isAdvancing ? gc : "rgba(255,255,255,.25)", flexShrink: 0 }}>{i + 1}</span>
                 {row.participant.tier && (
                   <div style={{ width: 5, height: 5, borderRadius: "50%", flexShrink: 0,
                     background: TIER_META[row.participant.tier]?.color || gc }}/>
@@ -2883,13 +3033,14 @@ function GroupTable({ group, groupMatches, feed, allGroupMatches, onMatchTap, is
                   {row.participant.name}
                 </span>
               </div>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "rgba(255,255,255,.4)" }}>{row.played}</span>
               <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 700, color: N }}>{row.won}</span>
               <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#3B8EFF" }}>{row.drawn}</span>
               <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: "#FF3355" }}>{row.lost}</span>
               <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: 10,
                 color: row.gf - row.ga >= 0 ? N : "#FF3355" }}>{row.gf - row.ga >= 0 ? "+" : ""}{row.gf - row.ga}</span>
               <span style={{ textAlign: "center", fontFamily: "'Bebas Neue',sans-serif", fontSize: 14,
-                color: i === 0 ? gc : "#fff" }}>{row.pts}</span>
+                color: isAdvancing ? gc : "#fff" }}>{row.pts}</span>
             </div>
           );
         })}
@@ -3491,7 +3642,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     if (!bkt?.rounds) return "";
     const n = bkt.rounds.length;
     const fromEnd = n - match.round;
-    if (fromEnd === 0) return "GRAND FINAL";
+    if (fromEnd === 0) return "FINAL";
     if (fromEnd === 1 && n > 1) return "SEMI-FINAL";
     if (fromEnd === 2 && n > 2) return "QUARTER-FINAL";
     const playersAtRound = bkt.rounds[match.round - 1]?.length * 2 || 0;
@@ -3509,6 +3660,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                onGenerateDraw={handleShowGenerateDraw} matchLegs={rules?.matchLegs || 1}
                groups={groups} groupMatches={groupMatches}
                onGroupMatchTap={m => setTournamentModal({ match: m, type: "group", contextLabel: `Group ${m.groupName}` })}
+               advancingPerGroup={rules?.groupSettings?.advancingPerGroup || 2}
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw}/>,
