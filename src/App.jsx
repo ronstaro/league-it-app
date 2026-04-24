@@ -933,12 +933,19 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
 
     // ── TOURNAMENT AWARDS (hard-wired to settings data + feed) ──
     if (isTournament) {
-      // Dual-key player map: by String(id) AND by name — handles ID type mismatches
+      // Dual-key player map: by String(id) AND by name — handles ID type mismatches.
+      // Seed from ALL sources so tournament-only participants (not in the players table) get a bucket.
       const pById = {}, pByName = {};
-      for (const p of players) {
-        const s = { id: p.id, name: p.name, wins: 0, losses: 0, played: 0, gf: 0, ga: 0, bestStreak: 0, streak: 0 };
-        pById[String(p.id)] = s;
-        pByName[p.name]     = s; // shared reference — same object
+      const _addP = (id, name) => {
+        if (!name || pByName[name]) return;
+        const s = { id, name, wins:0, losses:0, played:0, gf:0, ga:0, bestStreak:0, streak:0 };
+        if (id != null) pById[String(id)] = s;
+        pByName[name] = s;
+      };
+      for (const p of players) _addP(p.id, p.name);
+      for (const fx of (groupMatches || [])) { _addP(fx.p1?.id, fx.p1?.name); _addP(fx.p2?.id, fx.p2?.name); }
+      for (const round of (bracket?.rounds || [])) {
+        for (const bm of (round || [])) { if (!bm?.isBye) { _addP(bm.p1?.id, bm.p1?.name); _addP(bm.p2?.id, bm.p2?.name); } }
       }
       const lookup = (id, name) => pById[String(id ?? "")] || pByName[name] || null;
 
@@ -1168,26 +1175,54 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
           </div>
         )}
 
-        <ST>⚽ Personal Score Ratio</ST>
-        <div className="rounded-[20px] p-4 mb-2" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            {[{v:me.gamesWon,l:"MINI-GAMES WON",c:N},{v:me.gamesLost,l:"MINI-GAMES LOST",c:"#FF3355"}].map(({v,l,c})=>(
-              <div key={l} className="text-center">
-                <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:38,letterSpacing:"2px",lineHeight:1,color:c,marginBottom:4}}>{v}</div>
-                <div style={{fontSize:9,fontWeight:700,letterSpacing:"1.5px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{l}</div>
+        {/* League player selector for Score Ratio */}
+        {enriched.length > 0 && (
+          <div className="mb-4">
+            <div style={{fontSize:9,fontWeight:800,letterSpacing:"1.5px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",marginBottom:8}}>SELECT PLAYER</div>
+            <div className="relative">
+              <select
+                value={selectedName && enriched.find(p=>p.name===selectedName) ? selectedName : me.name}
+                onChange={e => setSelectedName(e.target.value)}
+                className="w-full rounded-[14px] py-3 px-4 text-[13px] font-bold appearance-none"
+                style={{background:"rgba(255,255,255,.06)",border:`1px solid ${N}40`,color:"#fff",fontFamily:"'DM Sans',sans-serif",outline:"none",cursor:"pointer",WebkitAppearance:"none",paddingRight:36}}>
+                {enriched.map(p => (
+                  <option key={p.id} value={p.name} style={{background:"#111",color:"#fff"}}>{p.name}{p.isMe?" (me)":""}</option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" style={{color:N,fontSize:14}}>▾</div>
+            </div>
+          </div>
+        )}
+        {(()=>{
+          const lgName = (selectedName && enriched.find(p=>p.name===selectedName)) ? selectedName : me.name;
+          const lgP    = enriched.find(p=>p.name===lgName) || me;
+          const lgTot  = (lgP.gamesWon+lgP.gamesLost)||1;
+          const lgPct  = Math.round(lgP.gamesWon/lgTot*100);
+          return (
+            <>
+              <ST>⚽ Score Ratio — {lgName||"Select player"}</ST>
+              <div className="rounded-[20px] p-4 mb-2" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  {[{v:lgP.gamesWon,l:"MINI-GAMES WON",c:"#AAFF00"},{v:lgP.gamesLost,l:"MINI-GAMES LOST",c:"#FF3355"}].map(({v,l,c})=>(
+                    <div key={l} className="text-center">
+                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:38,letterSpacing:"2px",lineHeight:1,color:c,marginBottom:4}}>{v}</div>
+                      <div style={{fontSize:9,fontWeight:700,letterSpacing:"1.5px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex rounded-[8px] overflow-hidden" style={{height:16}}>
+                  <div style={{width:`${lgPct}%`,background:"linear-gradient(90deg,#AAFF00,#7DC900)",minWidth:lgPct>0?4:0,transition:"width .4s ease"}}/>
+                  <div style={{flex:1,background:"linear-gradient(90deg,#FF3355,#C0143C)"}}/>
+                </div>
+                <div className="flex justify-between mt-2">
+                  <span style={{fontSize:10,fontWeight:700,color:"#AAFF00",fontFamily:"'DM Sans',sans-serif"}}>{lgP.gamesWon} won</span>
+                  <span style={{fontSize:10,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{lgP.gamesWon+lgP.gamesLost} total</span>
+                  <span style={{fontSize:10,fontWeight:700,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>{lgP.gamesLost} lost</span>
+                </div>
               </div>
-            ))}
-          </div>
-          <div className="flex rounded-[4px] overflow-hidden" style={{height:6}}>
-            <div style={{width:`${Math.round(me.gamesWon/totG*100)}%`,background:`linear-gradient(90deg,${N},#7DC900)`}}/>
-            <div style={{flex:1,background:"linear-gradient(90deg,#FF3355,#C0143C)"}}/>
-          </div>
-          <div className="flex justify-between mt-2">
-            <span style={{fontSize:10,fontWeight:700,color:N,fontFamily:"'DM Sans',sans-serif"}}>{Math.round(me.gamesWon/totG*100)}% won</span>
-            <span style={{fontSize:10,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{me.gamesWon+me.gamesLost} total</span>
-            <span style={{fontSize:10,fontWeight:700,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>{Math.round(me.gamesLost/totG*100)}% lost</span>
-          </div>
-        </div>
+            </>
+          );
+        })()}
       </div>
     );
   }
