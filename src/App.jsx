@@ -3420,7 +3420,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   }, [leagueId]);
 
   const handleGroupResult = useCallback(async ({ match, p1Goals, p2Goals }) => {
-    if (!leagueId) return;
+    if (!leagueId) { alert("League ID is missing — cannot save match."); return; }
     setTournamentModal(null);
     const ts = nowTs();
     const p1g = Number(p1Goals) || 0;
@@ -3445,12 +3445,14 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       is_tournament: true, tournament_stage: 'group',
     };
     setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
+    const { id: _gid, ...scoreData } = entry;
     try {
-      await supabase.from("matches").upsert({
-        id: match.id, league_id: leagueId,
-        winner_id: winnerId, loser_id: loserId,
-        is_comeback: false,
-        score: entry, date: new Date().toISOString(),
+      await supabase.from("matches").insert({
+        league_id: leagueId,
+        winner_id: winnerId,
+        loser_id: loserId,
+        score: scoreData,
+        date: new Date().toISOString(),
       });
     } catch (e) { console.error("[tournament] group match save failed:", e); }
 
@@ -3476,7 +3478,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   }, [leagueId, players, feed, groups, groupMatches, rules, _saveGroupsState]);
 
   const handleBracketResult = useCallback(async ({ match, winner, loser, p1Goals, p2Goals, leg, isLeg1Only }) => {
-    if (!bracket || !leagueId) return;
+    if (!bracket || !leagueId) { alert("League ID is missing — cannot save match."); return; }
     setTournamentModal(null);
 
     // Compute round label for feed display
@@ -3511,11 +3513,14 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
           bracketMatchId: match.id, bracketRound: match.round, bracketRoundLabel,
           is_tournament: true, tournament_stage: bracketRoundLabel };
         setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
+        const { id: _l2id, ...scoreData2 } = entry;
         try {
-          await supabase.from("matches").upsert({
-            id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
-            is_comeback: false,
-            score: entry, date: new Date().toISOString(),
+          await supabase.from("matches").insert({
+            league_id: leagueId,
+            winner_id: winnerId,
+            loser_id: loserId,
+            score: scoreData2,
+            date: new Date().toISOString(),
           });
         } catch (e) { console.error("[tournament] leg-2 match save failed:", e); }
       }
@@ -3537,11 +3542,14 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       is_tournament: true, tournament_stage: bracketRoundLabel,
     };
     setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
+    const { id: _bid, ...scoreData3 } = entry;
     try {
-      await supabase.from("matches").upsert({
-        id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
-        is_comeback: false,
-        score: entry, date: new Date().toISOString(),
+      await supabase.from("matches").insert({
+        league_id: leagueId,
+        winner_id: winnerId,
+        loser_id: loserId,
+        score: scoreData3,
+        date: new Date().toISOString(),
       });
     } catch (e) { console.error("[tournament] bracket match save failed:", e); }
     const updated = applyBracketResult(bracket, match.id, winner, { p1Goals: Number(p1Goals)||0, p2Goals: Number(p2Goals)||0 });
