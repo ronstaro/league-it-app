@@ -910,137 +910,146 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
     const mComeback = players.length>0?[...players].sort((a,b)=>(b.comebacks||0)-(a.comebacks||0))[0]:FALLBACK;
     const barC = pc=>pc>=70?`linear-gradient(90deg,${N},#7DC900)`:pc>=50?"linear-gradient(90deg,#FFB830,#E08A00)":"linear-gradient(90deg,#FF3355,#C0143C)";
 
-    // ── TOURNAMENT AWARDS (computed from tournament-only matches) ──
+    // ── TOURNAMENT AWARDS (hard-wired to settings data + feed) ──
     if (isTournament) {
-      // Source 1: group stage results — match feed entries by fixture ID
-      const groupIds = new Set((groupMatches || []).map(m => m.id));
-      const groupResults = feed.filter(m => groupIds.has(m.id));
+      // Dual-key player map: by String(id) AND by name — handles ID type mismatches
+      const pById = {}, pByName = {};
+      for (const p of players) {
+        const s = { id: p.id, name: p.name, wins: 0, losses: 0, played: 0, gf: 0, ga: 0, bestStreak: 0, streak: 0 };
+        pById[String(p.id)] = s;
+        pByName[p.name]     = s; // shared reference — same object
+      }
+      const lookup = (id, name) => pById[String(id ?? "")] || pByName[name] || null;
 
-      // Source 2: bracket results — walk rounds, collect completed matches
-      const bracketResults = [];
-      if (bracket?.rounds) {
-        for (const round of bracket.rounds) {
-          for (const match of round) {
-            if (match.winner && !match.isBye) {
-              const loserObj = match.winner.id === match.p1?.id ? match.p2 : match.p1;
-              const sc = match.score || {};
-              bracketResults.push({
-                winner: match.winner.name, loser: loserObj?.name || "",
-                winnerIds: match.winner.id ? [match.winner.id] : [],
-                loserIds:  loserObj?.id    ? [loserObj.id]    : [],
-                p1Goals: sc.p1Goals, p2Goals: sc.p2Goals,
-                p1Name: match.p1?.name, p2Name: match.p2?.name,
-                isDraw: false, is_tournament: true,
-                bracketRoundLabel: match.bracketRoundLabel || "",
-              });
+      let totalMatches = 0;
+
+      // SOURCE 1: Group stage — iterate fixture definitions, look up result in feed by ID
+      for (const fixture of (groupMatches || [])) {
+        const result = feed.find(m => String(m.id) === String(fixture.id));
+        if (!result) continue;
+        totalMatches++;
+        const p1 = lookup(fixture.p1?.id, fixture.p1?.name);
+        const p2 = lookup(fixture.p2?.id, fixture.p2?.name);
+        const p1g = Number(result.p1Goals) || 0;
+        const p2g = Number(result.p2Goals) || 0;
+        if (p1) { p1.gf += p1g; p1.ga += p2g; }
+        if (p2) { p2.gf += p2g; p2.ga += p1g; }
+        if (result.isDraw) {
+          if (p1) { p1.played++; p1.streak = 0; }
+          if (p2) { p2.played++; p2.streak = 0; }
+        } else {
+          const winner = p1g >= p2g ? p1 : p2;
+          const loser  = p1g >= p2g ? p2 : p1;
+          if (winner) { winner.wins++; winner.played++; winner.streak++; winner.bestStreak = Math.max(winner.bestStreak, winner.streak); }
+          if (loser)  { loser.losses++; loser.played++; loser.streak = 0; }
+        }
+      }
+
+      // SOURCE 2: Bracket — walk rounds directly from bracket state (authoritative for knockout scores)
+      let champName = null;
+      if (bracket?.rounds?.length) {
+        const lastRoundIdx = bracket.rounds.length - 1;
+        for (let ri = 0; ri < bracket.rounds.length; ri++) {
+          for (const match of bracket.rounds[ri]) {
+            if (!match.winner || match.isBye) continue;
+            totalMatches++;
+            const p1 = lookup(match.p1?.id, match.p1?.name);
+            const p2 = lookup(match.p2?.id, match.p2?.name);
+            const p1g = Number(match.score?.p1Goals) || 0;
+            const p2g = Number(match.score?.p2Goals) || 0;
+            if (p1) { p1.gf += p1g; p1.ga += p2g; }
+            if (p2) { p2.gf += p2g; p2.ga += p1g; }
+            const winner = lookup(match.winner.id, match.winner.name);
+            const loserObj = String(match.winner.id) === String(match.p1?.id) ? match.p2 : match.p1;
+            const loser = lookup(loserObj?.id, loserObj?.name);
+            if (winner) { winner.wins++; winner.played++; winner.streak++; winner.bestStreak = Math.max(winner.bestStreak, winner.streak); }
+            if (loser)  { loser.losses++; loser.played++; loser.streak = 0; }
+            if (ri === lastRoundIdx) {
+              champName = match.winner?.name || winner?.name || null;
             }
           }
         }
       }
 
-      const combinedMatches = [...groupResults, ...bracketResults];
-      console.log("[Stats-Sync] Matches found for stats:", combinedMatches.length, "| group:", groupResults.length, "| bracket:", bracketResults.length);
+      console.log("[Stats-Sync] totalMatches:", totalMatches, "| players:", Object.values(pById).map(p => `${p.name}:${p.played}gp/${p.gf}gf/${p.ga}ga`).join(", "));
 
-      const pStats = {};
-      for (const p of players) pStats[p.name] = { id: p.id, name: p.name, wins: 0, losses: 0, played: 0, gf: 0, ga: 0, bestStreak: 0, streak: 0 };
-
-      for (const m of combinedMatches) {
-        // Goals — prefer explicit p1/p2 fields (group matches), fall back to sets parse (bracket)
-        if (m.p1Name != null && m.p1Goals != null) {
-          const a = pStats[m.p1Name], b = pStats[m.p2Name];
-          if (a) { a.gf += Number(m.p1Goals)||0; a.ga += Number(m.p2Goals)||0; }
-          if (b) { b.gf += Number(m.p2Goals)||0; b.ga += Number(m.p1Goals)||0; }
-        } else if (m.sets?.length && m.winner && m.loser) {
-          const raw = (m.sets[0]||"").replace(/–/g,"-").replace(/\[.*?\]/g,"");
-          const [ga,gb] = raw.split("-").map(Number);
-          if (!isNaN(ga)&&!isNaN(gb)) {
-            const wg=Math.max(ga,gb), lg=Math.min(ga,gb);
-            if (pStats[m.winner]) { pStats[m.winner].gf+=wg; pStats[m.winner].ga+=lg; }
-            if (pStats[m.loser])  { pStats[m.loser].gf+=lg;  pStats[m.loser].ga+=wg; }
-          }
-        }
-        // Win / loss / streak
-        if (!m.isDraw) {
-          if (m.winner && pStats[m.winner]) { const p=pStats[m.winner]; p.wins++; p.played++; p.streak++; p.bestStreak=Math.max(p.bestStreak,p.streak); }
-          if (m.loser  && pStats[m.loser])  { const p=pStats[m.loser];  p.losses++; p.played++; p.streak=0; }
-        } else {
-          if (m.p1Name && pStats[m.p1Name]) { pStats[m.p1Name].played++; pStats[m.p1Name].streak=0; }
-          if (m.p2Name && pStats[m.p2Name]) { pStats[m.p2Name].played++; pStats[m.p2Name].streak=0; }
-        }
-      }
-      const pArr = Object.values(pStats).filter(p => p.played > 0);
+      const pArr = Object.values(pById).filter(p => p.played > 0);
       const FALLBACK_P = { name: "N/A", wins: 0, losses: 0, played: 0, gf: 0, ga: 0, bestStreak: 0 };
-      const byWin  = pArr.length ? [...pArr].sort((a,b)=>b.wins-a.wins)[0]       : FALLBACK_P;
-      const byStr  = pArr.length ? [...pArr].sort((a,b)=>b.bestStreak-a.bestStreak)[0] : FALLBACK_P;
-      const byPlay = pArr.length ? [...pArr].sort((a,b)=>b.played-a.played)[0]   : FALLBACK_P;
-      const byLoss = pArr.length ? [...pArr].sort((a,b)=>b.losses-a.losses)[0]   : FALLBACK_P;
-      const byGF   = pArr.length ? [...pArr].sort((a,b)=>b.gf-a.gf)[0]           : FALLBACK_P;
-      const byGA   = pArr.length ? [...pArr].sort((a,b)=>a.ga-b.ga)[0]           : FALLBACK_P;
-      const bySieve= pArr.length ? [...pArr].sort((a,b)=>b.ga-a.ga)[0]           : FALLBACK_P;
-      const finalMatch = combinedMatches.find(m => m.tournament_stage==="FINAL"||m.bracketRoundLabel==="FINAL")
-        || bracketResults.find(m => m.bracketRoundLabel==="FINAL");
-      const champName = finalMatch?.winner || null;
+      const byStr   = pArr.length ? [...pArr].sort((a,b)=>b.bestStreak-a.bestStreak)[0] : FALLBACK_P;
+      const byPlay  = pArr.length ? [...pArr].sort((a,b)=>b.played-a.played)[0]         : FALLBACK_P;
+      const byLoss  = pArr.length ? [...pArr].sort((a,b)=>b.losses-a.losses)[0]         : FALLBACK_P;
+      const byGF    = pArr.length ? [...pArr].sort((a,b)=>b.gf-a.gf)[0]                 : FALLBACK_P;
+      const byGA    = pArr.length ? [...pArr].sort((a,b)=>a.ga-b.ga)[0]                 : FALLBACK_P;
+      const bySieve = pArr.length ? [...pArr].sort((a,b)=>b.ga-a.ga)[0]                 : FALLBACK_P;
+
+      const me = players.find(p => p.isMe) || enriched.find(p => p.isMe);
+      const meStats = me ? (lookup(me.id, me.name) || null) : null;
+
       const T_AWARDS = [
-        {icon:"🏆",lbl:"THE WINNER",         lc:"rgba(255,215,0,.8)",  sc:"#FFD700", bdr:"rgba(255,215,0,.25)",  name:champName||"TBD",     bigNum:champName?"🥇":"—",  unit:"CHAMPION",   stat:"Tournament Champion"},
-        {icon:"🔥",lbl:"SUPER STREAK",        lc:"rgba(170,255,0,.7)",  sc:N,         bdr:"rgba(170,255,0,.2)",   name:byStr.name,           bigNum:byStr.bestStreak,    unit:"WIN STREAK", stat:"Longest consecutive wins"},
-        {icon:"⚙️",lbl:"THE GRINDER",         lc:"rgba(255,184,48,.7)", sc:"#FFB830", bdr:"rgba(255,184,48,.2)",  name:byPlay.name,          bigNum:byPlay.played,       unit:"MATCHES",    stat:"Most matches played"},
-        {icon:"💀",lbl:"PROFESSIONAL LOSER",  lc:"rgba(255,51,85,.7)",  sc:"#FF3355", bdr:"rgba(255,51,85,.2)",   name:byLoss.name,          bigNum:byLoss.losses,       unit:"LOSSES",     stat:"Most losses in tournament"},
-        {icon:"⚽",lbl:"HIGHEST SCORE",       lc:"rgba(59,142,255,.7)", sc:"#3B8EFF", bdr:"rgba(59,142,255,.2)",  name:byGF.name,            bigNum:byGF.gf,             unit:"GOALS",      stat:"Most goals scored"},
-        {icon:"🧱",lbl:"THE WALL",            lc:"rgba(170,255,0,.7)",  sc:N,         bdr:"rgba(170,255,0,.2)",   name:byGA.name,            bigNum:byGA.ga,             unit:"CONCEDED",   stat:"Fewest goals conceded"},
-        {icon:"🕳️",lbl:"THE SIEVE",           lc:"rgba(255,107,53,.7)", sc:"#FF6B35", bdr:"rgba(255,107,53,.2)",  name:bySieve.name,         bigNum:bySieve.ga,          unit:"CONCEDED",   stat:"Most goals conceded"},
+        {icon:"🏆",lbl:"THE WINNER",         lc:"rgba(255,215,0,.8)",  sc:"#FFD700", bdr:"rgba(255,215,0,.25)",  name:champName||"TBD",  bigNum:champName?"🥇":"—",       unit:"CHAMPION",   stat:"Tournament Champion"},
+        {icon:"🔥",lbl:"SUPER STREAK",        lc:"rgba(170,255,0,.7)",  sc:N,         bdr:"rgba(170,255,0,.2)",   name:byStr.name,        bigNum:byStr.bestStreak,          unit:"WIN STREAK", stat:"Longest consecutive wins"},
+        {icon:"⚙️",lbl:"THE GRINDER",         lc:"rgba(255,184,48,.7)", sc:"#FFB830", bdr:"rgba(255,184,48,.2)",  name:byPlay.name,       bigNum:byPlay.played,             unit:"MATCHES",    stat:"Most matches played"},
+        {icon:"💀",lbl:"PROFESSIONAL LOSER",  lc:"rgba(255,51,85,.7)",  sc:"#FF3355", bdr:"rgba(255,51,85,.2)",   name:byLoss.name,       bigNum:byLoss.losses,             unit:"LOSSES",     stat:"Most losses in tournament"},
+        {icon:"⚽",lbl:"HIGHEST SCORE",       lc:"rgba(59,142,255,.7)", sc:"#3B8EFF", bdr:"rgba(59,142,255,.2)",  name:byGF.name,         bigNum:byGF.gf,                   unit:"GOALS",      stat:"Most goals scored"},
+        {icon:"🧱",lbl:"THE WALL",            lc:"rgba(170,255,0,.7)",  sc:N,         bdr:"rgba(170,255,0,.2)",   name:byGA.name,         bigNum:pArr.length?byGA.ga:"N/A", unit:"CONCEDED",   stat:"Fewest goals conceded"},
+        {icon:"🕳️",lbl:"THE SIEVE",           lc:"rgba(255,107,53,.7)", sc:"#FF6B35", bdr:"rgba(255,107,53,.2)",  name:bySieve.name,      bigNum:bySieve.ga,                unit:"CONCEDED",   stat:"Most goals conceded"},
       ];
-      const me = enriched.find(p => p.isMe) || players.find(p => p.isMe);
-      // Look up by name first; fall back to ID match in case name changed
-      const meStats = me
-        ? (pStats[me.name] || Object.values(pStats).find(s => s.id === me.id) || null)
-        : null;
+
+      const noDataMsg = (
+        <div className="rounded-[20px] p-4 mb-5 text-center" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
+          <span style={{fontSize:12,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>No matches played yet</span>
+        </div>
+      );
+
       return (
         <div>
-          {meStats && (
-            <>
-              <ST>📊 Personal Score Ratio</ST>
-              <div className="rounded-[20px] p-4 mb-5" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  {[{v:meStats.gf,l:"GOALS SCORED",c:N},{v:meStats.ga,l:"GOALS CONCEDED",c:"#FF3355"}].map(({v,l,c})=>(
-                    <div key={l} className="text-center">
-                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:38,letterSpacing:"2px",lineHeight:1,color:c,marginBottom:4}}>{v}</div>
-                      <div style={{fontSize:9,fontWeight:700,letterSpacing:"1.5px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{l}</div>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex rounded-[4px] overflow-hidden" style={{height:8}}>
-                  {(() => { const tot=(meStats.gf+meStats.ga)||1; const pct=Math.round(meStats.gf/tot*100); return (<><div style={{width:`${pct}%`,background:`linear-gradient(90deg,${N},#7DC900)`,transition:"width .4s ease"}}/><div style={{flex:1,background:"linear-gradient(90deg,#FF3355,#C0143C)"}}/></>); })()}
-                </div>
-                <div className="flex justify-between mt-2">
-                  <span style={{fontSize:10,fontWeight:700,color:N,fontFamily:"'DM Sans',sans-serif"}}>{meStats.gf} scored</span>
-                  <span style={{fontSize:10,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{meStats.played} matches</span>
-                  <span style={{fontSize:10,fontWeight:700,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>{meStats.ga} conceded</span>
-                </div>
+          {/* Personal Score Ratio — always visible */}
+          <ST>📊 Personal Score Ratio</ST>
+          {meStats && meStats.played > 0 ? (
+            <div className="rounded-[20px] p-4 mb-5" style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.08)"}}>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                {[{v:meStats.gf,l:"GOALS SCORED",c:N},{v:meStats.ga,l:"GOALS CONCEDED",c:"#FF3355"}].map(({v,l,c})=>(
+                  <div key={l} className="text-center">
+                    <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:38,letterSpacing:"2px",lineHeight:1,color:c,marginBottom:4}}>{v}</div>
+                    <div style={{fontSize:9,fontWeight:700,letterSpacing:"1.5px",color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{l}</div>
+                  </div>
+                ))}
               </div>
-            </>
-          )}
+              <div className="flex rounded-[4px] overflow-hidden" style={{height:8}}>
+                {(()=>{ const tot=(meStats.gf+meStats.ga)||1; const p=Math.round(meStats.gf/tot*100); return(<><div style={{width:`${p}%`,background:`linear-gradient(90deg,${N},#7DC900)`,transition:"width .4s ease"}}/><div style={{flex:1,background:"linear-gradient(90deg,#FF3355,#C0143C)"}}/></>); })()}
+              </div>
+              <div className="flex justify-between mt-2">
+                <span style={{fontSize:10,fontWeight:700,color:N,fontFamily:"'DM Sans',sans-serif"}}>{meStats.gf} scored</span>
+                <span style={{fontSize:10,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{meStats.played} matches</span>
+                <span style={{fontSize:10,fontWeight:700,color:"#FF3355",fontFamily:"'DM Sans',sans-serif"}}>{meStats.ga} conceded</span>
+              </div>
+            </div>
+          ) : noDataMsg}
+
           <ST>🏅 Tournament Awards</ST>
-          <div className="flex flex-col gap-3 mb-5">
-            {T_AWARDS.map(c => (
-              <div key={c.lbl} className="rounded-[20px] p-4 relative overflow-hidden" style={{background:"rgba(255,255,255,.03)",border:`1px solid ${c.bdr}`}}>
-                <div className="absolute inset-0 pointer-events-none" style={{background:`linear-gradient(135deg,${c.sc}08,transparent 60%)`}}/>
-                <div className="flex items-center justify-between gap-3 relative">
-                  <div className="flex items-start gap-3 min-w-0">
-                    <span className="text-[22px] flex-shrink-0 mt-0.5">{c.icon}</span>
-                    <div className="min-w-0">
-                      <div style={{fontSize:9,fontWeight:800,letterSpacing:"1.5px",color:c.lc,fontFamily:"'DM Sans',sans-serif",marginBottom:3}}>{c.lbl}</div>
-                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:18,color:"#fff",marginBottom:2}}>{c.name}</div>
-                      <div style={{fontSize:10,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{c.stat}</div>
+          {totalMatches === 0 ? noDataMsg : (
+            <div className="flex flex-col gap-3 mb-5">
+              {T_AWARDS.map(c => (
+                <div key={c.lbl} className="rounded-[20px] p-4 relative overflow-hidden" style={{background:"rgba(255,255,255,.03)",border:`1px solid ${c.bdr}`}}>
+                  <div className="absolute inset-0 pointer-events-none" style={{background:`linear-gradient(135deg,${c.sc}08,transparent 60%)`}}/>
+                  <div className="flex items-center justify-between gap-3 relative">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <span className="text-[22px] flex-shrink-0 mt-0.5">{c.icon}</span>
+                      <div className="min-w-0">
+                        <div style={{fontSize:9,fontWeight:800,letterSpacing:"1.5px",color:c.lc,fontFamily:"'DM Sans',sans-serif",marginBottom:3}}>{c.lbl}</div>
+                        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:18,color:"#fff",marginBottom:2}}>{c.name}</div>
+                        <div style={{fontSize:10,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif"}}>{c.stat}</div>
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:38,letterSpacing:"2px",color:c.sc,lineHeight:1}}>{c.bigNum}</div>
+                      <div style={{fontSize:8,fontWeight:700,letterSpacing:"1px",color:`${c.sc}99`,fontFamily:"'DM Sans',sans-serif",marginTop:2}}>{c.unit}</div>
                     </div>
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:38,letterSpacing:"2px",color:c.sc,lineHeight:1}}>{c.bigNum}</div>
-                    <div style={{fontSize:8,fontWeight:700,letterSpacing:"1px",color:`${c.sc}99`,fontFamily:"'DM Sans',sans-serif",marginTop:2}}>{c.unit}</div>
-                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       );
     }
