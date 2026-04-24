@@ -3453,18 +3453,15 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       console.log("[saveGroupsState] writing settings — league_id:", leagueId, "keys:", Object.keys(newSettings));
       const { error: updateErr } = await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
       if (updateErr) {
-        console.error("[saveGroupsState] UPDATE FAILED", {
+        console.error("[saveGroupsState] update failed", {
           message: updateErr.message,
           details: updateErr.details,
           hint:    updateErr.hint,
           code:    updateErr.code,
-          full:    updateErr,
         });
-        window.alert(`Settings save failed:\n${updateErr.message}\n${updateErr.hint || ""}`);
       }
     } catch (e) {
       console.error("[saveGroupsState] unexpected error:", e);
-      window.alert(`Settings save error:\n${e?.message || e}`);
     }
   }, [leagueId]);
 
@@ -3494,24 +3491,20 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       is_tournament: true, tournament_stage: 'group',
     };
     setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
-    const { id: _gid, ...scoreData } = entry;
-    console.log("[groupResult] saving match — league_id:", leagueId, "winner_id:", winnerId, "loser_id:", loserId);
     const { error: matchSaveErr } = await supabase.from("matches").upsert({
       league_id: leagueId,
-      winner_id: winnerId,
-      loser_id: loserId,
-      score: scoreData,
-      date: new Date().toISOString(),
+      winner_id: winnerId ?? null,
+      loser_id:  loserId  ?? null,
+      score:     entry,
+      date:      new Date().toISOString(),
     });
     if (matchSaveErr) {
-      console.error("[groupResult] SAVE FAILED", {
+      console.error("[groupResult] save failed", {
         message: matchSaveErr.message,
         details: matchSaveErr.details,
         hint:    matchSaveErr.hint,
         code:    matchSaveErr.code,
-        full:    matchSaveErr,
       });
-      window.alert(`Tournament save failed:\n${matchSaveErr.message}\n${matchSaveErr.hint || ""}`);
     }
 
     // Check if all group stage matches are now complete — if so, auto-generate knockout bracket
