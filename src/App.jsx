@@ -3403,7 +3403,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
       const newSettings = { ...(data?.settings || {}), bracket: updatedBracket };
       await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
-    } catch { /* best-effort */ }
+    } catch (e) { console.error("[tournament] _saveBracket failed:", e); }
   }, [leagueId]);
 
   // Save both groups state and optionally bracket in one write
@@ -3414,7 +3414,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     if (newGroupMatches !== undefined)  patch.groupMatches = newGroupMatches;
     if (newBracket !== undefined)       patch.bracket      = newBracket;
     const newSettings = { ...(data?.settings || {}), ...patch };
-    await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId).catch(() => {});
+    await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId).catch(e => console.error("[tournament] _saveGroupsState failed:", e));
     setRules(r => ({ ...r, ...patch }));
     if (newBracket !== undefined) setBracket(newBracket);
   }, [leagueId]);
@@ -3449,10 +3449,10 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       await supabase.from("matches").upsert({
         id: match.id, league_id: leagueId,
         winner_id: winnerId, loser_id: loserId,
-        is_comeback: false, is_tournament: true, tournament_stage: 'group',
+        is_comeback: false,
         score: entry, date: new Date().toISOString(),
       });
-    } catch { /* best-effort */ }
+    } catch (e) { console.error("[tournament] group match save failed:", e); }
 
     // Check if all group stage matches are now complete — if so, auto-generate knockout bracket
     const updatedFeed = [entry, ...feed.filter(m => m.id !== match.id)];
@@ -3511,11 +3511,13 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
           bracketMatchId: match.id, bracketRound: match.round, bracketRoundLabel,
           is_tournament: true, tournament_stage: bracketRoundLabel };
         setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
-        supabase.from("matches").upsert({
-          id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
-          is_comeback: false, is_tournament: true, tournament_stage: bracketRoundLabel,
-          score: entry, date: new Date().toISOString(),
-        }).then(() => {}).catch(() => {});
+        try {
+          await supabase.from("matches").upsert({
+            id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
+            is_comeback: false,
+            score: entry, date: new Date().toISOString(),
+          });
+        } catch (e) { console.error("[tournament] leg-2 match save failed:", e); }
       }
       return;
     }
@@ -3535,11 +3537,13 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       is_tournament: true, tournament_stage: bracketRoundLabel,
     };
     setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
-    supabase.from("matches").upsert({
-      id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
-      is_comeback: false, is_tournament: true, tournament_stage: bracketRoundLabel,
-      score: entry, date: new Date().toISOString(),
-    }).then(() => {}).catch(() => {});
+    try {
+      await supabase.from("matches").upsert({
+        id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
+        is_comeback: false,
+        score: entry, date: new Date().toISOString(),
+      });
+    } catch (e) { console.error("[tournament] bracket match save failed:", e); }
     const updated = applyBracketResult(bracket, match.id, winner, { p1Goals: Number(p1Goals)||0, p2Goals: Number(p2Goals)||0 });
     await _saveBracket(updated);
   }, [bracket, leagueId, players, _saveBracket]);
