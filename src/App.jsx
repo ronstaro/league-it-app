@@ -865,9 +865,35 @@ function HomeTab({
 }
 
 /* ── STATS TAB ── */
-function StatsTab({players, feed, isTournament = false}) {
+function StatsTab({players, feed, isTournament = false, groupMatches = [], bracket = null}) {
   const [sub,setSub] = useState("lb");
   const enriched = useMemo(()=>enrichPlayers(players,feed),[players,feed]);
+
+  // Combined feed for tournament mode: group results (matched by fixture ID) + bracket results
+  const tournamentFeed = useMemo(() => {
+    if (!isTournament) return feed;
+    const groupIds = new Set((groupMatches || []).map(m => m.id));
+    const groupResults = feed.filter(m => groupIds.has(m.id));
+    const bracketResults = [];
+    if (bracket?.rounds) {
+      for (const round of bracket.rounds) {
+        for (const match of round) {
+          if (match.winner && !match.isBye) {
+            const loserObj = match.winner.id === match.p1?.id ? match.p2 : match.p1;
+            bracketResults.push({
+              id: match.id,
+              winner: match.winner.name, loser: loserObj?.name || "",
+              winnerIds: match.winner.id ? [match.winner.id] : [],
+              loserIds:  loserObj?.id    ? [loserObj.id]    : [],
+              isDraw: false,
+            });
+          }
+        }
+      }
+    }
+    const groupIdSet = new Set(groupResults.map(m => m.id));
+    return [...groupResults, ...bracketResults.filter(m => !groupIdSet.has(m.id))];
+  }, [feed, isTournament, groupMatches, bracket]);
 
   function LbView() {
     const FALLBACK = {name:"N/A",wins:0,losses:0,gamesWon:0,gamesLost:0,totalPlayed:0,mvTrend:[0,0,0,0,0,0,0],partners:{}};
@@ -886,25 +912,54 @@ function StatsTab({players, feed, isTournament = false}) {
 
     // ── TOURNAMENT AWARDS (computed from tournament-only matches) ──
     if (isTournament) {
-      const tFeed = feed.filter(m => m.is_tournament);
+      // Source 1: group stage results — match feed entries by fixture ID
+      const groupIds = new Set((groupMatches || []).map(m => m.id));
+      const groupResults = feed.filter(m => groupIds.has(m.id));
+
+      // Source 2: bracket results — walk rounds, collect completed matches
+      const bracketResults = [];
+      if (bracket?.rounds) {
+        for (const round of bracket.rounds) {
+          for (const match of round) {
+            if (match.winner && !match.isBye) {
+              const loserObj = match.winner.id === match.p1?.id ? match.p2 : match.p1;
+              const sc = match.score || {};
+              bracketResults.push({
+                winner: match.winner.name, loser: loserObj?.name || "",
+                winnerIds: match.winner.id ? [match.winner.id] : [],
+                loserIds:  loserObj?.id    ? [loserObj.id]    : [],
+                p1Goals: sc.p1Goals, p2Goals: sc.p2Goals,
+                p1Name: match.p1?.name, p2Name: match.p2?.name,
+                isDraw: false, is_tournament: true,
+                bracketRoundLabel: match.bracketRoundLabel || "",
+              });
+            }
+          }
+        }
+      }
+
+      const combinedMatches = [...groupResults, ...bracketResults];
+      console.log("[Stats-Sync] Matches found for stats:", combinedMatches.length, "| group:", groupResults.length, "| bracket:", bracketResults.length);
+
       const pStats = {};
-      for (const p of players) pStats[p.name] = { name: p.name, wins: 0, losses: 0, played: 0, gf: 0, ga: 0, bestStreak: 0, streak: 0 };
-      for (const m of tFeed) {
-        // Goals
+      for (const p of players) pStats[p.name] = { id: p.id, name: p.name, wins: 0, losses: 0, played: 0, gf: 0, ga: 0, bestStreak: 0, streak: 0 };
+
+      for (const m of combinedMatches) {
+        // Goals — prefer explicit p1/p2 fields (group matches), fall back to sets parse (bracket)
         if (m.p1Name != null && m.p1Goals != null) {
           const a = pStats[m.p1Name], b = pStats[m.p2Name];
           if (a) { a.gf += Number(m.p1Goals)||0; a.ga += Number(m.p2Goals)||0; }
           if (b) { b.gf += Number(m.p2Goals)||0; b.ga += Number(m.p1Goals)||0; }
         } else if (m.sets?.length && m.winner && m.loser) {
           const raw = (m.sets[0]||"").replace(/–/g,"-").replace(/\[.*?\]/g,"");
-          const [a,b] = raw.split("-").map(Number);
-          if (!isNaN(a)&&!isNaN(b)) {
-            const wg=Math.max(a,b), lg=Math.min(a,b);
+          const [ga,gb] = raw.split("-").map(Number);
+          if (!isNaN(ga)&&!isNaN(gb)) {
+            const wg=Math.max(ga,gb), lg=Math.min(ga,gb);
             if (pStats[m.winner]) { pStats[m.winner].gf+=wg; pStats[m.winner].ga+=lg; }
             if (pStats[m.loser])  { pStats[m.loser].gf+=lg;  pStats[m.loser].ga+=wg; }
           }
         }
-        // W/L
+        // Win / loss / streak
         if (!m.isDraw) {
           if (m.winner && pStats[m.winner]) { const p=pStats[m.winner]; p.wins++; p.played++; p.streak++; p.bestStreak=Math.max(p.bestStreak,p.streak); }
           if (m.loser  && pStats[m.loser])  { const p=pStats[m.loser];  p.losses++; p.played++; p.streak=0; }
@@ -922,7 +977,8 @@ function StatsTab({players, feed, isTournament = false}) {
       const byGF   = pArr.length ? [...pArr].sort((a,b)=>b.gf-a.gf)[0]           : FALLBACK_P;
       const byGA   = pArr.length ? [...pArr].sort((a,b)=>a.ga-b.ga)[0]           : FALLBACK_P;
       const bySieve= pArr.length ? [...pArr].sort((a,b)=>b.ga-a.ga)[0]           : FALLBACK_P;
-      const finalMatch = tFeed.find(m => m.tournament_stage==="FINAL"||m.bracketRoundLabel==="FINAL");
+      const finalMatch = combinedMatches.find(m => m.tournament_stage==="FINAL"||m.bracketRoundLabel==="FINAL")
+        || bracketResults.find(m => m.bracketRoundLabel==="FINAL");
       const champName = finalMatch?.winner || null;
       const T_AWARDS = [
         {icon:"🏆",lbl:"THE WINNER",         lc:"rgba(255,215,0,.8)",  sc:"#FFD700", bdr:"rgba(255,215,0,.25)",  name:champName||"TBD",     bigNum:champName?"🥇":"—",  unit:"CHAMPION",   stat:"Tournament Champion"},
@@ -933,8 +989,11 @@ function StatsTab({players, feed, isTournament = false}) {
         {icon:"🧱",lbl:"THE WALL",            lc:"rgba(170,255,0,.7)",  sc:N,         bdr:"rgba(170,255,0,.2)",   name:byGA.name,            bigNum:byGA.ga,             unit:"CONCEDED",   stat:"Fewest goals conceded"},
         {icon:"🕳️",lbl:"THE SIEVE",           lc:"rgba(255,107,53,.7)", sc:"#FF6B35", bdr:"rgba(255,107,53,.2)",  name:bySieve.name,         bigNum:bySieve.ga,          unit:"CONCEDED",   stat:"Most goals conceded"},
       ];
-      const me = enriched.find(p => p.isMe);
-      const meStats = me ? pStats[me.name] : null;
+      const me = enriched.find(p => p.isMe) || players.find(p => p.isMe);
+      // Look up by name first; fall back to ID match in case name changed
+      const meStats = me
+        ? (pStats[me.name] || Object.values(pStats).find(s => s.id === me.id) || null)
+        : null;
       return (
         <div>
           {meStats && (
@@ -1069,39 +1128,41 @@ function StatsTab({players, feed, isTournament = false}) {
     const rivals = players.filter(p => !p.isMe);
     const rival  = rivalId ? players.find(p => p.id === rivalId) : null;
 
-    // ── Dynamic H2H from feed ───────────────────────────────
+    // ── Dynamic H2H from feed (uses tournamentFeed in tournament mode) ───────────────────────────────
     const h2h = useMemo(() => {
       if (!rival || !me) return null;
       let w = 0, l = 0;
-      (feed || []).forEach(m => {
+      (tournamentFeed || []).forEach(m => {
         const wIds = m.winnerIds || [];
         const lIds = m.loserIds  || [];
-        const meW  = wIds.includes(me.id),   meL  = lIds.includes(me.id);
-        const rivW = wIds.includes(rival.id), rivL = lIds.includes(rival.id);
+        const meId = String(me.id), rivId = String(rival.id);
+        const meW  = wIds.map(String).includes(meId),   meL  = lIds.map(String).includes(meId);
+        const rivW = wIds.map(String).includes(rivId), rivL = lIds.map(String).includes(rivId);
         if ((meW || meL) && (rivW || rivL)) {
           if (meW && rivL) w++;
           else if (meL && rivW) l++;
         }
       });
       return { w, l };
-    }, [rival, me, feed]);
+    }, [rival, me, tournamentFeed]);
 
     // ── Mini-Games Balance (total games won/lost in H2H matches) ──
     const mgBalance = useMemo(() => {
       if (!rival || !me) return { my: 0, their: 0 };
       let my = 0, their = 0;
-      (feed || []).forEach(m => {
+      (tournamentFeed || []).forEach(m => {
         const wIds = m.winnerIds || [];
         const lIds = m.loserIds  || [];
-        const meW  = wIds.includes(me.id),   meL  = lIds.includes(me.id);
-        const rivW = wIds.includes(rival.id), rivL = lIds.includes(rival.id);
+        const meId = String(me.id), rivId = String(rival.id);
+        const meW  = wIds.map(String).includes(meId),   meL  = lIds.map(String).includes(meId);
+        const rivW = wIds.map(String).includes(rivId), rivL = lIds.map(String).includes(rivId);
         if ((meW || meL) && (rivW || rivL)) {
           if (meW) { my += countGames(m.sets,"w"); their += countGames(m.sets,"l"); }
           else     { my += countGames(m.sets,"l"); their += countGames(m.sets,"w"); }
         }
       });
       return { my, their };
-    }, [rival, me, feed]);
+    }, [rival, me, tournamentFeed]);
 
     const total = h2h ? h2h.w + h2h.l : 0;
     const yp    = total ? Math.round(h2h.w / total * 100) : 50;
@@ -3875,7 +3936,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                onGroupMatchTap={m => setTournamentModal({ match: m, type: "group", contextLabel: `Group ${m.groupName}` })}
                advancingPerGroup={rules?.groupSettings?.advancingPerGroup || 2}
              />,
-    stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament}/>,
+    stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament} groupMatches={groupMatches} bracket={bracket}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw}/>,
     profile: isAdmin && !myPlayer
       ? <AdminDashboard players={enrichedPlayers} feed={feed} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches}/>
