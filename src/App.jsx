@@ -803,15 +803,19 @@ function HomeTab({
         <ChevronRight size={18} style={{color:N,flexShrink:0,position:"relative",zIndex:10}}/>
       </div>
 
-      <ST>⚡ League Feed</ST>
-      {visible.map(m=><FeedCard key={m.id} m={m} onEdit={onEditFeed} onDelete={onDeleteFeed} canDelete={isAdmin||(myPlayerId&&(m.winnerIds?.includes(myPlayerId)||m.loserIds?.includes(myPlayerId)))} players={players}/>)}
-      {/* Load More — shows only if feed > 5 entries */}
-      {feed.length>5&&!showAll&&(
-        <button onClick={()=>setShowAll(true)}
-          className="w-full rounded-[16px] py-3.5 font-bold text-sm hover:opacity-80 mb-4"
-          style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",color:"rgba(255,255,255,.5)",fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
-          ↓ Load {feed.length-5} More Matches
-        </button>
+      {/* League feed — classic leagues only; tournament results live in group tables + bracket */}
+      {!isTournament && (
+        <>
+          <ST>⚡ League Feed</ST>
+          {visible.map(m=><FeedCard key={m.id} m={m} onEdit={onEditFeed} onDelete={onDeleteFeed} canDelete={isAdmin||(myPlayerId&&(m.winnerIds?.includes(myPlayerId)||m.loserIds?.includes(myPlayerId)))} players={players}/>)}
+          {feed.length>5&&!showAll&&(
+            <button onClick={()=>setShowAll(true)}
+              className="w-full rounded-[16px] py-3.5 font-bold text-sm hover:opacity-80 mb-4"
+              style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",color:"rgba(255,255,255,.5)",fontFamily:"'DM Sans',sans-serif",cursor:"pointer"}}>
+              ↓ Load {feed.length-5} More Matches
+            </button>
+          )}
+        </>
       )}
     </div>
   );
@@ -1867,10 +1871,12 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, matchL
 
   const roundLabel = (ri) => {
     const n = rounds.length;
-    if (ri === n - 1) return "FINAL";
-    if (ri === n - 2 && n > 2) return "SEMI-FINAL";
-    if (ri === n - 3 && n > 3) return "QTR-FINAL";
-    return `ROUND ${ri + 1}`;
+    const fromEnd = n - 1 - ri; // 0 = final, 1 = semis, 2 = quarters, 3 = R16...
+    if (fromEnd === 0) return "Grand Final";
+    if (fromEnd === 1) return n <= 2 ? "Grand Final" : "Semi-Finals";
+    if (fromEnd === 2) return "Quarter-Finals";
+    const playersAtRound = rounds[ri].length * 2;
+    return `Round of ${playersAtRound}`;
   };
 
   const matchTop = (roundIdx, matchIdx) =>
@@ -1905,6 +1911,8 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, matchL
                 const showLegs  = matchLegs === 2 && (match.leg1 || match.leg2);
                 const aggP1     = (Number(match.leg1?.p1Goals)||0) + (Number(match.leg2?.p1Goals)||0);
                 const aggP2     = (Number(match.leg1?.p2Goals)||0) + (Number(match.leg2?.p2Goals)||0);
+                // Single-leg score from stored match.score field
+                const singleScore = !showLegs && match.score ? match.score : null;
 
                 return (
                   <div key={match.id} style={{
@@ -1971,12 +1979,22 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, matchL
                               {/* Aggregate score badge for 2-leg */}
                               {showLegs && aggGoals !== null && (
                                 <span style={{
-                                  fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 800,
+                                  fontFamily: "'Bebas Neue',sans-serif", fontSize: 13, fontWeight: 800,
                                   color: isWinner ? N : isLoser ? "rgba(255,255,255,.3)" : "rgba(255,255,255,.5)",
                                   minWidth: 14, textAlign: "right", flexShrink: 0,
                                 }}>{aggGoals}</span>
                               )}
-                              {isWinner && !showLegs && <div style={{ width: 5, height: 5, borderRadius: "50%", background: N, flexShrink: 0 }}/>}
+                              {/* Single-leg score on completed cards */}
+                              {singleScore && (
+                                <span style={{
+                                  fontFamily: "'Bebas Neue',sans-serif", fontSize: 13,
+                                  color: isWinner ? N : isLoser ? "rgba(255,255,255,.28)" : "rgba(255,255,255,.4)",
+                                  minWidth: 14, textAlign: "right", flexShrink: 0,
+                                }}>
+                                  {pi === 0 ? singleScore.p1Goals : singleScore.p2Goals}
+                                </span>
+                              )}
+                              {isWinner && !showLegs && !singleScore && <div style={{ width: 5, height: 5, borderRadius: "50%", background: N, flexShrink: 0 }}/>}
                             </div>
                           );
                         })}
@@ -2508,6 +2526,267 @@ function GroupResultSheet({ match, onResult, onClose }) {
 }
 
 // ─────────────────────────────────────────────
+// TOURNAMENT LOG MODAL (full-screen, locked participants)
+// ─────────────────────────────────────────────
+function TournamentLogModal({ match, matchType, matchLegs = 1, contextLabel = "", onGroupResult, onBracketResult, onClose }) {
+  if (!match) return null;
+  const [p1Score, setP1Score] = useState("");
+  const [p2Score, setP2Score] = useState("");
+  const [tieWinner, setTieWinner] = useState(null); // "p1"|"p2" — only for tied bracket matches
+  const [saved, setSaved] = useState(false);
+
+  const p1 = match.p1 || {};
+  const p2 = match.p2 || {};
+  const isBracket = matchType === "bracket";
+  const isLeg2    = isBracket && matchLegs === 2 && match.leg1 && !match.leg2;
+  const isLeg1Only = isBracket && matchLegs === 2 && !match.leg1;
+
+  const p1n = Number(p1Score) || 0;
+  const p2n = Number(p2Score) || 0;
+  const scoresEntered = p1Score !== "" && p2Score !== "";
+  const isTied  = scoresEntered && p1n === p2n;
+  // Bracket needs a winner; group allows draw
+  const autoWinner = !scoresEntered ? null : p1n > p2n ? "p1" : p2n > p1n ? "p2" : null;
+  const winner     = autoWinner || (isBracket ? tieWinner : null);
+  const canSubmit  = scoresEntered && (!isBracket || winner !== null);
+
+  // Live aggregate for leg 2
+  const l1p1 = Number(match.leg1?.p1Goals) || 0;
+  const l1p2 = Number(match.leg1?.p2Goals) || 0;
+  const aggP1 = l1p1 + p1n;
+  const aggP2 = l1p2 + p2n;
+
+  const handleSubmit = () => {
+    if (!canSubmit) return;
+    setSaved(true);
+    setTimeout(() => {
+      if (!isBracket) {
+        onGroupResult?.({ match, p1Goals: String(p1n), p2Goals: String(p2n) });
+      } else {
+        const winnerObj = winner === "p1" ? p1 : p2;
+        const loserObj  = winner === "p1" ? p2 : p1;
+        onBracketResult?.({
+          match,
+          winner: winnerObj,
+          loser:  loserObj,
+          p1Goals: String(p1n),
+          p2Goals: String(p2n),
+          leg: isLeg2 ? 2 : 1,
+          isLeg1Only,
+        });
+      }
+      onClose();
+    }, 900);
+  };
+
+  const resultText = !scoresEntered ? null
+    : !isBracket && isTied ? "🤝 Draw"
+    : winner === "p1" ? `🏆 ${p1.name} wins`
+    : winner === "p2" ? `🏆 ${p2.name} wins`
+    : null;
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ background: "rgba(0,0,0,.92)", backdropFilter: "blur(20px)" }}
+      onClick={e => { if (e.target === e.currentTarget && !saved) onClose(); }}>
+
+      <motion.div
+        initial={{ scale: 0.92, opacity: 0, y: 24 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.93, opacity: 0, y: 12 }}
+        transition={{ type: "spring", stiffness: 380, damping: 30 }}
+        className="w-full flex flex-col rounded-[28px] overflow-hidden"
+        style={{
+          maxWidth: 400, maxHeight: "90vh",
+          background: "#0C0E13",
+          border: `2px solid ${N}`,
+          boxShadow: `0 0 0 1px rgba(170,255,0,.08),0 0 60px rgba(170,255,0,.2),0 28px 72px rgba(0,0,0,.8)`,
+        }}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 flex-shrink-0"
+          style={{ borderBottom: `1px solid rgba(170,255,0,.14)` }}>
+          <div>
+            {saved ? (
+              <h3 style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 26, letterSpacing: "2px", color: "#fff", lineHeight: 1 }}>
+                Result <span style={{ color: N }}>Saved!</span>
+              </h3>
+            ) : (
+              <h3 style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 26, letterSpacing: "2px", color: "#fff", lineHeight: 1 }}>
+                Log <span style={{ color: N }}>Result</span>
+              </h3>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+              {contextLabel && (
+                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: "1px",
+                  color: N, background: `${N}12`, border: `1px solid ${N}30`, borderRadius: 6, padding: "2px 7px" }}>
+                  {contextLabel}
+                </span>
+              )}
+              <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, color: "rgba(255,255,255,.3)",
+                background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)",
+                borderRadius: 5, padding: "2px 6px", fontWeight: 700 }}>🔒 LOCKED</span>
+            </div>
+          </div>
+          {!saved && (
+            <button onClick={onClose} className="flex items-center justify-center w-9 h-9 rounded-full"
+              style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)", cursor: "pointer" }}>
+              <X size={16} style={{ color: "rgba(255,255,255,.55)" }}/>
+            </button>
+          )}
+        </div>
+
+        {/* Body */}
+        {saved ? (
+          <div className="flex flex-col items-center justify-center py-12 gap-4">
+            <motion.div animate={{ scale: [0.5, 1.15, 1] }} transition={{ duration: 0.5 }}
+              style={{ width: 64, height: 64, borderRadius: "50%", background: `linear-gradient(135deg,${N},#7DC900)`,
+                display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Check size={28} color="#000" strokeWidth={3}/>
+            </motion.div>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 700, color: "rgba(255,255,255,.6)" }}>
+              {resultText}
+            </div>
+          </div>
+        ) : (
+          <div className="overflow-y-auto flex-1 px-5 py-5" style={{ WebkitOverflowScrolling: "touch" }}>
+
+            {/* Leg 2 banner — show locked leg 1 score */}
+            {isLeg2 && match.leg1 && (
+              <div style={{ borderRadius: 14, padding: "10px 14px", marginBottom: 18,
+                background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)",
+                display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.4)", fontWeight: 700 }}>
+                  Leg 1 (locked)
+                </div>
+                <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 18, letterSpacing: "2px", color: "rgba(255,255,255,.55)" }}>
+                  {match.leg1.p1Goals} – {match.leg1.p2Goals}
+                </div>
+              </div>
+            )}
+
+            {/* Score entry */}
+            <div style={{ display: "flex", alignItems: "stretch", gap: 12, marginBottom: 20 }}>
+              {/* P1 */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 52, height: 52, borderRadius: 16, flexShrink: 0,
+                  background: `linear-gradient(135deg,${p1.tier ? TIER_META[p1.tier]?.color || N : N},${p1.tier ? TIER_META[p1.tier]?.bg?.replace("rgba","").replace(","," ") || "#7DC900" : "#7DC900"})`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 20, fontWeight: 800, color: "#000", fontFamily: "'Bebas Neue',sans-serif" }}>
+                  {(p1.name || "?")[0].toUpperCase()}
+                </div>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700, color: "#fff",
+                  textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 100 }}>
+                  {p1.name || "Player 1"}
+                </div>
+                <input type="number" min="0" max="99" inputMode="numeric" value={p1Score}
+                  onChange={e => { setP1Score(e.target.value); setTieWinner(null); }}
+                  placeholder="0" style={{
+                    width: "100%", borderRadius: 16, padding: "14px 8px", textAlign: "center",
+                    fontFamily: "'Bebas Neue',sans-serif", fontSize: 42, lineHeight: 1, color: "#fff",
+                    background: "rgba(255,255,255,.06)",
+                    border: `2px solid ${p1Score !== "" ? (winner === "p1" ? N : "rgba(255,255,255,.25)") : "rgba(255,255,255,.12)"}`,
+                    outline: "none", caretColor: N,
+                  }}/>
+              </div>
+
+              {/* VS divider */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", paddingBottom: 8, gap: 6 }}>
+                <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 18, color: "rgba(255,255,255,.18)", letterSpacing: "2px" }}>
+                  {isLeg2 ? "LEG 2" : "VS"}
+                </div>
+                {scoresEntered && resultText && (
+                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 800,
+                    color: isTied && !isBracket ? "#3B8EFF" : N, textAlign: "center", whiteSpace: "nowrap" }}>
+                    {resultText}
+                  </div>
+                )}
+              </div>
+
+              {/* P2 */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 52, height: 52, borderRadius: 16, flexShrink: 0,
+                  background: "linear-gradient(135deg,#3B8EFF,#1a6be0)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 20, fontWeight: 800, color: "#fff", fontFamily: "'Bebas Neue',sans-serif" }}>
+                  {(p2.name || "?")[0].toUpperCase()}
+                </div>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700, color: "#fff",
+                  textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 100 }}>
+                  {p2.name || "Player 2"}
+                </div>
+                <input type="number" min="0" max="99" inputMode="numeric" value={p2Score}
+                  onChange={e => { setP2Score(e.target.value); setTieWinner(null); }}
+                  placeholder="0" style={{
+                    width: "100%", borderRadius: 16, padding: "14px 8px", textAlign: "center",
+                    fontFamily: "'Bebas Neue',sans-serif", fontSize: 42, lineHeight: 1, color: "#fff",
+                    background: "rgba(255,255,255,.06)",
+                    border: `2px solid ${p2Score !== "" ? (winner === "p2" ? "#3B8EFF" : "rgba(255,255,255,.25)") : "rgba(255,255,255,.12)"}`,
+                    outline: "none", caretColor: "#3B8EFF",
+                  }}/>
+              </div>
+            </div>
+
+            {/* Tiebreaker — bracket only when scores are equal */}
+            {isBracket && isTied && scoresEntered && (
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: "1.5px",
+                  color: "rgba(255,255,255,.35)", textAlign: "center", marginBottom: 10 }}>
+                  SCORES LEVEL — PICK WINNER (PENS / ET)
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {[{ key: "p1", player: p1 }, { key: "p2", player: p2 }].map(({ key, player }) => (
+                    <button key={key} onClick={() => setTieWinner(key)} style={{
+                      flex: 1, borderRadius: 14, padding: "12px 8px", cursor: "pointer", border: "none",
+                      background: tieWinner === key ? `linear-gradient(135deg,${N},#7DC900)` : "rgba(255,255,255,.06)",
+                      fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 800,
+                      color: tieWinner === key ? "#000" : "rgba(255,255,255,.55)",
+                      transition: "all .15s",
+                    }}>
+                      {player.name || `Player ${key === "p1" ? 1 : 2}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Live aggregate for leg 2 */}
+            {isLeg2 && scoresEntered && (
+              <div style={{ borderRadius: 14, padding: "12px 16px", marginBottom: 18, textAlign: "center",
+                background: `${N}08`, border: `1px solid ${N}22` }}>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: "1.5px",
+                  color: "rgba(255,255,255,.35)", marginBottom: 6 }}>AGGREGATE</div>
+                <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 28, letterSpacing: "3px",
+                  color: aggP1 !== aggP2 ? N : "#3B8EFF" }}>
+                  {aggP1} – {aggP2}
+                </div>
+                {aggP1 !== aggP2 && (
+                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 700, color: N, marginTop: 4 }}>
+                    {aggP1 > aggP2 ? p1.name : p2.name} advances
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Submit */}
+            <PBtn onClick={handleSubmit} disabled={!canSubmit}>
+              {!scoresEntered
+                ? "Enter Both Scores"
+                : isBracket && isTied && !tieWinner
+                  ? "Pick a Winner First"
+                  : isLeg1Only
+                    ? "Save Leg 1 Score"
+                    : "Save Result"}
+            </PBtn>
+          </div>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // GROUP STANDINGS TABLE
 // ─────────────────────────────────────────────
 const GROUP_COLORS = ["#AAFF00","#3B8EFF","#FFB830","#FF6B35","#AA55FF","#00E5CC","#FF3355","#FFD700"];
@@ -2869,8 +3148,8 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   const [pendingGroups,    setPendingGroups]    = useState(null);
   const [pendingGroupMatches, setPendingGroupMatches] = useState(null);
   const [generatingDraw,   setGeneratingDraw]   = useState(false);
-  const [bracketMatchModal,setBracketMatchModal]= useState(null);
-  const [groupMatchModal,  setGroupMatchModal]  = useState(null);
+  // Unified tournament match modal — holds { match, type: "bracket"|"group", contextLabel }
+  const [tournamentModal, setTournamentModal] = useState(null);
 
   const isTournament = rules?.tournamentFormat && rules.tournamentFormat !== "classic";
   const isAdmin      = !!(user?.id && ownerId && user.id === ownerId);
@@ -2964,7 +3243,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
 
   const handleGroupResult = useCallback(async ({ match, p1Goals, p2Goals }) => {
     if (!leagueId) return;
-    setGroupMatchModal(null);
+    setTournamentModal(null);
     const ts = nowTs();
     const p1g = Number(p1Goals) || 0;
     const p2g = Number(p2Goals) || 0;
@@ -3013,7 +3292,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
 
   const handleBracketResult = useCallback(async ({ match, winner, loser, p1Goals, p2Goals, leg, isLeg1Only }) => {
     if (!bracket || !leagueId) return;
-    setBracketMatchModal(null);
+    setTournamentModal(null);
 
     // Compute round label for feed display
     const totalRounds = bracket.rounds.length;
@@ -3072,7 +3351,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       id: match.id, league_id: leagueId, winner_id: winnerId, loser_id: loserId,
       is_comeback: false, is_tournament: true, score: entry, date: new Date().toISOString(),
     }).then(() => {}).catch(() => {});
-    const updated = applyBracketResult(bracket, match.id, winner);
+    const updated = applyBracketResult(bracket, match.id, winner, { p1Goals: Number(p1Goals)||0, p2Goals: Number(p2Goals)||0 });
     await _saveBracket(updated);
   }, [bracket, leagueId, players, _saveBracket]);
 
@@ -3207,6 +3486,18 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     }
   }, [leagueId]);
 
+  // Returns the human-readable round label for a bracket match (used in modal header)
+  const _bracketRoundLabel = (bkt, match) => {
+    if (!bkt?.rounds) return "";
+    const n = bkt.rounds.length;
+    const fromEnd = n - match.round;
+    if (fromEnd === 0) return "GRAND FINAL";
+    if (fromEnd === 1 && n > 1) return "SEMI-FINAL";
+    if (fromEnd === 2 && n > 2) return "QUARTER-FINAL";
+    const playersAtRound = bkt.rounds[match.round - 1]?.length * 2 || 0;
+    return playersAtRound ? `ROUND OF ${playersAtRound}` : `ROUND ${match.round}`;
+  };
+
   const myPlayer = players.find(p => p.isMe);
   const content = {
     home:    <HomeTab
@@ -3214,10 +3505,10 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                onEditFeed={handleEdit} onDeleteFeed={handleDeleteMatch}
                isAdmin={isAdmin} myPlayerId={myPlayer?.id || null}
                isTournament={isTournament} tournamentFormat={rules?.tournamentFormat || "classic"}
-               bracket={bracket} onMatchTap={m => setBracketMatchModal(m)}
+               bracket={bracket} onMatchTap={m => setTournamentModal({ match: m, type: "bracket", contextLabel: _bracketRoundLabel(bracket, m) })}
                onGenerateDraw={handleShowGenerateDraw} matchLegs={rules?.matchLegs || 1}
                groups={groups} groupMatches={groupMatches}
-               onGroupMatchTap={m => setGroupMatchModal(m)}
+               onGroupMatchTap={m => setTournamentModal({ match: m, type: "group", contextLabel: `Group ${m.groupName}` })}
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw}/>,
@@ -3313,22 +3604,16 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
           />
         )}
 
-        {bracketMatchModal && (
-          <BracketResultSheet
-            key="bracket-result"
-            match={bracketMatchModal}
+        {tournamentModal && (
+          <TournamentLogModal
+            key="tournament-log"
+            match={tournamentModal.match}
+            matchType={tournamentModal.type}
             matchLegs={rules?.matchLegs || 1}
-            onResult={handleBracketResult}
-            onClose={() => setBracketMatchModal(null)}
-          />
-        )}
-
-        {groupMatchModal && (
-          <GroupResultSheet
-            key="group-result"
-            match={groupMatchModal}
-            onResult={handleGroupResult}
-            onClose={() => setGroupMatchModal(null)}
+            contextLabel={tournamentModal.contextLabel}
+            onGroupResult={handleGroupResult}
+            onBracketResult={handleBracketResult}
+            onClose={() => setTournamentModal(null)}
           />
         )}
 
@@ -4098,13 +4383,15 @@ function applyBracketLeg(bracket, matchId, legNum, legData) {
   return b;
 }
 
-// Deep-clone bracket and set winner for a match; propagate to next round
-function applyBracketResult(bracket, matchId, winnerObj) {
+// Deep-clone bracket and set winner for a match; propagate to next round.
+// score = { p1Goals, p2Goals } — stored on the match so cards can display it.
+function applyBracketResult(bracket, matchId, winnerObj, score) {
   const b = JSON.parse(JSON.stringify(bracket));
   for (let ri = 0; ri < b.rounds.length; ri++) {
     const mi = b.rounds[ri].findIndex(m => m.id === matchId);
     if (mi === -1) continue;
     b.rounds[ri][mi].winner = winnerObj;
+    if (score) b.rounds[ri][mi].score = score;
     if (ri + 1 < b.rounds.length) {
       const nextMi    = Math.floor(mi / 2);
       const isP1Slot  = mi % 2 === 0;
