@@ -1043,24 +1043,28 @@ function DecisionTouchOverlay({ onClose }) {
       {/* Touch zone — fills all remaining viewport height */}
       <div style={{flex:1,overflow:"hidden"}}>
 
-        {/* Phase instructions / countdown / result — centered in touch zone */}
+        {/* Phase instructions / countdown / result — each phase is a full-screen fixed layer,
+            content centered via flexbox so Framer Motion's y/scale transforms never fight
+            the centering offset */}
         <AnimatePresence mode="wait">
           {phase==="waiting" && (
             <motion.div key="inst"
               initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-10}}
-              style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",
-                textAlign:"center",pointerEvents:"none",width:"80%",zIndex:5}}>
-              <motion.div animate={{scale:[1,1.12,1],opacity:[.5,1,.5]}} transition={{duration:2,repeat:Infinity}}>
-                <div style={{fontSize:48,marginBottom:12}}>☝️</div>
-              </motion.div>
-              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"3px",
-                color:"rgba(255,255,255,.85)",marginBottom:6}}>
-                {circles.length===0?"PLACE YOUR FINGERS":circles.length===1?"NEED 1 MORE...":"HOLD STILL..."}
-              </div>
-              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.28)"}}>
-                {circles.length===0
-                  ?(isTouchDev?"Everyone touch the screen at the same time":"Click to place fingers · 2+ to start")
-                  :circles.length===1?"At least 2 fingers required":""}
+              style={{position:"fixed",inset:0,display:"flex",alignItems:"center",justifyContent:"center",
+                pointerEvents:"none",zIndex:9999}}>
+              <div style={{textAlign:"center",width:"80%"}}>
+                <motion.div animate={{scale:[1,1.12,1],opacity:[.5,1,.5]}} transition={{duration:2,repeat:Infinity}}>
+                  <div style={{fontSize:48,marginBottom:12}}>☝️</div>
+                </motion.div>
+                <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"3px",
+                  color:"rgba(255,255,255,.85)",marginBottom:6}}>
+                  {circles.length===0?"PLACE YOUR FINGERS":circles.length===1?"NEED 1 MORE...":"HOLD STILL..."}
+                </div>
+                <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.28)"}}>
+                  {circles.length===0
+                    ?(isTouchDev?"Everyone touch the screen at the same time":"Click to place fingers · 2+ to start")
+                    :circles.length===1?"At least 2 fingers required":""}
+                </div>
               </div>
             </motion.div>
           )}
@@ -1068,19 +1072,21 @@ function DecisionTouchOverlay({ onClose }) {
           {phase==="countdown" && (
             <motion.div key="cd"
               initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
-              style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",
-                textAlign:"center",pointerEvents:"none",zIndex:5}}>
-              <AnimatePresence mode="wait">
-                <motion.div key={countdown}
-                  initial={{scale:1.7,opacity:0}} animate={{scale:1,opacity:1}}
-                  exit={{scale:.4,opacity:0}} transition={{duration:.28}}
-                  style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:100,letterSpacing:"4px",
-                    color:N,lineHeight:1,textShadow:`0 0 50px ${N}88`}}>
-                  {countdown}
-                </motion.div>
-              </AnimatePresence>
-              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.32)",marginTop:6}}>
-                Keep holding...
+              style={{position:"fixed",inset:0,display:"flex",alignItems:"center",justifyContent:"center",
+                pointerEvents:"none",zIndex:9999}}>
+              <div style={{textAlign:"center"}}>
+                <AnimatePresence mode="wait">
+                  <motion.div key={countdown}
+                    initial={{scale:1.7,opacity:0}} animate={{scale:1,opacity:1}}
+                    exit={{scale:.4,opacity:0}} transition={{duration:.28}}
+                    style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:100,letterSpacing:"4px",
+                      color:N,lineHeight:1,textShadow:`0 0 50px ${N}88`}}>
+                    {countdown}
+                  </motion.div>
+                </AnimatePresence>
+                <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.32)",marginTop:6}}>
+                  Keep holding...
+                </div>
               </div>
             </motion.div>
           )}
@@ -1088,23 +1094,25 @@ function DecisionTouchOverlay({ onClose }) {
           {phase==="winner" && (
             <motion.div key="win"
               initial={{opacity:0,scale:.85}} animate={{opacity:1,scale:1}}
-              style={{position:"absolute",top:"28%",left:"50%",transform:"translate(-50%,-50%)",
-                textAlign:"center",zIndex:11,pointerEvents:"auto",whiteSpace:"nowrap"}}>
-              <motion.div animate={{scale:[1,1.06,1]}} transition={{duration:.55,repeat:3}}
-                style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:30,letterSpacing:"4px",
-                  color:"#fff",marginBottom:6}}>
-                🏆 {winnerIds.length>1?"WINNERS CHOSEN!":"WINNER CHOSEN!"}
-              </motion.div>
-              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.38)",marginBottom:18}}>
-                {winnerIds.length>1?"The golden fingers are the chosen ones":"The golden finger is the chosen one"}
+              style={{position:"fixed",inset:0,display:"flex",alignItems:"center",justifyContent:"center",
+                pointerEvents:"none",zIndex:9999}}>
+              <div style={{textAlign:"center",pointerEvents:"auto"}}>
+                <motion.div animate={{scale:[1,1.06,1]}} transition={{duration:.55,repeat:3}}
+                  style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:32,letterSpacing:"4px",
+                    color:"#fff",marginBottom:8}}>
+                  🏆 {winnerIds.length>1?"WINNERS CHOSEN!":"WINNER CHOSEN!"}
+                </motion.div>
+                <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(255,255,255,.5)",marginBottom:24}}>
+                  {winnerIds.length>1?"The golden fingers are the chosen ones":"The golden finger is the chosen one"}
+                </div>
+                <button onClick={onClose}
+                  style={{padding:"14px 40px",borderRadius:14,
+                    background:`linear-gradient(135deg,${N},#7DC900)`,border:"none",
+                    fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,color:"#000",
+                    cursor:"pointer",boxShadow:"0 6px 22px rgba(170,255,0,.35)"}}>
+                  Done ✓
+                </button>
               </div>
-              <button onClick={onClose}
-                style={{padding:"12px 34px",borderRadius:14,
-                  background:`linear-gradient(135deg,${N},#7DC900)`,border:"none",
-                  fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:800,color:"#000",
-                  cursor:"pointer",boxShadow:"0 6px 22px rgba(170,255,0,.35)"}}>
-                Done ✓
-              </button>
             </motion.div>
           )}
         </AnimatePresence>
