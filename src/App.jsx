@@ -1598,8 +1598,25 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
               else if (p2wins) p2w++;
               else continue;
             }
-            if (m?.p1Name === p1Name)      { p1gf += Number(m?.p1Goals)||0; p2gf += Number(m?.p2Goals)||0; }
-            else if (m?.p2Name === p1Name) { p1gf += Number(m?.p2Goals)||0; p2gf += Number(m?.p1Goals)||0; }
+            // Group-stage feed entries have explicit p1Goals/p2Goals with named slots.
+            // League and bracket feed entries embed the score in sets[] as "winner–loser"
+            // strings (e.g. "3–2"), with no p1Name/p1Goals fields at all.
+            if (m?.p1Name === p1Name) {
+              p1gf += Number(m?.p1Goals)||0; p2gf += Number(m?.p2Goals)||0;
+            } else if (m?.p2Name === p1Name) {
+              p1gf += Number(m?.p2Goals)||0; p2gf += Number(m?.p1Goals)||0;
+            } else {
+              // sets-based fallback: skip 2-leg aggregate strings like "[1–0, 2–1] Agg"
+              const raw0 = (m?.sets||[])[0]?.toString() || "";
+              if (raw0 && !raw0.includes("[")) {
+                const wG = (m.sets||[]).reduce((a,s)=>{ const {w}=parseMG(s); return a+w; },0);
+                const lG = (m.sets||[]).reduce((a,s)=>{ const {l}=parseMG(s); return a+l; },0);
+                const p1isW = p1Obj?.id && (m?.winnerIds||[]).map(String).includes(String(p1Obj.id));
+                const p2isW = p2Obj?.id && (m?.winnerIds||[]).map(String).includes(String(p2Obj.id));
+                if (p1isW)      { p1gf += wG; p2gf += lG; }
+                else if (p2isW) { p2gf += wG; p1gf += lG; }
+              }
+            }
 
           } else if (source === "group") {
             const fx = raw;
