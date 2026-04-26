@@ -1711,7 +1711,6 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
                 <div className="flex items-center justify-center gap-4 mb-4">
                   <div className="text-center">
                     <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:52,letterSpacing:"2px",lineHeight:1,color:C1}}>{stats?.p1w ?? 0}</div>
-                    <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.35)",marginTop:4,fontFamily:"'DM Sans',sans-serif"}}>P1 WINS</div>
                   </div>
                   <div className="flex flex-col items-center gap-1">
                     <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,color:"rgba(255,255,255,.3)",lineHeight:1}}>{stats?.draws ?? 0}</div>
@@ -1719,7 +1718,6 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
                   </div>
                   <div className="text-center">
                     <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:52,letterSpacing:"2px",lineHeight:1,color:C2}}>{stats?.p2w ?? 0}</div>
-                    <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.35)",marginTop:4,fontFamily:"'DM Sans',sans-serif"}}>P2 WINS</div>
                   </div>
                 </div>
                 <div className="flex rounded-[8px] overflow-hidden" style={{height:14,background:"rgba(255,255,255,.08)"}}>
@@ -1738,9 +1736,14 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
                   const gp1 = totalG ? Math.round((stats?.p1gf??0)/totalG*100) : 50;
                   const gp2 = 100-gp1;
                   return (
-                    <div className="mt-4">
+                    <div className="mt-5">
                       <div style={{fontSize:8,fontWeight:800,letterSpacing:"1.5px",color:"rgba(255,255,255,.28)",
-                        fontFamily:"'DM Sans',sans-serif",textAlign:"center",marginBottom:8}}>TOTAL GOALS AGGREGATED</div>
+                        fontFamily:"'DM Sans',sans-serif",textAlign:"center",marginBottom:10}}>AGGREGATE SCORE</div>
+                      <div className="flex items-center justify-center gap-3 mb-3">
+                        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:52,letterSpacing:"2px",lineHeight:1,color:C1}}>{stats?.p1gf??0}</div>
+                        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:32,letterSpacing:"1px",lineHeight:1,color:"rgba(255,255,255,.22)"}}>—</div>
+                        <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:52,letterSpacing:"2px",lineHeight:1,color:C2}}>{stats?.p2gf??0}</div>
+                      </div>
                       <div className="flex rounded-[8px] overflow-hidden" style={{height:16,background:"rgba(255,255,255,.08)"}}>
                         <motion.div style={{background:"linear-gradient(90deg,#AAFF00,#7DC900)"}}
                           initial={{width:"0%"}} animate={{width:`${gp1}%`}} transition={{duration:.7}}/>
