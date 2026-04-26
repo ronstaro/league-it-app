@@ -1691,24 +1691,16 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
               <div className="rounded-t-[22px] px-5 py-5"
                 style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.09)",borderBottom:"none"}}>
                 <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",alignItems:"center",gap:0}}>
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="flex items-center justify-center rounded-full font-black"
-                      style={{width:52,height:52,background:p1Obj?pg(p1Obj):"linear-gradient(135deg,#AAFF00,#7DC900)",color:"#000",fontFamily:"'Bebas Neue',sans-serif",fontSize:16,flexShrink:0}}>
-                      {p1Obj?.initials || (p1Name?.slice(0,2).toUpperCase())}
-                    </div>
-                    <div style={{fontSize:13,fontWeight:700,color:"#fff",fontFamily:"'DM Sans',sans-serif",textAlign:"center",wordBreak:"break-word",maxWidth:90}}>{p1Name}</div>
-                    <div style={{fontSize:8,fontWeight:800,letterSpacing:"1.5px",color:C1,fontFamily:"'DM Sans',sans-serif"}}>P1</div>
+                  <div className="flex flex-col items-center">
+                    <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:24,letterSpacing:"1px",fontWeight:800,
+                      color:"#fff",textAlign:"center",wordBreak:"break-word",maxWidth:110,lineHeight:1.1}}>{p1Name}</div>
                   </div>
                   <div className="flex items-center justify-center" style={{padding:"0 12px"}}>
                     <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"2px",color:"rgba(255,255,255,.2)",lineHeight:1}}>VS</div>
                   </div>
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="flex items-center justify-center rounded-full font-black"
-                      style={{width:52,height:52,background:p2Obj?pg(p2Obj):"linear-gradient(135deg,#FF3355,#C0143C)",color:p2Obj?"#000":"#fff",fontFamily:"'Bebas Neue',sans-serif",fontSize:16,flexShrink:0}}>
-                      {p2Obj?.initials || (p2Name?.slice(0,2).toUpperCase())}
-                    </div>
-                    <div style={{fontSize:13,fontWeight:700,color:"#fff",fontFamily:"'DM Sans',sans-serif",textAlign:"center",wordBreak:"break-word",maxWidth:90}}>{p2Name}</div>
-                    <div style={{fontSize:8,fontWeight:800,letterSpacing:"1.5px",color:C2,fontFamily:"'DM Sans',sans-serif"}}>P2</div>
+                  <div className="flex flex-col items-center">
+                    <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:24,letterSpacing:"1px",fontWeight:800,
+                      color:"#fff",textAlign:"center",wordBreak:"break-word",maxWidth:110,lineHeight:1.1}}>{p2Name}</div>
                   </div>
                 </div>
               </div>
@@ -1741,20 +1733,27 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
                   <span style={{fontSize:10,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif"}}>{total} match{total!==1?"es":""}</span>
                   <span style={{fontSize:10,fontWeight:700,color:C2,fontFamily:"'DM Sans',sans-serif"}}>{total ? `${tp}%` : "—"}</span>
                 </div>
-                {((stats?.p1gf??0)+(stats?.p2gf??0)) > 0 && (
-                  <div className="flex items-center justify-between mt-4 rounded-[12px] px-4 py-3"
-                    style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.07)"}}>
-                    <div className="text-center">
-                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"1px",lineHeight:1,color:C1}}>{stats?.p1gf??0}</div>
-                      <div style={{fontSize:8,fontWeight:700,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>P1 GOALS</div>
+                {((stats?.p1gf??0)+(stats?.p2gf??0)) > 0 && (()=>{
+                  const totalG = (stats?.p1gf??0)+(stats?.p2gf??0);
+                  const gp1 = totalG ? Math.round((stats?.p1gf??0)/totalG*100) : 50;
+                  const gp2 = 100-gp1;
+                  return (
+                    <div className="mt-4">
+                      <div style={{fontSize:8,fontWeight:800,letterSpacing:"1.5px",color:"rgba(255,255,255,.28)",
+                        fontFamily:"'DM Sans',sans-serif",textAlign:"center",marginBottom:8}}>TOTAL GOALS AGGREGATED</div>
+                      <div className="flex rounded-[8px] overflow-hidden" style={{height:16,background:"rgba(255,255,255,.08)"}}>
+                        <motion.div style={{background:"linear-gradient(90deg,#AAFF00,#7DC900)"}}
+                          initial={{width:"0%"}} animate={{width:`${gp1}%`}} transition={{duration:.7}}/>
+                        <motion.div style={{background:"linear-gradient(90deg,#FF3355,#C0143C)"}}
+                          initial={{width:"0%"}} animate={{width:`${gp2}%`}} transition={{duration:.7,delay:.05}}/>
+                      </div>
+                      <div className="flex justify-between mt-2">
+                        <span style={{fontSize:10,fontWeight:700,color:C1,fontFamily:"'DM Sans',sans-serif"}}>{stats?.p1gf??0} goals</span>
+                        <span style={{fontSize:10,fontWeight:700,color:C2,fontFamily:"'DM Sans',sans-serif"}}>{stats?.p2gf??0} goals</span>
+                      </div>
                     </div>
-                    <div style={{fontSize:9,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.2)",fontFamily:"'DM Sans',sans-serif"}}>GOALS</div>
-                    <div className="text-center">
-                      <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,letterSpacing:"1px",lineHeight:1,color:C2}}>{stats?.p2gf??0}</div>
-                      <div style={{fontSize:8,fontWeight:700,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>P2 GOALS</div>
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* Verdict */}
