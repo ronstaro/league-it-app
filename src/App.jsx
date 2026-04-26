@@ -1041,7 +1041,7 @@ function DecisionTouchOverlay({ onClose }) {
       </div>
 
       {/* Touch zone — fills all remaining viewport height */}
-      <div style={{flex:1,position:"relative",overflow:"hidden"}}>
+      <div style={{flex:1,overflow:"hidden"}}>
 
         {/* Phase instructions / countdown / result — centered in touch zone */}
         <AnimatePresence mode="wait">
@@ -1290,9 +1290,7 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
         }
       }
 
-      console.log("[Stats-Sync] totalMatches:", totalMatches, "| players:", Object.values(pById).map(p => `${p.name}:${p.played}gp/${p.gf}gf/${p.ga}ga`).join(", "));
-
-      const pArr = Object.values(pById).filter(p => p.played > 0);
+      const pArr = Object.values(pByName).filter(p => p.played > 0);
       const FALLBACK_P = { name: "N/A", wins: 0, losses: 0, played: 0, gf: 0, ga: 0, bestStreak: 0 };
       const byStr   = pArr.length ? [...pArr].sort((a,b)=>b.bestStreak-a.bestStreak)[0] : FALLBACK_P;
       const byPlay  = pArr.length ? [...pArr].sort((a,b)=>b.played-a.played)[0]         : FALLBACK_P;
@@ -3037,7 +3035,7 @@ function BracketResultSheet({ match, matchLegs = 1, onResult, onClose }) {
   );
 
   const legLabel = isTwoLeg
-    ? (legToLog === 1 ? "LOG LEG 1" : "LOG LEG 2")
+    ? (legToLog === 1 ? "LEG 1" : "LEG 2")
     : "WHO WON?";
 
   let ctaLabel = "Pick a Winner";
