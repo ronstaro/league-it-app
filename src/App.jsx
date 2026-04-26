@@ -1711,6 +1711,9 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
                 <div className="flex items-center justify-center gap-4 mb-4">
                   <div className="text-center">
                     <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:52,letterSpacing:"2px",lineHeight:1,color:C1}}>{stats?.p1w ?? 0}</div>
+                    <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,.28)",marginTop:3,fontFamily:"'DM Sans',sans-serif",letterSpacing:"1px"}}>
+                      {(stats?.p1w??0)===1?"WIN":"WINS"}
+                    </div>
                   </div>
                   <div className="flex flex-col items-center gap-1">
                     <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:26,color:"rgba(255,255,255,.3)",lineHeight:1}}>{stats?.draws ?? 0}</div>
@@ -1718,6 +1721,9 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
                   </div>
                   <div className="text-center">
                     <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:52,letterSpacing:"2px",lineHeight:1,color:C2}}>{stats?.p2w ?? 0}</div>
+                    <div style={{fontSize:9,fontWeight:700,color:"rgba(255,255,255,.28)",marginTop:3,fontFamily:"'DM Sans',sans-serif",letterSpacing:"1px"}}>
+                      {(stats?.p2w??0)===1?"WIN":"WINS"}
+                    </div>
                   </div>
                 </div>
                 <div className="flex rounded-[8px] overflow-hidden" style={{height:14,background:"rgba(255,255,255,.08)"}}>
@@ -1731,7 +1737,7 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
                   <span style={{fontSize:10,color:"rgba(255,255,255,.28)",fontFamily:"'DM Sans',sans-serif"}}>{total} match{total!==1?"es":""}</span>
                   <span style={{fontSize:10,fontWeight:700,color:C2,fontFamily:"'DM Sans',sans-serif"}}>{total ? `${tp}%` : "—"}</span>
                 </div>
-                {((stats?.p1gf??0)+(stats?.p2gf??0)) > 0 && (()=>{
+                {total > 0 && (()=>{
                   const totalG = (stats?.p1gf??0)+(stats?.p2gf??0);
                   const gp1 = totalG ? Math.round((stats?.p1gf??0)/totalG*100) : 50;
                   const gp2 = 100-gp1;
@@ -1745,10 +1751,16 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
                         <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:52,letterSpacing:"2px",lineHeight:1,color:C2}}>{stats?.p2gf??0}</div>
                       </div>
                       <div className="flex rounded-[8px] overflow-hidden" style={{height:16,background:"rgba(255,255,255,.08)"}}>
-                        <motion.div style={{background:"linear-gradient(90deg,#AAFF00,#7DC900)"}}
-                          initial={{width:"0%"}} animate={{width:`${gp1}%`}} transition={{duration:.7}}/>
-                        <motion.div style={{background:"linear-gradient(90deg,#FF3355,#C0143C)"}}
-                          initial={{width:"0%"}} animate={{width:`${gp2}%`}} transition={{duration:.7,delay:.05}}/>
+                        {totalG > 0 ? (
+                          <>
+                            <motion.div style={{background:"linear-gradient(90deg,#AAFF00,#7DC900)"}}
+                              initial={{width:"0%"}} animate={{width:`${gp1}%`}} transition={{duration:.7}}/>
+                            <motion.div style={{background:"linear-gradient(90deg,#FF3355,#C0143C)"}}
+                              initial={{width:"0%"}} animate={{width:`${gp2}%`}} transition={{duration:.7,delay:.05}}/>
+                          </>
+                        ) : (
+                          <div style={{flex:1,background:"linear-gradient(90deg,#AAFF0022,#FF335522)"}}/>
+                        )}
                       </div>
                       <div className="flex justify-between mt-2">
                         <span style={{fontSize:10,fontWeight:700,color:C1,fontFamily:"'DM Sans',sans-serif"}}>{stats?.p1gf??0} goals</span>
