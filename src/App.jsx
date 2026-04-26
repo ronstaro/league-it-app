@@ -4615,13 +4615,13 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
 const NEON = N; // alias — same neon as app section
 
 const SPORTS = [
-  { id: "padel",        label: "Padel",      emoji: "🏸", sub: "Racket · Sets · Doubles"    },
-  { id: "footvolley",   label: "Footvolley", emoji: "🏖️", sub: "Beach · No hands · Fun"      },
-  { id: "volleyball",   label: "Volleyball", emoji: "🏐", sub: "Team · Rally scoring"         },
-  { id: "tennis",       label: "Tennis",     emoji: "🎾", sub: "Classic · Singles/Doubles"    },
-  { id: "pingpong",     label: "Ping Pong",  emoji: "🏓", sub: "Fast · Spin · 11 pts"         },
-  { id: "fifa",         label: "FIFA",       emoji: "🎮", sub: "Console · 6 min halves · 1v1" },
-  { id: "custom_sport", label: "Custom",     emoji: "⚙️", sub: "Name it, brand it, play it"  },
+  { id: "padel",        label: "Padel",      emoji: "🏸" },
+  { id: "footvolley",   label: "Footvolley", emoji: "🏖️" },
+  { id: "volleyball",   label: "Volleyball", emoji: "🏐" },
+  { id: "tennis",       label: "Tennis",     emoji: "🎾" },
+  { id: "pingpong",     label: "Ping Pong",  emoji: "🏓" },
+  { id: "fifa",         label: "FIFA",       emoji: "🎮" },
+  { id: "custom_sport", label: "Custom",     emoji: "⚙️" },
 ];
 
 const CUSTOM_SPORT_EMOJIS = [
@@ -5004,7 +5004,7 @@ function StepSport({ sport, setSport, customSportName, setCustomSportName, custo
                     setSport(s.id);
                     if (s.id !== "custom_sport") setCustomSportName("");
                   }}
-                  className="relative flex flex-col items-center text-center rounded-[22px] py-6 px-3 transition-all"
+                  className="relative flex flex-col items-center justify-center text-center rounded-[22px] py-6 px-3 transition-all"
                   style={{
                     gridColumn: s.id === "custom_sport" ? "span 2" : undefined,
                     background: selected ? "rgba(170,255,0,0.07)" : "rgba(255,255,255,0.03)",
@@ -5045,14 +5045,6 @@ function StepSport({ sport, setSport, customSportName, setCustomSportName, custo
                     {s.id === "custom_sport" && isCustom && customSportName.trim()
                       ? customSportName.trim()
                       : s.label}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 10, marginTop: 3, fontWeight: 500,
-                      color: "rgba(255,255,255,0.33)", fontFamily: "'DM Sans', sans-serif",
-                    }}
-                  >
-                    {s.sub}
                   </span>
                 </motion.button>
               );
