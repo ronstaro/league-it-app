@@ -5,7 +5,7 @@ import {
   Plus, X, Check, ChevronRight, TrendingUp, TrendingDown,
   Minus, Clock, Home, BarChart2, Users, User, Edit2,
   Camera, Settings, RotateCcw, UserPlus, UserMinus,
-  ChevronLeft, Trophy, Zap, Target, Hash, Copy,
+  ChevronLeft, Trophy, Layers, Target, Hash, Copy,
   MessageCircle, LayoutDashboard, Crown, Sparkles, ArrowRight, Trash2,
 } from "lucide-react";
 
@@ -122,7 +122,11 @@ const INIT_RULES = {format:"",scoring:"",sport:"",seasonYear:new Date().getFullY
 // Convert the league row (sport column + settings JSON) to the rules shape used by the UI
 function settingsToRules(leagueSport, settings) {
   const s = settings || {};
-  const formatMap = { single:"Single Set", best3:"Best of 3", points:`${s.points||21} Points`, custom_logic:"Custom Rules" };
+  const formatMap = {
+    goals:"High Score", sets:"Sets & Matches",
+    single:"Single Set", best3:"Best of 3",    // kept for backward compat with older leagues
+    points:`${s.points||21} Points`, custom_logic:"Custom Rules",
+  };
   const fmt = formatMap[s.format] || (typeof s.format === "string" && s.format) || "";
   const scoring = s.format === "points"
     ? `First to ${s.points||21} points`
@@ -4626,10 +4630,10 @@ const CUSTOM_SPORT_EMOJIS = [
 ];
 
 const FORMATS = [
-  { id: "single",       label: "Single Set",    Icon: Zap,      desc: "1 set decides everything — fastest format"   },
-  { id: "best3",        label: "Best of 3",     Icon: Target,   desc: "First to win 2 sets takes the match"         },
-  { id: "points",       label: "Points-Based",  Icon: Hash,     desc: "First to reach target points wins"           },
-  { id: "custom_logic", label: "Custom Rules",  Icon: Settings, desc: "Describe your specific house rules"          },
+  { id: "goals",        label: "High Score",     Icon: Trophy,   desc: "Most goals or points at the end of regulated time."          },
+  { id: "sets",         label: "Sets & Matches", Icon: Layers,   desc: "Standard set-based format for Tennis, Padel, or Volleyball." },
+  { id: "points",       label: "Target Score",   Icon: Target,   desc: "First to reach a specific score wins (e.g., 21 points)."     },
+  { id: "custom_logic", label: "Custom Format",  Icon: Settings, desc: "Describe your own specific house rules."                     },
 ];
 
 const PT_PRESETS = [11, 15, 21];
@@ -6180,7 +6184,7 @@ function StepRules({ format, setFormat, points, setPoints, customRules, setCusto
                         }}
                       >
                         {f.label}
-                        {f.id === "single" && (
+                        {f.id === "goals" && (
                           <span
                             style={{
                               fontSize: 8, fontWeight: 800, letterSpacing: "1px",
