@@ -7371,19 +7371,344 @@ function JoinTierScreen({ user, leagueId, onDone }) {
 // ─────────────────────────────────────────────
 // LOBBY SCREEN — Kahoot-style invite panel
 // ─────────────────────────────────────────────
-function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose }) {
-  const [livePlayers,   setLivePlayers]   = useState([]);
+// ─────────────────────────────────────────────
+// DRAW REVEAL — helper: flicker-resolve name
+// ─────────────────────────────────────────────
+function FlickerName({ name, isActive, delay = 0 }) {
+  const [display, setDisplay] = useState("▓▓▓▓▓▓▓▓");
+  const raf = useRef(null);
+  const CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#%$!";
+
+  useEffect(() => {
+    if (!isActive) return;
+    const DURATION = 720;
+    let started = false;
+    let startTs = null;
+
+    const tick = (now) => {
+      if (!started) {
+        if (!startTs) startTs = now + delay;
+        if (now < startTs) { raf.current = requestAnimationFrame(tick); return; }
+        started = true;
+        startTs = now;
+      }
+      const t = Math.min((now - startTs) / DURATION, 1);
+      const resolved = Math.floor(t * name.length);
+      let s = name.slice(0, resolved);
+      for (let i = resolved; i < name.length; i++) s += CHARS[Math.floor(Math.random() * CHARS.length)];
+      setDisplay(s || "▓");
+      if (t < 1) raf.current = requestAnimationFrame(tick);
+      else setDisplay(name);
+    };
+
+    raf.current = requestAnimationFrame(tick);
+    return () => { if (raf.current) cancelAnimationFrame(raf.current); };
+  }, [isActive, name, delay]);
+
+  return <>{display}</>;
+}
+
+// ─────────────────────────────────────────────
+// DRAW REVEAL — group card with staggered slots
+// ─────────────────────────────────────────────
+const GROUP_COLORS = ["#00BFFF","#39FF14","#FF1493","#FF6600","#9B59FF","#00FFCC","#FFD700"];
+
+function GroupRevealCard({ group, groupIndex, isVisible }) {
+  const [visCount, setVisCount] = useState(0);
+  const n = group.participants.length;
+
+  useEffect(() => {
+    if (!isVisible || visCount >= n) return;
+    const t = setTimeout(() => setVisCount(c => c + 1), visCount === 0 ? 320 : 490);
+    return () => clearTimeout(t);
+  }, [isVisible, visCount, n]);
+
+  const gc = GROUP_COLORS[groupIndex % GROUP_COLORS.length];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 44 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+      style={{ marginBottom: 22, borderRadius: 18, overflow: "hidden",
+        border: `1px solid ${gc}30`, background: "rgba(0,0,0,.72)", backdropFilter: "blur(10px)" }}
+    >
+      {/* Group header */}
+      <div style={{ padding: "11px 20px", background: `${gc}0d`,
+        borderBottom: `1px solid ${gc}20`, display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 11, letterSpacing: "5px",
+          color: gc, opacity: 0.65 }}>GROUP</div>
+        <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 30, color: gc, lineHeight: 1,
+          textShadow: `0 0 22px ${gc}` }}>
+          {group.name}
+        </div>
+        <div style={{ flex: 1 }} />
+        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10,
+          color: "rgba(255,255,255,.28)", letterSpacing: "1px" }}>
+          {n} PLAYERS
+        </div>
+      </div>
+
+      {/* Player slots */}
+      <div style={{ padding: "6px 0" }}>
+        {group.participants.map((p, i) => {
+          const tier   = p.tier;
+          const tm     = tier ? TIER_META[tier] : null;
+          const active = i < visCount;
+          return (
+            <motion.div key={p.id || p.name + i}
+              initial={{ opacity: 0, x: -18 }}
+              animate={active ? { opacity: 1, x: 0 } : {}}
+              transition={{ duration: 0.32, ease: "easeOut" }}
+              style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 20px",
+                borderBottom: i < n - 1 ? "1px solid rgba(255,255,255,.05)" : "none" }}
+            >
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11,
+                color: "rgba(255,255,255,.22)", width: 22, textAlign: "right", flexShrink: 0 }}>
+                {String(i + 1).padStart(2, "0")}
+              </div>
+
+              <div style={{ flex: 1, fontFamily: "'Bebas Neue',sans-serif", fontSize: 22,
+                letterSpacing: "1px", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis",
+                color: active ? (tm?.color || "#fff") : "rgba(255,255,255,.12)",
+                textShadow: active && tm ? `0 0 16px ${tm.color}88` : "none",
+                transition: "color .3s,text-shadow .3s" }}>
+                {active ? <FlickerName name={p.name} isActive delay={0} /> : "▓▓▓▓▓▓▓▓"}
+              </div>
+
+              {tier && active && (
+                <motion.div
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: 0.65, type: "spring", stiffness: 420, damping: 22 }}
+                  style={{ borderRadius: 8, padding: "3px 10px", background: tm.bg,
+                    border: `1px solid ${tm.border}`, fontFamily: "'DM Sans',sans-serif",
+                    fontSize: 11, fontWeight: 800, color: tm.color, flexShrink: 0,
+                    boxShadow: `0 0 12px ${tm.color}50` }}>
+                  {tier}
+                </motion.div>
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// DRAW REVEAL OVERLAY — fullscreen cinematic
+// ─────────────────────────────────────────────
+function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueName, leagueId, isAdmin, isSpectator = false, onConfirm }) {
+  const [visGroupCount, setVisGroupCount] = useState(0);
+  const [allRevealed,   setAllRevealed]   = useState(false);
   const [locking,       setLocking]       = useState(false);
-  const [locked,        setLocked]        = useState(false);
-  const [lobbyPin,      setLobbyPin]      = useState(null);
-  const [tournFormat,   setTournFormat]   = useState(null);
-  const [grpSettings,   setGrpSettings]   = useState({ playersPerGroup: 4, advancingPerGroup: 2 });
-  const [hasBracket,    setHasBracket]    = useState(false);
-  const [isSeeded,      setIsSeeded]      = useState(false);
-  const [commJoining,   setCommJoining]   = useState(false);
-  const [showTierModal, setShowTierModal] = useState(false);
-  const [generating,    setGenerating]    = useState(false);
-  const [generated,     setGenerated]     = useState(false);
+  const canvasRef = useRef(null);
+
+  const displayGroups = useMemo(() => {
+    if (tournFormat === "groups_knockout" || groups.length > 0) return groups;
+    if (bracket?.rounds?.length) {
+      return bracket.rounds.slice(0, 1).map((round, i) => ({
+        name: `ROUND ${i + 1}`,
+        participants: round
+          .flatMap(m => [m.p1, m.p2].filter(p => p && !p.isTBD))
+          .filter((p, idx, arr) => arr.findIndex(x => (x.id || x.name) === (p.id || p.name)) === idx),
+      }));
+    }
+    return [];
+  }, [groups, bracket, tournFormat]);
+
+  // Matrix rain canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const setSize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+    setSize();
+    window.addEventListener("resize", setSize);
+
+    const ctx = canvas.getContext("2d");
+    const CHARS = "01アイウカキクケコサシ#@$%";
+    let drops = Array(Math.floor(window.innerWidth / 18) + 1).fill(1);
+    let alive = true;
+
+    const draw = () => {
+      if (!alive) return;
+      ctx.fillStyle = "rgba(0,0,0,.055)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = "13px 'JetBrains Mono',monospace";
+      drops.forEach((y, i) => {
+        const bright = Math.random() > .88;
+        ctx.fillStyle = bright ? "rgba(170,255,0,.85)" : "rgba(0,70,0,.45)";
+        ctx.fillText(CHARS[Math.floor(Math.random() * CHARS.length)], i * 18, y * 18);
+        if (y * 18 > canvas.height && Math.random() > .974) drops[i] = 0;
+        drops[i]++;
+      });
+      requestAnimationFrame(draw);
+    };
+    draw();
+    return () => { alive = false; window.removeEventListener("resize", setSize); };
+  }, []);
+
+  // Sequential timed group reveals
+  useEffect(() => {
+    if (displayGroups.length === 0) { setTimeout(() => setAllRevealed(true), 2200); return; }
+    let time = 1900;
+    const timers = [];
+    displayGroups.forEach((g, i) => {
+      timers.push(setTimeout(() => setVisGroupCount(i + 1), time));
+      time += 340 + g.participants.length * 510 + 520;
+    });
+    timers.push(setTimeout(() => setAllRevealed(true), time + 400));
+    return () => timers.forEach(clearTimeout);
+  }, [displayGroups]);
+
+  const handleConfirm = async () => {
+    setLocking(true);
+    try {
+      const { data: lg } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
+      await supabase.from("leagues").update({
+        settings: { ...(lg?.settings || {}), lobbyState: "active" },
+      }).eq("id", leagueId);
+    } catch {}
+    setLocking(false);
+    onConfirm?.();
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 5000, background: "#000",
+      overflow: "hidden", display: "flex", flexDirection: "column" }}>
+
+      {/* Matrix rain */}
+      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, opacity: 0.17, pointerEvents: "none", zIndex: 0 }} />
+
+      {/* Horizontal scan lines */}
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 1,
+        backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.18) 2px,rgba(0,0,0,.18) 4px)" }} />
+
+      {/* Neon grid */}
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0,
+        backgroundImage: `linear-gradient(rgba(170,255,0,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(170,255,0,.025) 1px,transparent 1px)`,
+        backgroundSize: "44px 44px" }} />
+
+      {/* Header */}
+      <div style={{ position: "relative", zIndex: 2, textAlign: "center", padding: "26px 20px 14px", flexShrink: 0 }}>
+        <motion.div initial={{ opacity: 0, y: -28 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}>
+          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 10, letterSpacing: "7px",
+            color: "rgba(170,255,0,.55)", marginBottom: 4 }}>
+            {isSpectator ? "— DRAW IN PROGRESS —" : "— SEQUENCE INITIATED —"}
+          </div>
+          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 58, letterSpacing: "4px",
+            color: N, lineHeight: 1,
+            textShadow: `0 0 40px rgba(170,255,0,.9),0 0 90px rgba(170,255,0,.35)` }}>
+            DRAW REVEAL
+          </div>
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,.3)", marginTop: 5 }}>
+            {leagueName}
+          </div>
+        </motion.div>
+        <motion.div initial={{ scaleX: 0 }} animate={{ scaleX: 1 }}
+          transition={{ delay: 0.45, duration: 0.85, ease: "easeInOut" }}
+          style={{ height: 1, background: `linear-gradient(90deg,transparent,${N},transparent)`,
+            margin: "10px auto 0", maxWidth: 320, transformOrigin: "center" }} />
+      </div>
+
+      {/* Scrollable groups */}
+      <div style={{ flex: 1, overflowY: "auto", position: "relative", zIndex: 2, padding: "4px 20px 16px" }}>
+        <div style={{ maxWidth: 500, margin: "0 auto" }}>
+          <AnimatePresence>
+            {displayGroups.slice(0, visGroupCount).map((g, i) => (
+              <GroupRevealCard key={g.name} group={g} groupIndex={i} isVisible />
+            ))}
+          </AnimatePresence>
+
+          {/* "Next group loading" pulse */}
+          {visGroupCount > 0 && visGroupCount < displayGroups.length && (
+            <motion.div animate={{ opacity: [0.25, 1, 0.25] }} transition={{ repeat: Infinity, duration: 1.1 }}
+              style={{ textAlign: "center", padding: "14px 0", fontFamily: "'JetBrains Mono',monospace",
+                fontSize: 10, letterSpacing: "4px", color: "rgba(170,255,0,.55)" }}>
+              LOADING GROUP {String.fromCharCode(65 + visGroupCount)}...
+            </motion.div>
+          )}
+
+          {/* Initial "scanning..." before first group */}
+          {visGroupCount === 0 && (
+            <motion.div animate={{ opacity: [0.2, 0.8, 0.2] }} transition={{ repeat: Infinity, duration: 1.4 }}
+              style={{ textAlign: "center", padding: "40px 0", fontFamily: "'JetBrains Mono',monospace",
+                fontSize: 11, letterSpacing: "4px", color: "rgba(170,255,0,.5)" }}>
+              SCANNING DATABASE...
+            </motion.div>
+          )}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div style={{ position: "relative", zIndex: 2, padding: "12px 20px 36px", flexShrink: 0, textAlign: "center" }}>
+        <AnimatePresence>
+          {allRevealed && isAdmin && !isSpectator && (
+            <motion.div key="cta"
+              initial={{ opacity: 0, y: 28 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, type: "spring", stiffness: 180, damping: 18 }}>
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                animate={{ boxShadow: [
+                  `0 0 20px rgba(170,255,0,.35)`,
+                  `0 0 55px rgba(170,255,0,.75)`,
+                  `0 0 20px rgba(170,255,0,.35)`,
+                ]}}
+                transition={{ repeat: Infinity, duration: 1.8 }}
+                onClick={handleConfirm} disabled={locking}
+                style={{ width: "100%", maxWidth: 480, borderRadius: 18, padding: "20px",
+                  cursor: locking ? "not-allowed" : "pointer",
+                  background: `linear-gradient(135deg,${N},#7DC900)`,
+                  border: "none", fontFamily: "'Bebas Neue',sans-serif",
+                  fontSize: 28, letterSpacing: "3px", color: "#000",
+                  opacity: locking ? 0.7 : 1, display: "block", margin: "0 auto" }}>
+                {locking ? "LOCKING..." : "🔒  LOCK BRACKETS & START"}
+              </motion.button>
+            </motion.div>
+          )}
+
+          {allRevealed && isSpectator && (
+            <motion.div key="spec" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13,
+                color: "rgba(255,255,255,.38)", lineHeight: 1.6 }}>
+              Waiting for admin to lock brackets and start...
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {!allRevealed && displayGroups.length > 0 && (
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "3px",
+            color: "rgba(170,255,0,.28)" }}>
+            {visGroupCount} / {displayGroups.length} GROUPS REVEALED
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// LOBBY SCREEN
+// ─────────────────────────────────────────────
+function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose }) {
+  const [livePlayers,    setLivePlayers]    = useState([]);
+  const [locking,        setLocking]        = useState(false);
+  const [locked,         setLocked]         = useState(false);
+  const [lobbyPin,       setLobbyPin]       = useState(null);
+  const [tournFormat,    setTournFormat]    = useState(null);
+  const [grpSettings,    setGrpSettings]    = useState({ playersPerGroup: 4, advancingPerGroup: 2 });
+  const [hasBracket,     setHasBracket]     = useState(false);
+  const [isSeeded,       setIsSeeded]       = useState(false);
+  const [commJoining,    setCommJoining]    = useState(false);
+  const [showTierModal,  setShowTierModal]  = useState(false);
+  const [generating,     setGenerating]     = useState(false);
+  const [generated,      setGenerated]      = useState(false);
+  const [showDrawReveal, setShowDrawReveal] = useState(false);
+  const [drawGroups,     setDrawGroups]     = useState([]);
+  const [drawBracket,    setDrawBracket]    = useState(null);
+  const [drawSpectator,  setDrawSpectator]  = useState(false);
 
   const isAdmin      = !!(user?.id && ownerId && user.id === ownerId);
   const isTournament = !!(tournFormat && tournFormat !== "classic");
@@ -7394,14 +7719,21 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
     supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle()
       .then(({ data }) => {
         const s = data?.settings || {};
-        if (s.lobbyPin)                             setLobbyPin(s.lobbyPin);
-        if (s.lobbyState === "locked")              setLocked(true);
-        if (s.tournamentFormat)                     setTournFormat(s.tournamentFormat);
-        if (s.groupSettings)                        setGrpSettings(s.groupSettings);
-        if (s.bracket || s.groups?.length > 0)     setHasBracket(true);
+        if (s.lobbyPin)                              setLobbyPin(s.lobbyPin);
+        if (s.lobbyState === "locked")               setLocked(true);
+        if (s.tournamentFormat)                      setTournFormat(s.tournamentFormat);
+        if (s.groupSettings)                         setGrpSettings(s.groupSettings);
+        if (s.bracket || s.groups?.length > 0)      setHasBracket(true);
         if ((s.participants || []).some(p => p.tier)) setIsSeeded(true);
+        // Spectator: show draw overlay if admin already triggered it
+        if (s.lobbyState === "draw_in_progress" && !isAdmin) {
+          setDrawGroups(s.groups || []);
+          setDrawBracket(s.bracket || null);
+          setDrawSpectator(true);
+          setShowDrawReveal(true);
+        }
       }).catch(() => {});
-  }, [leagueId]);
+  }, [leagueId, isAdmin]);
 
   const displayPin = lobbyPin || (joinCode || "").toUpperCase();
   const joinUrl    = `https://league-it-app.vercel.app/join/${lobbyPin || joinCode || leagueId}`;
@@ -7463,15 +7795,24 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
       const { data: lg } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
       const base = { ...(lg?.settings || {}), participants };
       let newSettings;
+      let revealGroups = [];
+      let revealBracket = null;
       if (tournFormat === "groups_knockout") {
         const { groups: g, groupMatches: gm } = generateGroupStage(participants, grpSettings.playersPerGroup || 4);
-        newSettings = { ...base, groups: g, groupMatches: gm };
+        newSettings = { ...base, groups: g, groupMatches: gm, lobbyState: "draw_in_progress" };
+        revealGroups = g;
       } else {
-        newSettings = { ...base, bracket: generateKnockoutBracket(participants) };
+        const bkt = generateKnockoutBracket(participants);
+        newSettings = { ...base, bracket: bkt, lobbyState: "draw_in_progress" };
+        revealBracket = bkt;
       }
       await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
       setGenerated(true);
       setHasBracket(true);
+      setDrawGroups(revealGroups);
+      setDrawBracket(revealBracket);
+      setDrawSpectator(false);
+      setShowDrawReveal(true);
     } catch {}
     setGenerating(false);
   };
@@ -7480,6 +7821,22 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
     <div style={{ position:"fixed",inset:0,zIndex:2000,background:BG,display:"flex",flexDirection:"column",
       alignItems:"center",overflowY:"auto" }}>
       <GridBg/><GlowBlobs/>
+
+      {/* Fullscreen cinematic draw reveal */}
+      <AnimatePresence>
+        {showDrawReveal && (
+          <DrawRevealOverlay
+            groups={drawGroups}
+            bracket={drawBracket}
+            tournFormat={tournFormat}
+            leagueName={leagueName}
+            leagueId={leagueId}
+            isAdmin={isAdmin && !drawSpectator}
+            isSpectator={drawSpectator}
+            onConfirm={() => { setShowDrawReveal(false); onClose(); }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Tier picker modal — shown for commissioner on seeded tournaments */}
       <AnimatePresence>
