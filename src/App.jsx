@@ -5702,14 +5702,14 @@ const TIER_META = {
 };
 const TIER_ORDER = ["A", "B", "C", "D", "E"];
 
-function StepParticipants({ participants, setParticipants, onNext }) {
-  const [drawMode,   setDrawMode]   = useState(null);   // null | "simple" | "seeded"
+function StepParticipants({ participants, setParticipants, onNext, setIsLiveLobby = () => {} }) {
+  const [drawMode,   setDrawMode]   = useState(null);   // null | "simple" | "seeded" | "lobby"
   const [inputName,  setInputName]  = useState("");
   const [activeTier, setActiveTier] = useState("A");    // seeded mode only
   const inputRef = useRef(null);
 
   const MIN = 4;
-  const canContinue = participants.length >= MIN;
+  const canContinue = drawMode === "lobby" || participants.length >= MIN;
 
   // Focus input when mode is chosen
   useEffect(() => {
@@ -5737,11 +5737,8 @@ function StepParticipants({ participants, setParticipants, onNext }) {
     setParticipants(prev => prev.map(p => p.id === id ? { ...p, tier } : p));
 
   const switchMode = (mode) => {
-    // Preserve all names; normalise tiers for the new mode
-    if (mode === "simple") {
-      setParticipants(prev => prev.map(p => ({ ...p, tier: null })));
-    }
-    // Going to seeded: leave tiers as-is (null = unassigned, user can set)
+    if (mode === "simple") setParticipants(prev => prev.map(p => ({ ...p, tier: null })));
+    setIsLiveLobby(false);
     setDrawMode(mode);
   };
 
@@ -5754,41 +5751,52 @@ function StepParticipants({ participants, setParticipants, onNext }) {
             <StepHeading
               line1="Add"
               line2="Participants"
-              sub="How do you want to seed the draw?"
+              sub="How do you want players to join?"
             />
             <div className="flex flex-col gap-3">
               {[
-                { id: "simple", emoji: "🎲", label: "Simple Random Draw",   sub: "Add names — bracket is randomised automatically. Every player is equal." },
-                { id: "seeded", emoji: "🎯", label: "Seeded / Tiered Draw",  sub: "Assign Tiers A–E so stronger players are kept apart early on." },
+                { id: "simple", emoji: "🎲", label: "Add Manually — Simple",  sub: "Type player names — bracket is randomised automatically.", highlight: false },
+                { id: "seeded", emoji: "🎯", label: "Add Manually — Seeded",   sub: "Assign Tiers A–E so stronger players are kept apart early on.", highlight: false },
+                { id: "lobby",  emoji: "📲", label: "Open Live Lobby (QR)",    sub: "Players scan a QR code or type a PIN to join in real-time. No manual entry needed.", highlight: true  },
               ].map(opt => (
                 <motion.button
                   key={opt.id}
                   variants={fadeUp}
                   whileTap={{ scale: 0.97 }}
-                  onClick={() => switchMode(opt.id)}
+                  onClick={() => {
+                    if (opt.id === "lobby") {
+                      setIsLiveLobby(true);
+                      setDrawMode("lobby");
+                    } else {
+                      switchMode(opt.id);
+                    }
+                  }}
                   style={{
                     width: "100%", padding: "18px 20px", borderRadius: 22, cursor: "pointer",
                     display: "flex", alignItems: "center", gap: 16, textAlign: "left",
-                    background: "rgba(255,255,255,0.03)",
-                    border: "1.5px solid rgba(255,255,255,0.07)",
+                    background: opt.highlight ? "rgba(170,255,0,.06)" : "rgba(255,255,255,0.03)",
+                    border: opt.highlight ? `1.5px solid rgba(170,255,0,.4)` : "1.5px solid rgba(255,255,255,0.07)",
                     transition: "all 0.18s ease",
+                    boxShadow: opt.highlight ? "0 0 28px rgba(170,255,0,.1)" : "none",
                   }}
                 >
                   <div style={{
                     width: 52, height: 52, borderRadius: 16, flexShrink: 0, fontSize: 26,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                    background: opt.highlight ? "rgba(170,255,0,.1)" : "rgba(255,255,255,0.04)",
+                    border: opt.highlight ? `1px solid rgba(170,255,0,.3)` : "1px solid rgba(255,255,255,0.08)",
                   }}>{opt.emoji}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700, color: "#fff", lineHeight: 1, marginBottom: 5 }}>{opt.label}</div>
-                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,0.38)", lineHeight: 1.5 }}>{opt.sub}</div>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700,
+                      color: opt.highlight ? NEON : "#fff", lineHeight: 1, marginBottom: 5 }}>{opt.label}</div>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12,
+                      color: "rgba(255,255,255,0.38)", lineHeight: 1.5 }}>{opt.sub}</div>
                   </div>
-                  <ChevronRight size={18} style={{ color: "rgba(255,255,255,0.2)", flexShrink: 0 }} />
+                  <ChevronRight size={18} style={{ color: opt.highlight ? NEON : "rgba(255,255,255,0.2)", flexShrink: 0 }} />
                 </motion.button>
               ))}
             </div>
 
-            {/* If they already have participants (came back), show shortcut */}
             {participants.length > 0 && (
               <motion.div variants={fadeUp} style={{ marginTop: 16, textAlign: "center" }}>
                 <button
@@ -5801,6 +5809,46 @@ function StepParticipants({ participants, setParticipants, onNext }) {
             )}
           </motion.div>
         </div>
+      </div>
+    );
+  }
+
+  // ── LIVE LOBBY CONFIRMATION SCREEN ──────────────────────────────────────
+  if (drawMode === "lobby") {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex-1 overflow-y-auto px-5 pt-2 pb-4" style={{ WebkitOverflowScrolling: "touch" }}>
+          <motion.div variants={stagger(0.06)} initial="hidden" animate="show">
+            <StepHeading line1="Live" line2="Lobby" sub="Players will join using a PIN or QR code — no manual entry needed." />
+            <div className="flex flex-col gap-3 mb-5">
+              {[
+                { icon: "📲", text: "QR code and PIN shown after you launch the league" },
+                { icon: "⚡", text: "Players scan and appear in the lobby in real-time" },
+                { icon: "🏷️", text: "Assign or let players self-select their tier in the lobby" },
+                { icon: "🔒", text: "Lock the lobby to kick off the draw when everyone's in" },
+              ].map(item => (
+                <motion.div key={item.text} variants={fadeUp}
+                  className="flex items-center gap-3 rounded-[16px] px-4 py-3.5"
+                  style={{ background: "rgba(170,255,0,.05)", border: "1px solid rgba(170,255,0,.14)" }}>
+                  <span style={{ fontSize: 20, flexShrink: 0 }}>{item.icon}</span>
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,.75)", lineHeight: 1.4 }}>{item.text}</span>
+                </motion.div>
+              ))}
+            </div>
+            <motion.div variants={fadeUp} style={{ textAlign: "center" }}>
+              <button
+                onClick={() => { setIsLiveLobby(false); setDrawMode(null); }}
+                style={{ background: "none", border: "none", cursor: "pointer",
+                  fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,.35)", fontWeight: 600 }}
+              >
+                ← Switch to manual entry
+              </button>
+            </motion.div>
+          </motion.div>
+        </div>
+        <FixedFooter>
+          <PBtn onClick={onNext}>Continue → Launch Lobby</PBtn>
+        </FixedFooter>
       </div>
     );
   }
@@ -7051,6 +7099,86 @@ function StepProfile({ adminName, setAdminName, onNext }) {
 }
 
 // ─────────────────────────────────────────────
+// JOIN TIER SCREEN — shown to QR joiners of seeded tournaments
+// ─────────────────────────────────────────────
+function JoinTierScreen({ user, leagueId, onDone }) {
+  const [selected, setSelected] = useState(null);
+  const [saving,   setSaving]   = useState(false);
+
+  const handlePick = async (tier) => {
+    if (saving) return;
+    setSelected(tier);
+    setSaving(true);
+    try {
+      const { data: pRow } = await supabase.from("players").select("id,stats")
+        .eq("league_id", leagueId).eq("user_id", user.id).maybeSingle();
+      if (pRow) {
+        await supabase.from("players").update({ stats: { ...(pRow.stats || {}), tier } }).eq("id", pRow.id);
+      }
+    } catch {}
+    setSaving(false);
+    onDone();
+  };
+
+  return (
+    <div style={{ position:"fixed",inset:0,zIndex:3000,background:BG,display:"flex",flexDirection:"column",
+      alignItems:"center",justifyContent:"center",padding:"0 24px" }}>
+      <GridBg/><GlowBlobs/>
+      <div style={{ width:"100%",maxWidth:390,position:"relative",zIndex:1 }}>
+        <div style={{ textAlign:"center",marginBottom:32 }}>
+          <div style={{ fontFamily:"'Bebas Neue',sans-serif",fontSize:42,letterSpacing:"3px",color:"#fff",lineHeight:1 }}>
+            SELECT YOUR <span style={{ color:N }}>TIER</span>
+          </div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,.38)",marginTop:8 }}>
+            This helps the admin seed the bracket fairly
+          </div>
+        </div>
+        <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+          {TIER_ORDER.map(t => {
+            const meta = TIER_META[t];
+            const isSelected = selected === t;
+            return (
+              <motion.button key={t} whileTap={{ scale:.97 }}
+                onClick={() => handlePick(t)} disabled={saving}
+                style={{ width:"100%",borderRadius:18,padding:"16px 20px",cursor:"pointer",
+                  display:"flex",alignItems:"center",gap:14,textAlign:"left",
+                  background: isSelected ? meta.bg : "rgba(255,255,255,.03)",
+                  border: `1.5px solid ${isSelected ? meta.border : "rgba(255,255,255,.08)"}`,
+                  transition:"all .15s ease",opacity:saving&&!isSelected?.45:1 }}>
+                <div style={{ width:44,height:44,borderRadius:14,flexShrink:0,display:"flex",
+                  alignItems:"center",justifyContent:"center",
+                  background:meta.bg,border:`1px solid ${meta.border}` }}>
+                  <span style={{ fontFamily:"'Bebas Neue',sans-serif",fontSize:22,color:meta.color }}>{t}</span>
+                </div>
+                <div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:700,color:meta.color,lineHeight:1,marginBottom:3 }}>
+                    {meta.label}
+                  </div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(255,255,255,.38)" }}>
+                    {meta.desc}
+                  </div>
+                </div>
+                {isSelected && saving && (
+                  <div style={{ marginLeft:"auto",width:18,height:18,borderRadius:"50%",
+                    border:"2px solid transparent",borderTopColor:meta.color,
+                    animation:"spin .7s linear infinite",flexShrink:0 }}/>
+                )}
+              </motion.button>
+            );
+          })}
+        </div>
+        <div style={{ textAlign:"center",marginTop:20 }}>
+          <button onClick={onDone} style={{ background:"none",border:"none",cursor:"pointer",
+            fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(255,255,255,.28)",fontWeight:600 }}>
+            Skip for now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // LOBBY SCREEN — Kahoot-style invite panel
 // ─────────────────────────────────────────────
 function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose }) {
@@ -7259,6 +7387,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const [customSportEmoji,  setCustomSportEmoji]  = useState("🏆");
   const [tournamentFormat,  setTournamentFormat]  = useState("classic");
   const [participants,      setParticipants]      = useState([]);
+  const [isLiveLobby,       setIsLiveLobby]       = useState(false);
   const [reportingMode,     setReportingMode]     = useState("admin");
   const [groupSettings,     setGroupSettings]     = useState({ playersPerGroup: 4, advancingPerGroup: 2 });
   const [matchLegs,         setMatchLegs]         = useState(1);
@@ -7291,13 +7420,13 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
     setSaving(true);
     setCreateErr("");
     try {
-      await onFinish({ leagueName, adminName, sport, tournamentFormat, participants, reportingMode, groupSettings, matchLegs, format, points, customSportName, customSportEmoji, customRules, leagueCode });
+      await onFinish({ leagueName, adminName, sport, tournamentFormat, participants, reportingMode, groupSettings, matchLegs, format, points, customSportName, customSportEmoji, customRules, leagueCode, isLiveLobby });
     } catch (e) {
       console.error(e);
       setCreateErr("Something went wrong. Please try again.");
       setSaving(false);
     }
-  }, [saving, onFinish, leagueName, adminName, sport, tournamentFormat, participants, format, points, customSportName, customSportEmoji, customRules, leagueCode]);
+  }, [saving, onFinish, leagueName, adminName, sport, tournamentFormat, participants, format, points, customSportName, customSportEmoji, customRules, leagueCode, isLiveLobby]);
 
   const sportProps = { sport, setSport, customSportName, setCustomSportName, customSportEmoji, setCustomSportEmoji };
   const rulesProps = { format, setFormat, points, setPoints, customRules, setCustomRules };
@@ -7316,6 +7445,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
       <StepParticipants
         key="participants"
         participants={participants} setParticipants={setParticipants}
+        setIsLiveLobby={setIsLiveLobby}
         onNext={goNext}
       />,
       <StepReportingMode
@@ -8078,13 +8208,15 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
 // ROOT
 // ─────────────────────────────────────────────
 export default function Root() {
-  const [phase,         setPhase]         = useState("loading");
-  const [user,          setUser]          = useState(null);
+  const [phase,            setPhase]            = useState("loading");
+  const [user,             setUser]             = useState(null);
   const [leagues,          setLeagues]          = useState([]);
   const [activeData,       setActiveData]       = useState(null);
   const [profile,          setProfile]          = useState(null);
   const [pendingJoinId,    setPendingJoinId]    = useState(null);
   const [pendingJoinCode,  setPendingJoinCode]  = useState(null);
+  const [lobbyData,        setLobbyData]        = useState(null);   // { leagueId, joinCode, leagueName, ownerId }
+  const [pendingTierSelect,setPendingTierSelect]= useState(null);   // { leagueId } after auto-join seeded tournament
 
   // ── Hard 10-second loading timeout — completely independent from the auth
   //    effect so it can NEVER be cancelled by auth re-subscriptions or errors.
@@ -8279,9 +8411,12 @@ export default function Root() {
     (async () => {
       try {
         const result = await handleJoinLeague(pendingJoinCode);
-        if (result?.error && result.error !== "You're already in this league") {
-          // code not found or network error — silently clear
+        if (result?.success && result.isSeeded) {
+          // Seeded tournament — prompt player to pick their tier before entering lobby
+          setPendingTierSelect({ leagueId: result.leagueId });
+          setPhase("tier_select");
         }
+        // On error (not already-in), silently stay on hub
       } catch {}
       setPendingJoinCode(null);
     })();
@@ -8323,6 +8458,7 @@ export default function Root() {
       }
       if (!league) return { error: "League not found — check the code" };
       if (league.settings?.lobbyState === "locked") return { error: "This league is locked — the admin has closed the lobby" };
+      const isSeeded = (league.settings?.participants || []).some(p => p.tier);
       const { data: existing } = await supabase.from("players").select("id")
         .eq("league_id", league.id).eq("user_id", user.id).maybeSingle();
       if (existing) return { error: "You're already in this league" };
@@ -8333,7 +8469,7 @@ export default function Root() {
         stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:"🏸", mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
       });
       await loadLeagues(user.id);
-      return { success: true };
+      return { success: true, leagueId: league.id, isSeeded };
     } catch {
       return { error: "Network error — please try again" };
     }
@@ -8384,7 +8520,7 @@ export default function Root() {
     if (user) loadLeagues(user.id);
   }, [user, loadLeagues]);
 
-  const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, tournamentFormat, participants, reportingMode, groupSettings, matchLegs, format, points, customSportName, customSportEmoji, customRules, leagueCode }) => {
+  const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, tournamentFormat, participants, reportingMode, groupSettings, matchLegs, format, points, customSportName, customSportEmoji, customRules, leagueCode, isLiveLobby }) => {
     if (!user) throw new Error("Not logged in");
 
     const name        = leagueName?.trim() || "My League";
@@ -8424,9 +8560,14 @@ export default function Root() {
     }
 
     // Admin is NOT auto-added to players — they must use "Join as Player" inside the league view.
-    // Step 2: Reload leagues from DB then go to hub — guaranteed sync, no local state guessing ──
+    // Step 2: Reload leagues, then go to lobby (if live lobby) or hub
     try { await loadLeagues(user.id); } catch { /* ignore */ }
-    setPhase("hub");
+    if (isLiveLobby) {
+      setLobbyData({ leagueId, joinCode: code, leagueName: name, ownerId: user.id });
+      setPhase("lobby");
+    } else {
+      setPhase("hub");
+    }
   }, [user, profile, loadLeagues]);
 
   if (phase === "loading") return (
@@ -8490,6 +8631,23 @@ export default function Root() {
       onSquadPhotoUpdate={handleUpdateSquadPhoto}
       onAvatarUpdate={handleUpdateAvatar}
       joinCode={activeData.joinCode}
+    />
+  );
+  if (phase === "lobby" && lobbyData) return (
+    <LobbyScreen
+      leagueId={lobbyData.leagueId}
+      joinCode={lobbyData.joinCode}
+      leagueName={lobbyData.leagueName}
+      user={user}
+      ownerId={lobbyData.ownerId}
+      onClose={() => { setLobbyData(null); setPhase("hub"); }}
+    />
+  );
+  if (phase === "tier_select" && pendingTierSelect) return (
+    <JoinTierScreen
+      user={user}
+      leagueId={pendingTierSelect.leagueId}
+      onDone={() => { setPendingTierSelect(null); setPhase("hub"); }}
     />
   );
   if (phase === "wizard") return (
