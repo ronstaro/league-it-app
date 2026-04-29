@@ -7372,58 +7372,160 @@ function JoinTierScreen({ user, leagueId, onDone }) {
 // LOBBY SCREEN — Kahoot-style invite panel
 // ─────────────────────────────────────────────
 function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose }) {
-  const [livePlayers, setLivePlayers] = useState([]);
-  const [locking,     setLocking]     = useState(false);
-  const [locked,      setLocked]      = useState(false);
-  const [lobbyPin,    setLobbyPin]    = useState(null); // 6-digit numeric, fetched on mount
+  const [livePlayers,   setLivePlayers]   = useState([]);
+  const [locking,       setLocking]       = useState(false);
+  const [locked,        setLocked]        = useState(false);
+  const [lobbyPin,      setLobbyPin]      = useState(null);
+  const [tournFormat,   setTournFormat]   = useState(null);
+  const [grpSettings,   setGrpSettings]   = useState({ playersPerGroup: 4, advancingPerGroup: 2 });
+  const [hasBracket,    setHasBracket]    = useState(false);
+  const [isSeeded,      setIsSeeded]      = useState(false);
+  const [commJoining,   setCommJoining]   = useState(false);
+  const [showTierModal, setShowTierModal] = useState(false);
+  const [generating,    setGenerating]    = useState(false);
+  const [generated,     setGenerated]     = useState(false);
 
-  const isAdmin = !!(user?.id && ownerId && user.id === ownerId);
+  const isAdmin      = !!(user?.id && ownerId && user.id === ownerId);
+  const isTournament = !!(tournFormat && tournFormat !== "classic");
+  const commInLobby  = livePlayers.some(p => p.user_id === user?.id);
 
-  // Self-fetch the numeric pin and up-to-date lock state from DB
+  // Self-fetch all needed settings on mount
   useEffect(() => {
     supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle()
       .then(({ data }) => {
-        if (data?.settings?.lobbyPin)    setLobbyPin(data.settings.lobbyPin);
-        if (data?.settings?.lobbyState === "locked") setLocked(true);
+        const s = data?.settings || {};
+        if (s.lobbyPin)                             setLobbyPin(s.lobbyPin);
+        if (s.lobbyState === "locked")              setLocked(true);
+        if (s.tournamentFormat)                     setTournFormat(s.tournamentFormat);
+        if (s.groupSettings)                        setGrpSettings(s.groupSettings);
+        if (s.bracket || s.groups?.length > 0)     setHasBracket(true);
+        if ((s.participants || []).some(p => p.tier)) setIsSeeded(true);
       }).catch(() => {});
   }, [leagueId]);
 
-  // Display PIN: prefer numeric lobbyPin, fall back to alphanumeric joinCode
   const displayPin = lobbyPin || (joinCode || "").toUpperCase();
   const joinUrl    = `https://league-it-app.vercel.app/join/${lobbyPin || joinCode || leagueId}`;
   const qrUrl      = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(joinUrl)}&bgcolor=0a0a0a&color=aaff00&margin=14&format=png&ecc=M`;
 
   const fetchPlayers = useCallback(async () => {
-    if (!leagueId || locked) return;
+    if (!leagueId) return;
     try {
-      const { data } = await supabase.from("players").select("id,name,stats,created_at")
+      const { data } = await supabase.from("players")
+        .select("id,name,stats,created_at,user_id")
         .eq("league_id", leagueId).order("created_at", { ascending: true });
       if (data) setLivePlayers(data);
     } catch {}
-  }, [leagueId, locked]);
+  }, [leagueId]);
 
   useEffect(() => {
     fetchPlayers();
+    if (locked) return;
     const t = setInterval(fetchPlayers, 4000);
     return () => clearInterval(t);
-  }, [fetchPlayers]);
+  }, [fetchPlayers, locked]);
 
   const handleLock = async () => {
     if (!isAdmin || locking) return;
     setLocking(true);
     try {
       const { data: lg } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
-      const settings = { ...(lg?.settings || {}), lobbyState: "locked" };
-      await supabase.from("leagues").update({ settings }).eq("id", leagueId);
+      await supabase.from("leagues").update({ settings: { ...(lg?.settings||{}), lobbyState:"locked" } }).eq("id", leagueId);
       setLocked(true);
     } catch {}
     setLocking(false);
+  };
+
+  const doCommissionerJoin = async (tier = null) => {
+    if (!user || commInLobby || commJoining) return;
+    setCommJoining(true);
+    setShowTierModal(false);
+    try {
+      const name     = user.user_metadata?.full_name || user.email || "Commissioner";
+      const initials = name.trim().split(/\s+/).map(w => (w[0]||"").toUpperCase()).slice(0, 2).join("");
+      await supabase.from("players").insert({
+        league_id: leagueId, user_id: user.id, name, is_me: true,
+        stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat",
+                 sport:"🏸", mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0,
+                 tier: tier || null },
+      });
+      await fetchPlayers();
+    } catch {}
+    setCommJoining(false);
+  };
+
+  const handleGenerate = async () => {
+    if (!isAdmin || generating || generated || livePlayers.length < 2) return;
+    setGenerating(true);
+    try {
+      const participants = livePlayers.map(p => ({
+        id: p.id, name: p.name, tier: p.stats?.tier || null,
+      }));
+      const { data: lg } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
+      const base = { ...(lg?.settings || {}), participants };
+      let newSettings;
+      if (tournFormat === "groups_knockout") {
+        const { groups: g, groupMatches: gm } = generateGroupStage(participants, grpSettings.playersPerGroup || 4);
+        newSettings = { ...base, groups: g, groupMatches: gm };
+      } else {
+        newSettings = { ...base, bracket: generateKnockoutBracket(participants) };
+      }
+      await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
+      setGenerated(true);
+      setHasBracket(true);
+    } catch {}
+    setGenerating(false);
   };
 
   return (
     <div style={{ position:"fixed",inset:0,zIndex:2000,background:BG,display:"flex",flexDirection:"column",
       alignItems:"center",overflowY:"auto" }}>
       <GridBg/><GlowBlobs/>
+
+      {/* Tier picker modal — shown for commissioner on seeded tournaments */}
+      <AnimatePresence>
+        {showTierModal && (
+          <motion.div key="tier-modal"
+            initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+            style={{ position:"fixed",inset:0,zIndex:4000,background:"rgba(0,0,0,.8)",display:"flex",
+              alignItems:"center",justifyContent:"center",padding:"0 24px" }}>
+            <motion.div initial={{ scale:.9,y:20 }} animate={{ scale:1,y:0 }} exit={{ scale:.9,y:20 }}
+              style={{ width:"100%",maxWidth:360,borderRadius:24,background:"#141414",
+                border:"1px solid rgba(255,255,255,.1)",padding:"24px 20px" }}>
+              <div style={{ textAlign:"center",marginBottom:20 }}>
+                <div style={{ fontFamily:"'Bebas Neue',sans-serif",fontSize:28,letterSpacing:"2px",color:"#fff" }}>
+                  YOUR TIER
+                </div>
+                <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(255,255,255,.38)",marginTop:4 }}>
+                  Select your skill tier as Commissioner
+                </div>
+              </div>
+              <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                {TIER_ORDER.map(t => {
+                  const meta = TIER_META[t];
+                  return (
+                    <motion.button key={t} whileTap={{ scale:.97 }}
+                      onClick={() => doCommissionerJoin(t)}
+                      style={{ borderRadius:14,padding:"12px 16px",cursor:"pointer",display:"flex",
+                        alignItems:"center",gap:12,background:meta.bg,border:`1.5px solid ${meta.border}` }}>
+                      <span style={{ fontFamily:"'Bebas Neue',sans-serif",fontSize:22,color:meta.color,width:24 }}>{t}</span>
+                      <div>
+                        <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:700,color:meta.color }}>{meta.label}</div>
+                        <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.38)" }}>{meta.desc}</div>
+                      </div>
+                    </motion.button>
+                  );
+                })}
+              </div>
+              <button onClick={() => setShowTierModal(false)}
+                style={{ width:"100%",marginTop:14,background:"none",border:"none",cursor:"pointer",
+                  fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(255,255,255,.3)",fontWeight:600 }}>
+                Cancel
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div style={{ width:"100%",maxWidth:430,padding:"0 0 48px",position:"relative",zIndex:1 }}>
 
         {/* Header */}
@@ -7437,48 +7539,48 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
           </motion.button>
         </div>
 
-        {/* League name */}
+        {/* League name + total players counter */}
         <div style={{ textAlign:"center",padding:"14px 20px 0" }}>
           <div style={{ fontFamily:"'Bebas Neue',sans-serif",fontSize:28,letterSpacing:"4px",color:"#fff",lineHeight:1 }}>
             {leagueName || "LEAGUE"}
           </div>
-          <div style={{ fontSize:11,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:4 }}>
+          {/* Total players pill */}
+          <div style={{ display:"inline-flex",alignItems:"center",gap:8,marginTop:10,
+            borderRadius:20,padding:"6px 16px",
+            background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)" }}>
+            <Users size={13} style={{ color:N }}/>
+            <span style={{ fontFamily:"'Bebas Neue',sans-serif",fontSize:18,letterSpacing:"1px",color:N }}>
+              {livePlayers.length}
+            </span>
+            <span style={{ fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:600,color:"rgba(255,255,255,.4)" }}>
+              {livePlayers.length === 1 ? "Player Joined" : "Players Joined"}
+            </span>
+          </div>
+          <div style={{ fontSize:11,color:"rgba(255,255,255,.25)",fontFamily:"'DM Sans',sans-serif",marginTop:6 }}>
             {locked ? "Lobby locked — no new players can join" : "Waiting for players to join..."}
           </div>
         </div>
 
         {/* PIN display */}
-        <div style={{ margin:"18px 20px 0",borderRadius:20,padding:"20px",
+        <div style={{ margin:"16px 20px 0",borderRadius:20,padding:"20px",
           background:"rgba(170,255,0,.05)",border:`1.5px solid rgba(170,255,0,${locked?.15:.28})`,textAlign:"center" }}>
           <div style={{ fontSize:10,fontWeight:800,letterSpacing:"2.5px",color:"rgba(255,255,255,.3)",
             fontFamily:"'DM Sans',sans-serif",marginBottom:16 }}>GAME PIN</div>
-
-          {/* Individual digit boxes — large numeric style */}
           <div style={{ display:"flex",justifyContent:"center",gap:lobbyPin?10:7,marginBottom:16 }}>
             {displayPin.split("").map((ch, i) => (
               <motion.div key={i}
                 initial={{ opacity:0,y:20,scale:.6 }} animate={{ opacity:1,y:0,scale:1 }}
                 transition={{ delay:i*.06,type:"spring",stiffness:360,damping:22 }}
                 style={{ width:lobbyPin?52:44,height:lobbyPin?64:54,borderRadius:12,
-                  background:"rgba(170,255,0,.07)",
-                  border:`2px solid rgba(170,255,0,${locked?.1:.45})`,
+                  background:"rgba(170,255,0,.07)",border:`2px solid rgba(170,255,0,${locked?.1:.45})`,
                   display:"flex",alignItems:"center",justifyContent:"center",
-                  fontFamily:"'Bebas Neue',sans-serif",
-                  fontSize:lobbyPin?40:28,
-                  letterSpacing:0,
+                  fontFamily:"'Bebas Neue',sans-serif",fontSize:lobbyPin?40:28,letterSpacing:0,
                   color:locked?"rgba(170,255,0,.25)":N,
                   textShadow:locked?"none":`0 0 28px rgba(170,255,0,.7)` }}>
                 {ch}
               </motion.div>
             ))}
           </div>
-
-          {lobbyPin && (
-            <div style={{ fontSize:10,color:"rgba(255,255,255,.2)",fontFamily:"'DM Sans',sans-serif",marginBottom:12,letterSpacing:"1px" }}>
-              or share the link below
-            </div>
-          )}
-
           {locked ? (
             <div style={{ display:"inline-flex",alignItems:"center",gap:6,borderRadius:20,padding:"5px 14px",
               background:"rgba(255,51,85,.1)",border:"1px solid rgba(255,51,85,.3)" }}>
@@ -7488,35 +7590,55 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
           ) : (
             <div style={{ display:"inline-flex",alignItems:"center",gap:6,borderRadius:20,padding:"5px 14px",
               background:"rgba(170,255,0,.08)",border:"1px solid rgba(170,255,0,.2)" }}>
-              <div style={{ width:6,height:6,borderRadius:3,background:N,
-                animation:"hub-dot-pulse 1.4s ease-in-out infinite" }}/>
+              <div style={{ width:6,height:6,borderRadius:3,background:N,animation:"hub-dot-pulse 1.4s ease-in-out infinite" }}/>
               <span style={{ fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:700,color:N }}>OPEN</span>
             </div>
           )}
         </div>
 
-        {/* QR code — centred, large */}
-        <div style={{ margin:"14px 20px 0",borderRadius:20,padding:"20px",
+        {/* QR code */}
+        <div style={{ margin:"12px 20px 0",borderRadius:20,padding:"20px",
           background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",
           display:"flex",flexDirection:"column",alignItems:"center",gap:12 }}>
           <img src={qrUrl} alt="QR code" width={140} height={140}
             style={{ borderRadius:14,opacity:locked?.25:1,transition:"opacity .4s",display:"block" }}/>
           <div style={{ textAlign:"center" }}>
-            <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:700,
-              color:"rgba(255,255,255,.5)",marginBottom:4 }}>Scan to join</div>
-            <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"rgba(255,255,255,.22)",
-              wordBreak:"break-all",lineHeight:1.5 }}>
+            <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:700,color:"rgba(255,255,255,.5)",marginBottom:4 }}>Scan to join</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"rgba(255,255,255,.22)",wordBreak:"break-all",lineHeight:1.5 }}>
               league-it-app.vercel.app/join/{lobbyPin || joinCode || leagueId}
             </div>
           </div>
         </div>
 
-        {/* Player list */}
-        <div style={{ margin:"18px 20px 0" }}>
-          <div style={{ fontSize:10,fontWeight:800,letterSpacing:"2px",color:"rgba(255,255,255,.3)",
-            fontFamily:"'DM Sans',sans-serif",marginBottom:10 }}>
-            PLAYERS IN LOBBY ({livePlayers.length})
+        {/* Commissioner quick-join (admin only, not yet in lobby) */}
+        {isAdmin && !commInLobby && !locked && (
+          <div style={{ margin:"12px 20px 0" }}>
+            <motion.button whileTap={{ scale:.97 }}
+              onClick={() => isSeeded ? setShowTierModal(true) : doCommissionerJoin(null)}
+              disabled={commJoining}
+              style={{ width:"100%",borderRadius:16,padding:"14px 20px",cursor:"pointer",
+                display:"flex",alignItems:"center",gap:12,
+                background:"rgba(170,255,0,.08)",border:`1.5px solid rgba(170,255,0,.35)`,
+                opacity:commJoining?.6:1,transition:"opacity .2s" }}>
+              <div style={{ width:36,height:36,borderRadius:12,flexShrink:0,display:"flex",alignItems:"center",
+                justifyContent:"center",background:`linear-gradient(135deg,${N},#7DC900)` }}>
+                <Crown size={16} color="#000"/>
+              </div>
+              <div style={{ flex:1,textAlign:"left" }}>
+                <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:800,color:N }}>
+                  {commJoining ? "Joining..." : "Join as Commissioner"}
+                </div>
+                <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.38)" }}>
+                  Add yourself without scanning the QR
+                </div>
+              </div>
+              <ChevronRight size={16} style={{ color:N,flexShrink:0 }}/>
+            </motion.button>
           </div>
+        )}
+
+        {/* Player list */}
+        <div style={{ margin:"16px 20px 0" }}>
           <AnimatePresence initial={false}>
             {livePlayers.length === 0 ? (
               <motion.div key="empty" initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
@@ -7526,24 +7648,28 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
               </motion.div>
             ) : (
               livePlayers.map((p, i) => {
-                const tier = p.stats?.tier;
-                const tm   = tier ? TIER_META[tier] : null;
-                const ini  = (p.name || "?").trim().split(/\s+/).map(w => (w[0]||"").toUpperCase()).slice(0,2).join("");
+                const tier      = p.stats?.tier;
+                const tm        = tier ? TIER_META[tier] : null;
+                const ini       = (p.name||"?").trim().split(/\s+/).map(w=>(w[0]||"").toUpperCase()).slice(0,2).join("");
+                const isCommRow = p.user_id === user?.id;
                 return (
                   <motion.div key={p.id}
-                    initial={{ opacity:0,x:-20 }} animate={{ opacity:1,x:0 }} exit={{ opacity:0,x:20 }}
-                    transition={{ delay:i*.05,type:"spring",stiffness:280,damping:24 }}
+                    initial={{ opacity:0,x:-24 }} animate={{ opacity:1,x:0 }} exit={{ opacity:0,x:24 }}
+                    transition={{ delay:Math.min(i,.8)*.05,type:"spring",stiffness:280,damping:24 }}
                     style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",marginBottom:8,
-                      borderRadius:14,background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.07)" }}>
+                      borderRadius:14,
+                      background: isCommRow ? "rgba(170,255,0,.06)" : "rgba(255,255,255,.04)",
+                      border: isCommRow ? `1px solid rgba(170,255,0,.22)` : "1px solid rgba(255,255,255,.07)" }}>
                     <div style={{ width:38,height:38,borderRadius:19,flexShrink:0,display:"flex",
                       alignItems:"center",justifyContent:"center",
-                      background:`linear-gradient(135deg,${N},#7DC900)`,
-                      fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:13,color:"#000" }}>
-                      {ini}
+                      background: isCommRow ? `linear-gradient(135deg,${N},#7DC900)` : "rgba(255,255,255,.1)",
+                      fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:13,color:isCommRow?"#000":"#fff" }}>
+                      {isCommRow ? <Crown size={16} color="#000"/> : ini}
                     </div>
-                    <div style={{ flex:1,fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:700,color:"#fff",
-                      whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>
+                    <div style={{ flex:1,fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:700,
+                      color:isCommRow?N:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>
                       {p.name || "Player"}
+                      {isCommRow && <span style={{ fontSize:10,fontWeight:600,color:"rgba(170,255,0,.55)",marginLeft:6 }}>ADMIN</span>}
                     </div>
                     {tm && (
                       <div style={{ borderRadius:8,padding:"3px 9px",background:tm.bg,border:`1px solid ${tm.border}`,
@@ -7558,32 +7684,79 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
           </AnimatePresence>
         </div>
 
-        {/* Lock button (admin only) */}
-        {isAdmin && !locked && (
-          <div style={{ padding:"20px 20px 0" }}>
-            <motion.button whileTap={{ scale:.97 }} onClick={handleLock} disabled={locking}
-              style={{ width:"100%",borderRadius:16,padding:"15px",
-                border:"1.5px solid rgba(255,51,85,.4)",background:"rgba(255,51,85,.08)",
-                cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:14,
-                color:"#FF3355",letterSpacing:".5px",opacity:locking?.6:1,transition:"opacity .2s" }}>
-              {locking ? "Locking..." : "Lock Lobby — No More Joins"}
-            </motion.button>
-          </div>
-        )}
+        {/* Admin action strip */}
+        <div style={{ padding:"16px 20px 0",display:"flex",flexDirection:"column",gap:10 }}>
 
-        {/* Back button after lock */}
-        {locked && (
-          <div style={{ padding:"20px 20px 0" }}>
-            <motion.button whileTap={{ scale:.97 }} onClick={onClose}
-              style={{ width:"100%",borderRadius:16,padding:"15px",
-                border:`1.5px solid rgba(170,255,0,.4)`,
-                background:`linear-gradient(135deg,${N},#7DC900)`,
-                cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:14,
-                color:"#000",letterSpacing:".5px" }}>
-              Back to League
+          {/* Lock Lobby — admin, not yet locked */}
+          {isAdmin && !locked && (
+            <motion.button whileTap={{ scale:.97 }} onClick={handleLock} disabled={locking}
+              style={{ width:"100%",borderRadius:16,padding:"14px",border:"1.5px solid rgba(255,51,85,.4)",
+                background:"rgba(255,51,85,.08)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",
+                fontWeight:800,fontSize:14,color:"#FF3355",letterSpacing:".5px",
+                opacity:locking?.6:1,transition:"opacity .2s" }}>
+              {locking ? "Locking..." : "🔒 Lock Lobby — No More Joins"}
             </motion.button>
-          </div>
-        )}
+          )}
+
+          {/* Generate bracket — admin only, tournament only, not already generated */}
+          {isAdmin && isTournament && !hasBracket && (
+            <motion.button whileTap={{ scale:.97 }} onClick={handleGenerate}
+              disabled={generating || livePlayers.length < 2}
+              style={{ width:"100%",borderRadius:16,padding:"14px",cursor:"pointer",
+                background: generated ? "rgba(170,255,0,.08)" : `linear-gradient(135deg,${N},#7DC900)`,
+                border: generated ? `1.5px solid rgba(170,255,0,.4)` : "none",
+                fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:14,letterSpacing:".5px",
+                color: generated ? N : "#000",
+                opacity: (generating || livePlayers.length < 2) ? .5 : 1,
+                transition:"opacity .2s" }}>
+              {generating ? "Generating..." :
+               livePlayers.length < 2 ? "Add at least 2 players first" :
+               tournFormat === "groups_knockout" ? `🎲 Generate Groups (${livePlayers.length} players)` :
+               `🏆 Generate Bracket (${livePlayers.length} players)`}
+            </motion.button>
+          )}
+
+          {/* Success state after generation */}
+          {generated && (
+            <div style={{ borderRadius:16,padding:"12px 16px",background:"rgba(170,255,0,.06)",
+              border:`1px solid rgba(170,255,0,.25)`,textAlign:"center" }}>
+              <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,color:N }}>
+                ✓ {tournFormat === "groups_knockout" ? "Groups generated" : "Bracket generated"} — go to the Bracket tab to start
+              </div>
+            </div>
+          )}
+
+          {/* Already has bracket — info */}
+          {isAdmin && isTournament && hasBracket && !generated && (
+            <div style={{ borderRadius:16,padding:"12px 16px",background:"rgba(170,255,0,.04)",
+              border:`1px solid rgba(170,255,0,.15)`,textAlign:"center" }}>
+              <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(255,255,255,.4)" }}>
+                Draw already generated — manage it in the Bracket tab
+              </div>
+            </div>
+          )}
+
+          {/* Non-admin waiting message (tournament only, no bracket yet) */}
+          {!isAdmin && isTournament && !hasBracket && (
+            <div style={{ borderRadius:16,padding:"16px",background:"rgba(255,255,255,.03)",
+              border:"1.5px dashed rgba(255,255,255,.12)",textAlign:"center" }}>
+              <div style={{ fontSize:28,marginBottom:8 }}>⏳</div>
+              <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,color:"rgba(255,255,255,.45)",lineHeight:1.5 }}>
+                Waiting for the admin to generate matches...
+              </div>
+            </div>
+          )}
+
+          {/* Back to League */}
+          <motion.button whileTap={{ scale:.97 }} onClick={onClose}
+            style={{ width:"100%",borderRadius:16,padding:"14px",
+              border:`1.5px solid rgba(255,255,255,.12)`,
+              background:"rgba(255,255,255,.05)",cursor:"pointer",
+              fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,
+              color:"rgba(255,255,255,.55)",letterSpacing:".5px" }}>
+            ← Back to League
+          </motion.button>
+        </div>
       </div>
     </div>
   );
