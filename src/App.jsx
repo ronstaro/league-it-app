@@ -4712,6 +4712,7 @@ function generateCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
+const generateNumericPin = () => String(Math.floor(Math.random() * 900000 + 100000));
 
 // ─────────────────────────────────────────────
 // ANIMATION VARIANTS
@@ -7099,6 +7100,195 @@ function StepProfile({ adminName, setAdminName, onNext }) {
 }
 
 // ─────────────────────────────────────────────
+// PLAYER JOIN FLOW — nickname → tier → confirmation
+// Shown when a player arrives via /join/:pin URL
+// ─────────────────────────────────────────────
+function PlayerJoinFlow({ user, leagueId, leagueName, isSeeded, defaultNickname, onDone }) {
+  const [step,     setStep]     = useState(1); // 1: nickname  2: tier  3: done
+  const [nickname, setNickname] = useState(defaultNickname || "");
+  const [tier,     setTier]     = useState(null);
+  const [joining,  setJoining]  = useState(false);
+  const [err,      setErr]      = useState("");
+  const inputRef = useRef(null);
+
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 150); }, []);
+
+  const doJoin = async (selectedTier) => {
+    setJoining(true);
+    setErr("");
+    try {
+      const name     = nickname.trim() || defaultNickname || "Player";
+      const initials = name.split(/\s+/).map(w => (w[0]||"").toUpperCase()).slice(0, 2).join("");
+      const { error } = await supabase.from("players").insert({
+        league_id: leagueId,
+        user_id:   user.id,
+        name,
+        is_me:     false,
+        stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat",
+                 sport:"🏸", mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0,
+                 tier: selectedTier || null },
+      });
+      if (error) { setErr("Something went wrong — please try again"); setJoining(false); return; }
+      setStep(3);
+    } catch {
+      setErr("Something went wrong — please try again");
+    }
+    setJoining(false);
+  };
+
+  const handleNicknameNext = () => {
+    if (!nickname.trim() || joining) return;
+    if (isSeeded) { setStep(2); } else { doJoin(null); }
+  };
+
+  const C1 = N, C2 = "#FF3355";
+
+  // ── Step 1: Nickname ────────────────────────────────────────────────────
+  if (step === 1) return (
+    <div style={{ position:"fixed",inset:0,background:BG,display:"flex",flexDirection:"column",
+      alignItems:"center",justifyContent:"center",padding:"0 24px",zIndex:3000 }}>
+      <GridBg/><GlowBlobs/>
+      <div style={{ width:"100%",maxWidth:390,position:"relative",zIndex:1 }}>
+        <div style={{ textAlign:"center",marginBottom:32 }}>
+          <div style={{ fontSize:13,fontWeight:700,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",letterSpacing:"2px",marginBottom:8 }}>
+            JOINING
+          </div>
+          <div style={{ fontFamily:"'Bebas Neue',sans-serif",fontSize:40,letterSpacing:"3px",color:"#fff",lineHeight:1,marginBottom:6 }}>
+            {(leagueName||"").toUpperCase()}
+          </div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,.38)" }}>
+            What should we call you?
+          </div>
+        </div>
+
+        <input
+          ref={inputRef}
+          type="text"
+          value={nickname}
+          onChange={e => setNickname(e.target.value.slice(0, 24))}
+          onKeyDown={e => e.key === "Enter" && handleNicknameNext()}
+          placeholder="Your nickname..."
+          style={{ width:"100%",borderRadius:18,padding:"16px 20px",outline:"none",
+            fontFamily:"'DM Sans',sans-serif",fontSize:18,fontWeight:700,textAlign:"center",
+            background:"rgba(255,255,255,.05)",
+            border:`1.5px solid ${nickname.trim() ? N : "rgba(255,255,255,.15)"}`,
+            color:"#fff",caretColor:N,letterSpacing:".5px",marginBottom:8,
+            boxShadow:nickname.trim()?`0 0 20px rgba(170,255,0,.12)`:"none",transition:"all .2s" }}
+        />
+        <div style={{ textAlign:"right",fontFamily:"'DM Sans',sans-serif",fontSize:11,
+          color:"rgba(255,255,255,.2)",marginBottom:24 }}>{nickname.length}/24</div>
+
+        {err && <div style={{ textAlign:"center",color:C2,fontFamily:"'DM Sans',sans-serif",fontSize:12,marginBottom:12 }}>{err}</div>}
+
+        <motion.button whileTap={{ scale:.97 }} onClick={handleNicknameNext}
+          disabled={!nickname.trim() || joining}
+          style={{ width:"100%",borderRadius:18,padding:"16px",border:"none",cursor:"pointer",
+            background: nickname.trim() ? `linear-gradient(135deg,${N},#7DC900)` : "rgba(255,255,255,.08)",
+            fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:16,
+            color: nickname.trim() ? "#000" : "rgba(255,255,255,.25)",
+            transition:"all .2s",letterSpacing:".5px",
+            opacity: joining ? .6 : 1 }}>
+          {joining ? "Joining..." : isSeeded ? "Next — Pick Your Tier →" : "Join League →"}
+        </motion.button>
+      </div>
+    </div>
+  );
+
+  // ── Step 2: Tier selection ───────────────────────────────────────────────
+  if (step === 2) return (
+    <div style={{ position:"fixed",inset:0,background:BG,display:"flex",flexDirection:"column",
+      alignItems:"center",justifyContent:"center",padding:"0 24px",overflowY:"auto",zIndex:3000 }}>
+      <GridBg/><GlowBlobs/>
+      <div style={{ width:"100%",maxWidth:390,position:"relative",zIndex:1,paddingTop:24,paddingBottom:24 }}>
+        <div style={{ textAlign:"center",marginBottom:28 }}>
+          <div style={{ fontFamily:"'Bebas Neue',sans-serif",fontSize:42,letterSpacing:"3px",color:"#fff",lineHeight:1 }}>
+            SELECT YOUR <span style={{ color:N }}>TIER</span>
+          </div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,.38)",marginTop:8 }}>
+            Helps the admin seed the bracket fairly
+          </div>
+        </div>
+
+        <div style={{ display:"flex",flexDirection:"column",gap:10,marginBottom:20 }}>
+          {TIER_ORDER.map(t => {
+            const meta = TIER_META[t];
+            const sel  = tier === t;
+            return (
+              <motion.button key={t} whileTap={{ scale:.97 }}
+                onClick={() => { setTier(t); doJoin(t); }}
+                disabled={joining}
+                style={{ width:"100%",borderRadius:18,padding:"16px 20px",cursor:"pointer",
+                  display:"flex",alignItems:"center",gap:14,textAlign:"left",
+                  background: sel ? meta.bg : "rgba(255,255,255,.03)",
+                  border:`1.5px solid ${sel ? meta.border : "rgba(255,255,255,.08)"}`,
+                  transition:"all .15s",opacity:joining&&!sel?.45:1 }}>
+                <div style={{ width:46,height:46,borderRadius:14,flexShrink:0,display:"flex",
+                  alignItems:"center",justifyContent:"center",background:meta.bg,border:`1px solid ${meta.border}` }}>
+                  <span style={{ fontFamily:"'Bebas Neue',sans-serif",fontSize:24,color:meta.color }}>{t}</span>
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:16,fontWeight:700,color:meta.color,lineHeight:1,marginBottom:3 }}>
+                    {meta.label}
+                  </div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(255,255,255,.38)" }}>
+                    {meta.desc}
+                  </div>
+                </div>
+                {sel && joining && (
+                  <div style={{ width:18,height:18,borderRadius:"50%",border:`2px solid transparent`,
+                    borderTopColor:meta.color,animation:"spin .7s linear infinite",flexShrink:0 }}/>
+                )}
+              </motion.button>
+            );
+          })}
+        </div>
+
+        {err && <div style={{ textAlign:"center",color:C2,fontFamily:"'DM Sans',sans-serif",fontSize:12,marginBottom:12 }}>{err}</div>}
+
+        <div style={{ textAlign:"center" }}>
+          <button onClick={() => setStep(1)} style={{ background:"none",border:"none",cursor:"pointer",
+            fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(255,255,255,.28)",fontWeight:600 }}>
+            ← Back
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── Step 3: Confirmation ─────────────────────────────────────────────────
+  return (
+    <div style={{ position:"fixed",inset:0,background:BG,display:"flex",flexDirection:"column",
+      alignItems:"center",justifyContent:"center",padding:"0 32px",zIndex:3000,textAlign:"center" }}>
+      <GridBg/><GlowBlobs/>
+      <div style={{ position:"relative",zIndex:1 }}>
+        <motion.div initial={{ scale:.5,opacity:0 }} animate={{ scale:1,opacity:1 }}
+          transition={{ type:"spring",stiffness:320,damping:22 }}
+          style={{ fontSize:72,marginBottom:16 }}>🎉</motion.div>
+        <motion.div initial={{ opacity:0,y:12 }} animate={{ opacity:1,y:0 }} transition={{ delay:.2 }}>
+          <div style={{ fontFamily:"'Bebas Neue',sans-serif",fontSize:48,letterSpacing:"3px",color:"#fff",lineHeight:1,marginBottom:6 }}>
+            YOU'RE <span style={{ color:N }}>IN!</span>
+          </div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:600,color:"rgba(255,255,255,.55)",marginBottom:8 }}>
+            {nickname.trim() || defaultNickname}
+            {tier && <> · <span style={{ color: TIER_META[tier]?.color }}>{TIER_META[tier]?.label}</span></>}
+          </div>
+          <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,.3)",lineHeight:1.6,maxWidth:280,margin:"0 auto 32px" }}>
+            Wait for the admin to start the tournament.
+            <br/>You'll be notified when the bracket drops.
+          </div>
+          <motion.button whileTap={{ scale:.97 }} onClick={onDone}
+            style={{ borderRadius:18,padding:"14px 40px",border:`1.5px solid rgba(170,255,0,.4)`,
+              background:`linear-gradient(135deg,${N},#7DC900)`,cursor:"pointer",
+              fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:15,color:"#000",letterSpacing:".5px" }}>
+            Go to Hub
+          </motion.button>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // JOIN TIER SCREEN — shown to QR joiners of seeded tournaments
 // ─────────────────────────────────────────────
 function JoinTierScreen({ user, leagueId, onDone }) {
@@ -7185,11 +7375,23 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
   const [livePlayers, setLivePlayers] = useState([]);
   const [locking,     setLocking]     = useState(false);
   const [locked,      setLocked]      = useState(false);
+  const [lobbyPin,    setLobbyPin]    = useState(null); // 6-digit numeric, fetched on mount
 
-  const isAdmin  = !!(user?.id && ownerId && user.id === ownerId);
-  const code     = (joinCode || "").toUpperCase();
-  const joinUrl  = `https://league-it-app.vercel.app/join/${joinCode || leagueId}`;
-  const qrUrl    = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(joinUrl)}&bgcolor=0a0a0a&color=aaff00&margin=12&format=png&ecc=M`;
+  const isAdmin = !!(user?.id && ownerId && user.id === ownerId);
+
+  // Self-fetch the numeric pin and up-to-date lock state from DB
+  useEffect(() => {
+    supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle()
+      .then(({ data }) => {
+        if (data?.settings?.lobbyPin)    setLobbyPin(data.settings.lobbyPin);
+        if (data?.settings?.lobbyState === "locked") setLocked(true);
+      }).catch(() => {});
+  }, [leagueId]);
+
+  // Display PIN: prefer numeric lobbyPin, fall back to alphanumeric joinCode
+  const displayPin = lobbyPin || (joinCode || "").toUpperCase();
+  const joinUrl    = `https://league-it-app.vercel.app/join/${lobbyPin || joinCode || leagueId}`;
+  const qrUrl      = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(joinUrl)}&bgcolor=0a0a0a&color=aaff00&margin=14&format=png&ecc=M`;
 
   const fetchPlayers = useCallback(async () => {
     if (!leagueId || locked) return;
@@ -7249,22 +7451,34 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
         <div style={{ margin:"18px 20px 0",borderRadius:20,padding:"20px",
           background:"rgba(170,255,0,.05)",border:`1.5px solid rgba(170,255,0,${locked?.15:.28})`,textAlign:"center" }}>
           <div style={{ fontSize:10,fontWeight:800,letterSpacing:"2.5px",color:"rgba(255,255,255,.3)",
-            fontFamily:"'DM Sans',sans-serif",marginBottom:14 }}>GAME PIN</div>
-          <div style={{ display:"flex",justifyContent:"center",gap:8,marginBottom:16 }}>
-            {code.split("").map((ch, i) => (
+            fontFamily:"'DM Sans',sans-serif",marginBottom:16 }}>GAME PIN</div>
+
+          {/* Individual digit boxes — large numeric style */}
+          <div style={{ display:"flex",justifyContent:"center",gap:lobbyPin?10:7,marginBottom:16 }}>
+            {displayPin.split("").map((ch, i) => (
               <motion.div key={i}
-                initial={{ opacity:0,y:16,scale:.7 }} animate={{ opacity:1,y:0,scale:1 }}
-                transition={{ delay:i*.07,type:"spring",stiffness:350,damping:22 }}
-                style={{ width:44,height:54,borderRadius:10,
-                  background:"rgba(170,255,0,.08)",border:`1.5px solid rgba(170,255,0,${locked?.12:.4})`,
+                initial={{ opacity:0,y:20,scale:.6 }} animate={{ opacity:1,y:0,scale:1 }}
+                transition={{ delay:i*.06,type:"spring",stiffness:360,damping:22 }}
+                style={{ width:lobbyPin?52:44,height:lobbyPin?64:54,borderRadius:12,
+                  background:"rgba(170,255,0,.07)",
+                  border:`2px solid rgba(170,255,0,${locked?.1:.45})`,
                   display:"flex",alignItems:"center",justifyContent:"center",
-                  fontFamily:"'JetBrains Mono',monospace",fontSize:28,fontWeight:700,
-                  color:locked?"rgba(170,255,0,.28)":N,
-                  textShadow:locked?"none":`0 0 22px rgba(170,255,0,.65)` }}>
+                  fontFamily:"'Bebas Neue',sans-serif",
+                  fontSize:lobbyPin?40:28,
+                  letterSpacing:0,
+                  color:locked?"rgba(170,255,0,.25)":N,
+                  textShadow:locked?"none":`0 0 28px rgba(170,255,0,.7)` }}>
                 {ch}
               </motion.div>
             ))}
           </div>
+
+          {lobbyPin && (
+            <div style={{ fontSize:10,color:"rgba(255,255,255,.2)",fontFamily:"'DM Sans',sans-serif",marginBottom:12,letterSpacing:"1px" }}>
+              or share the link below
+            </div>
+          )}
+
           {locked ? (
             <div style={{ display:"inline-flex",alignItems:"center",gap:6,borderRadius:20,padding:"5px 14px",
               background:"rgba(255,51,85,.1)",border:"1px solid rgba(255,51,85,.3)" }}>
@@ -7281,18 +7495,18 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
           )}
         </div>
 
-        {/* QR code */}
-        <div style={{ margin:"12px 20px 0",borderRadius:16,padding:"14px 16px",
+        {/* QR code — centred, large */}
+        <div style={{ margin:"14px 20px 0",borderRadius:20,padding:"20px",
           background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",
-          display:"flex",alignItems:"center",gap:14 }}>
-          <img src={qrUrl} alt="QR code" width={72} height={72}
-            style={{ borderRadius:10,flexShrink:0,opacity:locked?.3:1,transition:"opacity .4s" }}/>
-          <div>
+          display:"flex",flexDirection:"column",alignItems:"center",gap:12 }}>
+          <img src={qrUrl} alt="QR code" width={140} height={140}
+            style={{ borderRadius:14,opacity:locked?.25:1,transition:"opacity .4s",display:"block" }}/>
+          <div style={{ textAlign:"center" }}>
             <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:700,
-              color:"rgba(255,255,255,.6)",marginBottom:4 }}>Scan to join</div>
-            <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"rgba(255,255,255,.28)",
+              color:"rgba(255,255,255,.5)",marginBottom:4 }}>Scan to join</div>
+            <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:10,color:"rgba(255,255,255,.22)",
               wordBreak:"break-all",lineHeight:1.5 }}>
-              league-it-app.vercel.app/join/{joinCode || leagueId}
+              league-it-app.vercel.app/join/{lobbyPin || joinCode || leagueId}
             </div>
           </div>
         </div>
@@ -8216,7 +8430,7 @@ export default function Root() {
   const [pendingJoinId,    setPendingJoinId]    = useState(null);
   const [pendingJoinCode,  setPendingJoinCode]  = useState(null);
   const [lobbyData,        setLobbyData]        = useState(null);   // { leagueId, joinCode, leagueName, ownerId }
-  const [pendingTierSelect,setPendingTierSelect]= useState(null);   // { leagueId } after auto-join seeded tournament
+  const [joinFlowData,     setJoinFlowData]     = useState(null);   // { leagueId, leagueName, isSeeded, defaultNickname }
 
   // ── Hard 10-second loading timeout — completely independent from the auth
   //    effect so it can NEVER be cancelled by auth re-subscriptions or errors.
@@ -8230,23 +8444,21 @@ export default function Root() {
 
   // ── Detect /join/<slug-or-code> URL on first mount ───────────────────────
   // Invite links look like:  /join/My-League-ABC123  (slug ending in 6-char code)
-  //                      or  /join/ABC123            (bare code)
+  //                      or  /join/ABC123            (bare alphanumeric code)
+  //                      or  /join/472915            (6-digit numeric lobby PIN)
   //                      or  /join/<uuid>            (legacy league-ID link)
-  // Join codes are 6 uppercase alphanumeric chars (no O, I, 0, 1) from generateCode().
   useEffect(() => {
     const m = window.location.pathname.match(/^\/join\/([^/]+)$/);
     if (!m) return;
     const segment = m[1];
     window.history.replaceState({}, "", "/");
-    // Extract the last dash-delimited part and check if it's a join code
     const parts    = segment.split("-");
     const lastPart = parts[parts.length - 1];
-    const isCode   = /^[A-Z2-9]{6}$/.test(lastPart);
-    if (isCode) {
-      // New code-based flow — use localStorage so it survives the OAuth redirect
-      localStorage.setItem("pending_join_code", lastPart);
+    const isAlphaCode = /^[A-Z2-9]{6}$/.test(lastPart);
+    const isNumPin    = /^[0-9]{6}$/.test(segment); // full-segment numeric pin
+    if (isAlphaCode || isNumPin) {
+      localStorage.setItem("pending_join_code", isNumPin ? segment : lastPart);
     } else {
-      // Legacy UUID-based flow
       sessionStorage.setItem("league_it_join_id", segment);
     }
   }, []);
@@ -8405,18 +8617,38 @@ export default function Root() {
     })();
   }, [pendingJoinId, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Auto-join via pending join code (from share URL) ─────────────────────
+  // ── Join flow: look up league from URL code/pin, then show PlayerJoinFlow ──
   useEffect(() => {
     if (!pendingJoinCode || !user) return;
     (async () => {
       try {
-        const result = await handleJoinLeague(pendingJoinCode);
-        if (result?.success && result.isSeeded) {
-          // Seeded tournament — prompt player to pick their tier before entering lobby
-          setPendingTierSelect({ leagueId: result.leagueId });
-          setPhase("tier_select");
+        const code = pendingJoinCode;
+        // Look up league by join_code first, then by lobbyPin / leagueCode
+        let { data: league } = await supabase.from("leagues").select("*").eq("join_code", code).maybeSingle();
+        if (!league) {
+          const { data: all } = await supabase.from("leagues").select("*");
+          league = all?.find(l => l.settings?.lobbyPin === code || l.settings?.leagueCode === code) || null;
         }
-        // On error (not already-in), silently stay on hub
+        if (!league || league.settings?.lobbyState === "locked") { setPendingJoinCode(null); return; }
+
+        // Already a member? — just enter
+        const { data: existing } = await supabase.from("players").select("id")
+          .eq("league_id", league.id).eq("user_id", user.id).maybeSingle();
+        if (existing) {
+          setPendingJoinCode(null);
+          await handleEnterLeague(league);
+          return;
+        }
+
+        // Show the join onboarding flow
+        const defaultNickname = profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
+        setJoinFlowData({
+          leagueId:        league.id,
+          leagueName:      league.name || "League",
+          isSeeded:        (league.settings?.participants || []).some(p => p.tier),
+          defaultNickname,
+        });
+        setPhase("join_flow");
       } catch {}
       setPendingJoinCode(null);
     })();
@@ -8451,10 +8683,13 @@ export default function Root() {
     try {
       // Primary lookup — dedicated join_code column (fast, indexed)
       let { data: league } = await supabase.from("leagues").select("*").eq("join_code", code).maybeSingle();
-      // Fallback — legacy leagues whose code lives in settings JSON
+      // Fallback — numeric lobby pin or legacy settings.leagueCode
       if (!league) {
         const { data: allLeagues } = await supabase.from("leagues").select("*");
-        league = allLeagues?.find(l => l.settings?.leagueCode === code) || null;
+        league = allLeagues?.find(l =>
+          l.settings?.lobbyPin === code ||
+          l.settings?.leagueCode === code
+        ) || null;
       }
       if (!league) return { error: "League not found — check the code" };
       if (league.settings?.lobbyState === "locked") return { error: "This league is locked — the admin has closed the lobby" };
@@ -8534,24 +8769,20 @@ export default function Root() {
     const leagueId = crypto.randomUUID();
     const playerId  = crypto.randomUUID();
     const code      = leagueCode || generateCode();
+    const lobbyPin  = isLiveLobby ? generateNumericPin() : null;
+    const baseSettings = { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], reportingMode: reportingMode || "admin", groupSettings: groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 }, matchLegs: matchLegs || 1, format, points, customRules, sportEmoji, ...(lobbyPin ? { lobbyPin } : {}) };
 
     // ── Step 1: League insert — only step allowed to throw (league not yet created) ──
     const { error: leagueErr } = await supabase.from("leagues").insert({
-      id:         leagueId,
-      name,
-      sport:      sportLabel,
-      join_code:  code,
-      settings:   { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], reportingMode: reportingMode || "admin", groupSettings: groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 }, matchLegs: matchLegs || 1, format, points, customRules, sportEmoji },
-      owner_id:   user.id,
-      created_by: user.id,
+      id: leagueId, name, sport: sportLabel, join_code: code,
+      settings: baseSettings, owner_id: user.id, created_by: user.id,
     });
     if (leagueErr) {
       // join_code column missing in DB — retry without it
       if (leagueErr.message?.includes("join_code") || leagueErr.code === "42703") {
         const { error: retryErr } = await supabase.from("leagues").insert({
           id: leagueId, name, sport: sportLabel,
-          settings: { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], reportingMode: reportingMode || "admin", groupSettings: groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 }, matchLegs: matchLegs || 1, format, points, customRules, sportEmoji },
-          owner_id: user.id, created_by: user.id,
+          settings: baseSettings, owner_id: user.id, created_by: user.id,
         });
         if (retryErr) throw new Error(retryErr.message || "Failed to create league");
       } else {
@@ -8643,11 +8874,14 @@ export default function Root() {
       onClose={() => { setLobbyData(null); setPhase("hub"); }}
     />
   );
-  if (phase === "tier_select" && pendingTierSelect) return (
-    <JoinTierScreen
+  if (phase === "join_flow" && joinFlowData) return (
+    <PlayerJoinFlow
       user={user}
-      leagueId={pendingTierSelect.leagueId}
-      onDone={() => { setPendingTierSelect(null); setPhase("hub"); }}
+      leagueId={joinFlowData.leagueId}
+      leagueName={joinFlowData.leagueName}
+      isSeeded={joinFlowData.isSeeded}
+      defaultNickname={joinFlowData.defaultNickname}
+      onDone={() => { setJoinFlowData(null); setPhase("hub"); if (user) loadLeagues(user.id).catch(()=>{}); }}
     />
   );
   if (phase === "wizard") return (
