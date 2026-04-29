@@ -7452,37 +7452,42 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
       {/* Matrix rain */}
       <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, opacity: 0.17, pointerEvents: "none", zIndex: 0 }} />
 
-      {/* Horizontal scan lines */}
-      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 1,
-        backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.18) 2px,rgba(0,0,0,.18) 4px)" }} />
-
-      {/* Neon grid */}
-      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0,
-        backgroundImage: `linear-gradient(rgba(170,255,0,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(170,255,0,.025) 1px,transparent 1px)`,
-        backgroundSize: "44px 44px" }} />
-
       {/* Header */}
-      <div style={{ position: "relative", zIndex: 2, textAlign: "center", padding: "26px 20px 14px", flexShrink: 0 }}>
-        <motion.div initial={{ opacity: 0, y: -28 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.65, ease: [0.16, 1, 0.3, 1] }}>
-          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 10, letterSpacing: "7px",
-            color: "rgba(170,255,0,.55)", marginBottom: 4 }}>
-            {isSpectator ? "— DRAW IN PROGRESS —" : "— SEQUENCE INITIATED —"}
+      <div style={{ position: "relative", zIndex: 2, padding: "16px 20px 12px", flexShrink: 0,
+        display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+
+        {/* Left spacer — mirrors the skip button width so title stays centred */}
+        <div style={{ width: 80 }} />
+
+        {/* Centred title */}
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          style={{ textAlign: "center" }}>
+          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 36, letterSpacing: "3px",
+            color: "#fff", lineHeight: 1 }}>
+            Tournament Draw
           </div>
-          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 58, letterSpacing: "4px",
-            color: N, lineHeight: 1,
-            textShadow: `0 0 40px rgba(170,255,0,.9),0 0 90px rgba(170,255,0,.35)` }}>
-            DRAW REVEAL
-          </div>
-          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,.3)", marginTop: 5 }}>
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11,
+            color: "rgba(255,255,255,.35)", marginTop: 3 }}>
             {leagueName}
           </div>
         </motion.div>
-        <motion.div initial={{ scaleX: 0 }} animate={{ scaleX: 1 }}
-          transition={{ delay: 0.45, duration: 0.85, ease: "easeInOut" }}
-          style={{ height: 1, background: `linear-gradient(90deg,transparent,${N},transparent)`,
-            margin: "10px auto 0", maxWidth: 320, transformOrigin: "center" }} />
+
+        {/* Skip button — always visible */}
+        <motion.button
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}
+          whileTap={{ scale: 0.94 }}
+          onClick={handleConfirm}
+          style={{ width: 80, borderRadius: 12, padding: "8px 0", cursor: "pointer",
+            background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.14)",
+            fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 700,
+            color: "rgba(255,255,255,.5)", letterSpacing: ".3px", flexShrink: 0 }}>
+          Skip →
+        </motion.button>
       </div>
+
+      {/* Thin divider */}
+      <div style={{ height: 1, background: "rgba(255,255,255,.07)", flexShrink: 0, position: "relative", zIndex: 2 }} />
 
       {/* Scrollable groups */}
       <div ref={scrollRef}
