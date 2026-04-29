@@ -3814,13 +3814,13 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
   const TV = 1.2;
   const tvF = n => Math.round(n * TV);
 
-  const [theaterMode, setTheaterMode] = useState(false);
-  const [theaterIdx,  setTheaterIdx]  = useState(0);
+  const ARENA_PAGE_SIZE = 9;
+
+  const [arenaMode,   setArenaMode]   = useState(false);
+  const [arenaPage,   setArenaPage]   = useState(0);
   const [localScores, setLocalScores] = useState({});
   const [saving,      setSaving]      = useState(null);
   const [activeCol,   setActiveCol]   = useState("standings");
-
-  const groupRefs = useRef([]);
 
   const completedIds   = useMemo(() => new Set(feed.map(m => m.id)), [feed]);
   const isGroups       = rules?.tournamentFormat === "groups_knockout";
@@ -3838,18 +3838,6 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
     return () => { supabase.removeChannel(ch); };
   }, [leagueId, onSyncEntry]);
 
-  // ── Theater auto-rotation ────────────────────────────────────────────────
-  useEffect(() => {
-    if (!theaterMode || !isGroups || !groups.length) return;
-    const id = setInterval(() => setTheaterIdx(i => (i + 1) % groups.length), 6000);
-    return () => clearInterval(id);
-  }, [theaterMode, isGroups, groups.length]);
-
-  useEffect(() => {
-    if (!theaterMode || !isGroups) return;
-    groupRefs.current[theaterIdx]?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [theaterMode, theaterIdx, isGroups]);
-
   // ── Derived data ─────────────────────────────────────────────────────────
   const groupStandings = useMemo(() =>
     groups.map(g => ({
@@ -3859,6 +3847,17 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
       total:  groupMatches.filter(m => m.groupName === g.name).length,
       played: groupMatches.filter(m => m.groupName === g.name && completedIds.has(m.id)).length,
     })), [groups, groupMatches, feed, completedIds]);
+
+  const totalArenaPages = Math.ceil(groupStandings.length / ARENA_PAGE_SIZE);
+
+  // ── Arena View: auto-cycle pages every 10s when >9 groups ───────────────
+  useEffect(() => {
+    if (!arenaMode || totalArenaPages <= 1) return;
+    const id = setInterval(() => setArenaPage(p => (p + 1) % totalArenaPages), 10000);
+    return () => clearInterval(id);
+  }, [arenaMode, totalArenaPages]);
+
+  useEffect(() => { if (!arenaMode) setArenaPage(0); }, [arenaMode]);
 
   const topScorers = useMemo(() => {
     if (isGroups) {
@@ -3910,37 +3909,50 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
   };
 
   // ── Render helpers ────────────────────────────────────────────────────────
-  const renderStandingCard = (gs, idx) => {
-    const focus = theaterMode && theaterIdx === idx;
+  // isCompact = true in arena grid (tighter padding, glow on advancing players)
+  const renderStandingCard = (gs, idx, isCompact = false) => {
+    const rowPy  = isCompact ? "6px"  : "11px";
+    const rowPx  = isCompact ? "10px" : "16px";
+    const hdrPy  = isCompact ? "8px"  : "12px";
+    const hdrPx  = isCompact ? "10px" : "16px";
+    const nameFz = isCompact ? tvF(11) : tvF(14);
+    const statFz = isCompact ? tvF(10) : tvF(12);
+    const ptsFz  = isCompact ? tvF(14) : tvF(18);
+    const grpFz  = isCompact ? tvF(15) : tvF(20);
+    const dot    = isCompact ? 7 : 10;
+    const cols   = "1fr 26px 26px 26px 26px 30px 36px";
     return (
-      <div key={gs.group.name} ref={el => { groupRefs.current[idx] = el; }}
-        style={{ ...cardS, transition: "opacity .4s, box-shadow .4s",
-          opacity: theaterMode && !focus ? 0.18 : 1,
-          boxShadow: focus ? `0 0 0 1.5px ${gs.gc}55` : "none" }}>
-        {/* group header */}
-        <div style={{ padding: "12px 16px 10px", borderBottom: "1px solid rgba(255,255,255,.05)",
-          display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 10, height: 10, borderRadius: "50%", background: gs.gc, boxShadow: `0 0 8px ${gs.gc}`, flexShrink: 0 }}/>
-            <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(20), letterSpacing: "2px", color: "#fff" }}>
+      <div key={gs.group.name}
+        style={{ borderRadius: 12, border: "1px solid rgba(255,255,255,.07)",
+          background: "rgba(255,255,255,.03)", overflow: "hidden",
+          ...(isCompact ? {} : { marginBottom: 14 }) }}>
+        {/* header */}
+        <div style={{ padding: `${hdrPy} ${hdrPx}`, borderBottom: "1px solid rgba(255,255,255,.05)",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: `${gs.gc}08` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: isCompact ? 7 : 10 }}>
+            <div style={{ width: dot, height: dot, borderRadius: "50%", background: gs.gc,
+              boxShadow: `0 0 ${isCompact ? 5 : 8}px ${gs.gc}`, flexShrink: 0 }}/>
+            <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: grpFz,
+              letterSpacing: "2px", color: "#fff" }}>
               Group {gs.group.name}
             </span>
             {gs.played === gs.total && gs.total > 0 && (
               <span style={{ fontSize: tvF(8), fontWeight: 800, color: gs.gc, background: `${gs.gc}18`,
-                border: `1px solid ${gs.gc}40`, borderRadius: 6, padding: "1px 7px",
+                border: `1px solid ${gs.gc}40`, borderRadius: 5, padding: "1px 6px",
                 fontFamily: "'DM Sans',sans-serif", letterSpacing: "1px" }}>DONE</span>
             )}
           </div>
-          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(11), color: "rgba(255,255,255,.3)" }}>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(9), color: "rgba(255,255,255,.28)" }}>
             {gs.played}/{gs.total}
           </span>
         </div>
         {/* col labels */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 34px 34px 34px 34px 38px 44px",
-          padding: "6px 16px", background: "rgba(255,255,255,.025)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: cols,
+          padding: `5px ${hdrPx}`, background: "rgba(255,255,255,.02)" }}>
           {["PLAYER","MP","W","D","L","GD","PTS"].map((h, j) => (
-            <span key={h} style={{ fontSize: tvF(9), fontWeight: 800, letterSpacing: "1px",
-              color: "rgba(255,255,255,.24)", textAlign: j > 0 ? "center" : "left",
+            <span key={h} style={{ fontSize: tvF(8), fontWeight: 800, letterSpacing: "1px",
+              color: "rgba(255,255,255,.22)", textAlign: j > 0 ? "center" : "left",
               fontFamily: "'DM Sans',sans-serif" }}>{h}</span>
           ))}
         </div>
@@ -3950,27 +3962,31 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
           const gd  = row.gf - row.ga;
           return (
             <div key={row.participant.name} style={{
-              display: "grid", gridTemplateColumns: "1fr 34px 34px 34px 34px 38px 44px",
-              padding: "11px 16px", alignItems: "center",
+              display: "grid", gridTemplateColumns: cols,
+              padding: `${rowPy} ${rowPx}`, alignItems: "center",
               borderTop: "1px solid rgba(255,255,255,.04)",
               background: adv ? `${gs.gc}07` : "transparent",
             }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-                <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(14),
-                  color: adv ? gs.gc : "rgba(255,255,255,.22)", flexShrink: 0 }}>{ri + 1}</span>
-                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(14), fontWeight: 700,
-                  color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: isCompact ? 5 : 7, minWidth: 0 }}>
+                <span style={{ fontFamily: "'Bebas Neue',sans-serif",
+                  fontSize: isCompact ? tvF(11) : tvF(14),
+                  color: adv ? gs.gc : "rgba(255,255,255,.2)", flexShrink: 0 }}>{ri + 1}</span>
+                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: nameFz, fontWeight: 700,
+                  color: adv ? "#fff" : "rgba(255,255,255,.7)",
+                  textShadow: adv && isCompact ? `0 0 8px ${gs.gc}55` : "none",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {row.participant.name}
                 </span>
               </div>
-              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(12), color: "rgba(255,255,255,.38)" }}>{row.played}</span>
-              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(12), fontWeight: 700, color: N }}>{row.won}</span>
-              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(12), color: "#3B8EFF" }}>{row.drawn}</span>
-              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(12), color: "#FF3355" }}>{row.lost}</span>
-              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(12),
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: statFz, color: "rgba(255,255,255,.35)" }}>{row.played}</span>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: statFz, fontWeight: 700, color: N }}>{row.won}</span>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: statFz, color: "#3B8EFF" }}>{row.drawn}</span>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: statFz, color: "#FF3355" }}>{row.lost}</span>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: statFz,
                 color: gd >= 0 ? N : "#FF3355" }}>{gd >= 0 ? "+" : ""}{gd}</span>
-              <span style={{ textAlign: "center", fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(18),
-                color: adv ? gs.gc : "#fff" }}>{row.pts}</span>
+              <span style={{ textAlign: "center", fontFamily: "'Bebas Neue',sans-serif", fontSize: ptsFz,
+                color: adv ? gs.gc : "#fff",
+                textShadow: adv ? `0 0 10px ${gs.gc}60` : "none" }}>{row.pts}</span>
             </div>
           );
         })}
@@ -4111,13 +4127,64 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
   );
 
   // ── Column B: Live Standings ──────────────────────────────────────────────
+  const arenaPageGroups = groupStandings.slice(
+    arenaPage * ARENA_PAGE_SIZE, (arenaPage + 1) * ARENA_PAGE_SIZE
+  );
+
   const colB = (
-    <div style={{ padding: "0 16px 32px" }}>
-      {/* Group standings */}
-      {isGroups && groupStandings.length > 0 && (
+    <div style={{ padding: "0 16px 24px" }}>
+      {/* ── ARENA VIEW: responsive multi-column grid ── */}
+      {arenaMode && isGroups && groupStandings.length > 0 && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div style={colHdrS}>LIVE STANDINGS — ALL GROUPS</div>
+            {totalArenaPages > 1 && (
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(10),
+                color: "rgba(255,255,255,.35)" }}>
+                PAGE {arenaPage + 1}/{totalArenaPages}
+              </span>
+            )}
+          </div>
+          <motion.div key={`arena-page-${arenaPage}`}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            transition={{ duration: 0.35 }}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+              gap: 10,
+            }}>
+            {arenaPageGroups.map((gs, i) =>
+              renderStandingCard(gs, arenaPage * ARENA_PAGE_SIZE + i, true)
+            )}
+          </motion.div>
+          {/* Pagination: dots + 10-second countdown bar */}
+          {totalArenaPages > 1 && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 18 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                {Array.from({ length: totalArenaPages }, (_, i) => (
+                  <button key={i} onClick={() => setArenaPage(i)}
+                    style={{ width: arenaPage === i ? 28 : 8, height: 8, borderRadius: 4,
+                      background: arenaPage === i ? N : "rgba(255,255,255,.18)", border: "none",
+                      cursor: "pointer", transition: "all .35s ease",
+                      boxShadow: arenaPage === i ? `0 0 8px ${N}` : "none" }}/>
+                ))}
+              </div>
+              <div style={{ width: 120, height: 3, borderRadius: 2, background: "rgba(255,255,255,.08)", overflow: "hidden" }}>
+                <motion.div key={`progress-${arenaPage}`}
+                  initial={{ width: "100%" }} animate={{ width: "0%" }}
+                  transition={{ duration: 10, ease: "linear" }}
+                  style={{ height: "100%", borderRadius: 2, background: N }}/>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── NORMAL VIEW: stacked group cards ── */}
+      {!arenaMode && isGroups && groupStandings.length > 0 && (
         <>
           <div style={colHdrS}>LIVE STANDINGS</div>
-          {groupStandings.map((gs, i) => renderStandingCard(gs, i))}
+          {groupStandings.map((gs, i) => renderStandingCard(gs, i, false))}
         </>
       )}
 
@@ -4151,20 +4218,20 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
         </>
       )}
 
-      {/* Top scorer / player leaderboard */}
-      {topScorers.length > 0 && (
+      {/* Top scorer leaderboard (hidden in arena mode to maximize grid space) */}
+      {!arenaMode && topScorers.length > 0 && (
         <>
           <div style={{ ...colHdrS, marginTop: 8 }}>
             ⚡ TOP {isGroups ? "SCORERS" : "PLAYERS"}
           </div>
           <div style={cardS}>
             {topScorers.map((p, i) => {
-              const medal = ["#FFD700","#C0C0C0","#CD7F32"];
+              const medalC = ["#FFD700","#C0C0C0","#CD7F32"];
               return (
                 <div key={p.id || p.name} style={{ display: "flex", alignItems: "center", gap: 12,
                   padding: "12px 16px", borderTop: i > 0 ? "1px solid rgba(255,255,255,.04)" : "none" }}>
                   <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(15),
-                    color: medal[i] || "rgba(255,255,255,.2)", width: 24, textAlign: "center", flexShrink: 0 }}>
+                    color: medalC[i] || "rgba(255,255,255,.2)", width: 24, textAlign: "center", flexShrink: 0 }}>
                     {i + 1}
                   </span>
                   <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(14), fontWeight: 700,
@@ -4186,19 +4253,6 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
             })}
           </div>
         </>
-      )}
-
-      {/* Theater pagination dots */}
-      {theaterMode && isGroups && groups.length > 1 && (
-        <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 20 }}>
-          {groups.map((g, i) => (
-            <button key={g.name} onClick={() => setTheaterIdx(i)}
-              style={{ width: theaterIdx === i ? 26 : 8, height: 8, borderRadius: 4,
-                background: theaterIdx === i ? N : "rgba(255,255,255,.18)", border: "none",
-                cursor: "pointer", transition: "all .35s ease",
-                boxShadow: theaterIdx === i ? `0 0 8px ${N}` : "none" }}/>
-          ))}
-        </div>
       )}
     </div>
   );
@@ -4237,21 +4291,21 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
             letterSpacing: "2px", fontWeight: 700, marginTop: 2 }}>TV DASHBOARD</div>
         </div>
 
-        {/* Theater mode toggle (admin only) */}
+        {/* ARENA VIEW toggle (admin only) */}
         {isAdmin && (
           <div style={{ display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
-            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(11), fontWeight: 700,
-              letterSpacing: ".5px", color: theaterMode ? N : "rgba(255,255,255,.35)" }}>
-              THEATER
+            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(11), fontWeight: 800,
+              letterSpacing: ".5px", color: arenaMode ? N : "rgba(255,255,255,.35)" }}>
+              ARENA VIEW
             </span>
-            <button onClick={() => { setTheaterMode(v => !v); setTheaterIdx(0); }}
+            <button onClick={() => setArenaMode(v => !v)}
               style={{ width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer",
-                background: theaterMode ? N : "rgba(255,255,255,.12)", position: "relative",
+                background: arenaMode ? N : "rgba(255,255,255,.12)", position: "relative",
                 transition: "background .3s", flexShrink: 0 }}>
-              <motion.div animate={{ x: theaterMode ? 22 : 2 }}
+              <motion.div animate={{ x: arenaMode ? 22 : 2 }}
                 transition={{ type: "spring", stiffness: 400, damping: 30 }}
                 style={{ position: "absolute", top: 3, left: 0, width: 18, height: 18,
-                  borderRadius: "50%", background: theaterMode ? "#000" : "rgba(255,255,255,.85)" }}/>
+                  borderRadius: "50%", background: arenaMode ? "#000" : "rgba(255,255,255,.85)" }}/>
             </button>
           </div>
         )}
@@ -4293,7 +4347,7 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
         <div className={`tv-col-a${activeCol === "management" ? " tv-active" : ""}`}
           style={{ width: "40%", flexShrink: 0, overflow: "auto",
             borderRight: "1px solid rgba(255,255,255,.06)",
-            flexDirection: "column", display: theaterMode ? "none" : undefined }}>
+            flexDirection: "column", display: arenaMode ? "none" : undefined }}>
           <div style={{ padding: "16px 16px 10px", fontFamily: "'Bebas Neue',sans-serif",
             fontSize: tvF(17), letterSpacing: "3px", color: "#fff", flexShrink: 0 }}>
             Live <span style={{ color: N }}>Management</span>
@@ -4304,16 +4358,16 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
         {/* Col B — Live Standings (60% or fullscreen in theater) */}
         <div className={`tv-col-b${activeCol === "standings" ? " tv-active" : ""}`}
           style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column",
-            width: theaterMode ? "100%" : undefined }}>
+            width: arenaMode ? "100%" : undefined }}>
           <div style={{ padding: "16px 16px 10px", fontFamily: "'Bebas Neue',sans-serif",
             fontSize: tvF(17), letterSpacing: "3px", color: "#fff", flexShrink: 0,
             display: "flex", alignItems: "center", gap: 12 }}>
             Live <span style={{ color: N }}>Standings</span>
-            {theaterMode && (
+            {arenaMode && (
               <span style={{ fontSize: tvF(11), fontWeight: 800, color: N,
                 background: `${N}15`, border: `1px solid ${N}30`, borderRadius: 6,
-                padding: "2px 8px", letterSpacing: "1px", fontFamily: "'DM Sans',sans-serif" }}>
-                THEATER
+                padding: "2px 10px", letterSpacing: "1.5px", fontFamily: "'DM Sans',sans-serif" }}>
+                ARENA VIEW
               </span>
             )}
           </div>
