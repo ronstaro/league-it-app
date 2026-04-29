@@ -7347,7 +7347,6 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
   const [currentGroupDone, setCurrentGroupDone] = useState(false);
   const [allRevealed,      setAllRevealed]      = useState(false);
   const [locking,          setLocking]          = useState(false);
-  const canvasRef      = useRef(null);
   const scrollRef      = useRef(null);
   const groupRefs      = useRef([]);
 
@@ -7363,35 +7362,6 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
     }
     return [];
   }, [groups, bracket, tournFormat]);
-
-  // Matrix rain canvas
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const setSize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
-    setSize();
-    window.addEventListener("resize", setSize);
-    const ctx = canvas.getContext("2d");
-    const CHARS = "01アイウカキクケコサシ#@$%";
-    let drops = Array(Math.floor(window.innerWidth / 18) + 1).fill(1);
-    let alive = true;
-    const draw = () => {
-      if (!alive) return;
-      ctx.fillStyle = "rgba(0,0,0,.055)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.font = "13px 'JetBrains Mono',monospace";
-      drops.forEach((y, i) => {
-        const bright = Math.random() > .88;
-        ctx.fillStyle = bright ? "rgba(170,255,0,.85)" : "rgba(0,70,0,.45)";
-        ctx.fillText(CHARS[Math.floor(Math.random() * CHARS.length)], i * 18, y * 18);
-        if (y * 18 > canvas.height && Math.random() > .974) drops[i] = 0;
-        drops[i]++;
-      });
-      requestAnimationFrame(draw);
-    };
-    draw();
-    return () => { alive = false; window.removeEventListener("resize", setSize); };
-  }, []);
 
   // Reveal first group after intro
   useEffect(() => {
@@ -7449,9 +7419,6 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
     <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "#000",
       overflow: "hidden", display: "flex", flexDirection: "column" }}>
 
-      {/* Matrix rain */}
-      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, opacity: 0.17, pointerEvents: "none", zIndex: 0 }} />
-
       {/* Header */}
       <div style={{ position: "relative", zIndex: 2, padding: "16px 20px 12px", flexShrink: 0,
         display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -7464,11 +7431,11 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
           transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           style={{ textAlign: "center" }}>
           <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 36, letterSpacing: "3px",
-            color: "#fff", lineHeight: 1 }}>
+            color: N, lineHeight: 1, textShadow: `0 0 20px rgba(170,255,0,.6)` }}>
             Tournament Draw
           </div>
           <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11,
-            color: "rgba(255,255,255,.35)", marginTop: 3 }}>
+            color: "rgba(170,255,0,.55)", marginTop: 3 }}>
             {leagueName}
           </div>
         </motion.div>
