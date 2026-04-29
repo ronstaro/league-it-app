@@ -3807,6 +3807,523 @@ function AdminDashboard({ players, feed, rules, bracket, groups, groupMatches })
   );
 }
 
+/* ── TV DASHBOARD ────────────────────────────────────────────────────────── */
+function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
+  leagueId, leagueName, isAdmin, onClose, onGroupResult, onSyncEntry }) {
+
+  const TV = 1.2;
+  const tvF = n => Math.round(n * TV);
+
+  const [theaterMode, setTheaterMode] = useState(false);
+  const [theaterIdx,  setTheaterIdx]  = useState(0);
+  const [localScores, setLocalScores] = useState({});
+  const [saving,      setSaving]      = useState(null);
+  const [activeCol,   setActiveCol]   = useState("standings");
+
+  const groupRefs = useRef([]);
+
+  const completedIds   = useMemo(() => new Set(feed.map(m => m.id)), [feed]);
+  const isGroups       = rules?.tournamentFormat === "groups_knockout";
+  const isTournament   = !!(rules?.tournamentFormat && rules.tournamentFormat !== "classic");
+  const advPerGroup    = rules?.groupSettings?.advancingPerGroup || 2;
+
+  // ── Supabase real-time: sync scores from other devices ──────────────────
+  useEffect(() => {
+    if (!leagueId || !onSyncEntry) return;
+    const ch = supabase.channel(`tv-${leagueId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "matches",
+        filter: `league_id=eq.${leagueId}` },
+        p => { if (p.new?.score) onSyncEntry(p.new.score); })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [leagueId, onSyncEntry]);
+
+  // ── Theater auto-rotation ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!theaterMode || !isGroups || !groups.length) return;
+    const id = setInterval(() => setTheaterIdx(i => (i + 1) % groups.length), 6000);
+    return () => clearInterval(id);
+  }, [theaterMode, isGroups, groups.length]);
+
+  useEffect(() => {
+    if (!theaterMode || !isGroups) return;
+    groupRefs.current[theaterIdx]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [theaterMode, theaterIdx, isGroups]);
+
+  // ── Derived data ─────────────────────────────────────────────────────────
+  const groupStandings = useMemo(() =>
+    groups.map(g => ({
+      group: g,
+      gc:     GROUP_COLORS[GROUP_LETTER_IDX[g.name] ?? 0],
+      rows:   computeGroupStandings(g.participants, g.name, groupMatches, feed),
+      total:  groupMatches.filter(m => m.groupName === g.name).length,
+      played: groupMatches.filter(m => m.groupName === g.name && completedIds.has(m.id)).length,
+    })), [groups, groupMatches, feed, completedIds]);
+
+  const topScorers = useMemo(() => {
+    if (isGroups) {
+      const goals = {};
+      feed.filter(m => m.tournament_stage === "group").forEach(m => {
+        if (m.p1Name) goals[m.p1Name] = (goals[m.p1Name] || 0) + Number(m.p1Goals || 0);
+        if (m.p2Name) goals[m.p2Name] = (goals[m.p2Name] || 0) + Number(m.p2Goals || 0);
+      });
+      return players.map(p => ({ ...p, goals: goals[p.name] || 0 }))
+        .sort((a, b) => b.goals - a.goals || b.wins - a.wins).slice(0, 8);
+    }
+    return [...players].sort((a, b) => b.wins - a.wins || a.losses - b.losses).slice(0, 8);
+  }, [players, feed, isGroups]);
+
+  const pendingMatches = useMemo(() =>
+    groupMatches.filter(m => !completedIds.has(m.id)), [groupMatches, completedIds]);
+  const recentResults  = useMemo(() =>
+    feed.filter(m => m.tournament_stage === "group").slice(0, 8), [feed]);
+
+  // ── Score entry ──────────────────────────────────────────────────────────
+  const handleScoreChange = (matchId, side, val) =>
+    setLocalScores(p => ({ ...p, [matchId]: { ...(p[matchId] || {}), [side]: val } }));
+
+  const handleSaveScore = async (match) => {
+    const s = localScores[match.id] || {};
+    if (s.p1 === undefined || s.p1 === "" || s.p2 === undefined || s.p2 === "") return;
+    setSaving(match.id);
+    try {
+      await onGroupResult({ match, p1Goals: parseInt(s.p1) || 0, p2Goals: parseInt(s.p2) || 0 });
+      setLocalScores(p => { const n = { ...p }; delete n[match.id]; return n; });
+    } catch {}
+    setSaving(null);
+  };
+
+  // ── Shared style shortcuts ────────────────────────────────────────────────
+  const cardS = {
+    borderRadius: 16, border: "1px solid rgba(255,255,255,.07)",
+    background: "rgba(255,255,255,.03)", marginBottom: 14, overflow: "hidden",
+  };
+  const colHdrS = {
+    fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(13),
+    letterSpacing: "2.5px", color: "rgba(255,255,255,.32)", marginBottom: 14,
+  };
+  const inputS = {
+    width: 52, height: 42, borderRadius: 10,
+    border: `1.5px solid rgba(170,255,0,.3)`, background: "rgba(170,255,0,.06)",
+    color: N, textAlign: "center", fontFamily: "'JetBrains Mono',monospace",
+    fontSize: tvF(18), fontWeight: 700, outline: "none", padding: "0 4px",
+  };
+
+  // ── Render helpers ────────────────────────────────────────────────────────
+  const renderStandingCard = (gs, idx) => {
+    const focus = theaterMode && theaterIdx === idx;
+    return (
+      <div key={gs.group.name} ref={el => { groupRefs.current[idx] = el; }}
+        style={{ ...cardS, transition: "opacity .4s, box-shadow .4s",
+          opacity: theaterMode && !focus ? 0.18 : 1,
+          boxShadow: focus ? `0 0 0 1.5px ${gs.gc}55` : "none" }}>
+        {/* group header */}
+        <div style={{ padding: "12px 16px 10px", borderBottom: "1px solid rgba(255,255,255,.05)",
+          display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: gs.gc, boxShadow: `0 0 8px ${gs.gc}`, flexShrink: 0 }}/>
+            <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(20), letterSpacing: "2px", color: "#fff" }}>
+              Group {gs.group.name}
+            </span>
+            {gs.played === gs.total && gs.total > 0 && (
+              <span style={{ fontSize: tvF(8), fontWeight: 800, color: gs.gc, background: `${gs.gc}18`,
+                border: `1px solid ${gs.gc}40`, borderRadius: 6, padding: "1px 7px",
+                fontFamily: "'DM Sans',sans-serif", letterSpacing: "1px" }}>DONE</span>
+            )}
+          </div>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(11), color: "rgba(255,255,255,.3)" }}>
+            {gs.played}/{gs.total}
+          </span>
+        </div>
+        {/* col labels */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 34px 34px 34px 34px 38px 44px",
+          padding: "6px 16px", background: "rgba(255,255,255,.025)" }}>
+          {["PLAYER","MP","W","D","L","GD","PTS"].map((h, j) => (
+            <span key={h} style={{ fontSize: tvF(9), fontWeight: 800, letterSpacing: "1px",
+              color: "rgba(255,255,255,.24)", textAlign: j > 0 ? "center" : "left",
+              fontFamily: "'DM Sans',sans-serif" }}>{h}</span>
+          ))}
+        </div>
+        {/* rows */}
+        {gs.rows.map((row, ri) => {
+          const adv = ri < advPerGroup;
+          const gd  = row.gf - row.ga;
+          return (
+            <div key={row.participant.name} style={{
+              display: "grid", gridTemplateColumns: "1fr 34px 34px 34px 34px 38px 44px",
+              padding: "11px 16px", alignItems: "center",
+              borderTop: "1px solid rgba(255,255,255,.04)",
+              background: adv ? `${gs.gc}07` : "transparent",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(14),
+                  color: adv ? gs.gc : "rgba(255,255,255,.22)", flexShrink: 0 }}>{ri + 1}</span>
+                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(14), fontWeight: 700,
+                  color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {row.participant.name}
+                </span>
+              </div>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(12), color: "rgba(255,255,255,.38)" }}>{row.played}</span>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(12), fontWeight: 700, color: N }}>{row.won}</span>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(12), color: "#3B8EFF" }}>{row.drawn}</span>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(12), color: "#FF3355" }}>{row.lost}</span>
+              <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(12),
+                color: gd >= 0 ? N : "#FF3355" }}>{gd >= 0 ? "+" : ""}{gd}</span>
+              <span style={{ textAlign: "center", fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(18),
+                color: adv ? gs.gc : "#fff" }}>{row.pts}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderPendingMatch = (match) => {
+    const s = localScores[match.id] || {};
+    const dirty   = s.p1 !== undefined && s.p1 !== "" && s.p2 !== undefined && s.p2 !== "";
+    const isSaving = saving === match.id;
+    const gc = GROUP_COLORS[GROUP_LETTER_IDX[match.groupName] ?? 0];
+    return (
+      <div key={match.id} style={{ ...cardS, padding: "14px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <div style={{ width: 6, height: 6, borderRadius: "50%", background: gc, flexShrink: 0 }}/>
+          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(9), fontWeight: 800,
+            letterSpacing: "1.5px", color: "rgba(255,255,255,.28)" }}>GROUP {match.groupName}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, textAlign: "right", minWidth: 0 }}>
+            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(14), fontWeight: 700,
+              color: "#fff", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {match.p1?.name}
+            </span>
+          </div>
+          {isAdmin ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+              <input type="number" min="0" max="99" value={s.p1 ?? ""}
+                onChange={e => handleScoreChange(match.id, "p1", e.target.value)}
+                style={inputS} placeholder="–"/>
+              <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(22), color: "rgba(255,255,255,.2)" }}>:</span>
+              <input type="number" min="0" max="99" value={s.p2 ?? ""}
+                onChange={e => handleScoreChange(match.id, "p2", e.target.value)}
+                style={inputS} placeholder="–"/>
+            </div>
+          ) : (
+            <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(22),
+              color: "rgba(255,255,255,.18)", padding: "0 8px" }}>VS</span>
+          )}
+          <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
+            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(14), fontWeight: 700,
+              color: "#fff", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {match.p2?.name}
+            </span>
+          </div>
+        </div>
+        {isAdmin && dirty && (
+          <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}>
+            <motion.button whileTap={{ scale: 0.96 }} onClick={() => handleSaveScore(match)}
+              disabled={isSaving}
+              style={{ background: `linear-gradient(135deg,${N},#7DC900)`, border: "none",
+                borderRadius: 12, padding: "9px 28px", fontFamily: "'DM Sans',sans-serif",
+                fontSize: tvF(13), fontWeight: 800, color: "#000",
+                cursor: isSaving ? "not-allowed" : "pointer", opacity: isSaving ? 0.7 : 1 }}>
+              {isSaving ? "Saving…" : "✓ Save Result"}
+            </motion.button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderRecentResult = (m) => {
+    const isDraw = m.isDraw || m.p1Goals === m.p2Goals;
+    return (
+      <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10,
+        padding: "10px 14px", borderTop: "1px solid rgba(255,255,255,.04)" }}>
+        <div style={{ flex: 1, textAlign: "right", minWidth: 0 }}>
+          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(13), fontWeight: 700,
+            color: !isDraw && m.winner === m.p1Name ? "#fff" : "rgba(255,255,255,.38)",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+            {m.p1Name}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0,
+          background: "rgba(255,255,255,.05)", borderRadius: 8, padding: "4px 10px" }}>
+          <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(18), color: N }}>{m.p1Goals}</span>
+          <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(14), color: "rgba(255,255,255,.2)" }}>–</span>
+          <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(18), color: N }}>{m.p2Goals}</span>
+        </div>
+        <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
+          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(13), fontWeight: 700,
+            color: !isDraw && m.winner === m.p2Name ? "#fff" : "rgba(255,255,255,.38)",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+            {m.p2Name}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Column A: Live Management ─────────────────────────────────────────────
+  const colA = (
+    <div style={{ padding: "0 16px 32px" }}>
+      {isGroups && pendingMatches.length > 0 && (
+        <>
+          <div style={{ ...colHdrS, display: "flex", alignItems: "center", gap: 8 }}>
+            <motion.div animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1.4, repeat: Infinity }}
+              style={{ width: 6, height: 6, borderRadius: "50%", background: N, boxShadow: `0 0 6px ${N}`, flexShrink: 0 }}/>
+            UPCOMING FIXTURES
+          </div>
+          {pendingMatches.map(m => renderPendingMatch(m))}
+        </>
+      )}
+      {recentResults.length > 0 && (
+        <div style={{ ...cardS, marginTop: isGroups && pendingMatches.length > 0 ? 20 : 0 }}>
+          <div style={{ padding: "12px 14px 4px",
+            fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(13), letterSpacing: "2px", color: "rgba(255,255,255,.3)" }}>
+            RECENT RESULTS
+          </div>
+          {recentResults.map(m => renderRecentResult(m))}
+          <div style={{ height: 8 }}/>
+        </div>
+      )}
+      {!isTournament && (
+        <div style={{ borderRadius: 14, padding: "22px", textAlign: "center",
+          background: "rgba(255,255,255,.02)", border: "1px dashed rgba(255,255,255,.08)",
+          fontFamily: "'DM Sans',sans-serif", fontSize: tvF(12), color: "rgba(255,255,255,.28)", lineHeight: 1.7 }}>
+          Classic league mode.<br/>Log matches via the app.
+        </div>
+      )}
+      {isTournament && !isGroups && (
+        <div style={{ borderRadius: 14, padding: "22px", textAlign: "center",
+          background: "rgba(255,255,255,.02)", border: "1px dashed rgba(255,255,255,.08)",
+          fontFamily: "'DM Sans',sans-serif", fontSize: tvF(12), color: "rgba(255,255,255,.28)", lineHeight: 1.7 }}>
+          Knockout format.<br/>Use the bracket to log results.
+        </div>
+      )}
+      {isGroups && pendingMatches.length === 0 && recentResults.length === 0 && (
+        <div style={{ borderRadius: 14, padding: "22px", textAlign: "center",
+          background: "rgba(255,255,255,.02)", border: "1px dashed rgba(255,255,255,.08)",
+          fontFamily: "'DM Sans',sans-serif", fontSize: tvF(12), color: "rgba(255,255,255,.28)" }}>
+          No fixtures yet — generate a draw first.
+        </div>
+      )}
+    </div>
+  );
+
+  // ── Column B: Live Standings ──────────────────────────────────────────────
+  const colB = (
+    <div style={{ padding: "0 16px 32px" }}>
+      {/* Group standings */}
+      {isGroups && groupStandings.length > 0 && (
+        <>
+          <div style={colHdrS}>LIVE STANDINGS</div>
+          {groupStandings.map((gs, i) => renderStandingCard(gs, i))}
+        </>
+      )}
+
+      {/* Classic standings */}
+      {!isTournament && players.length > 0 && (
+        <>
+          <div style={colHdrS}>STANDINGS</div>
+          <div style={cardS}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 38px 38px 44px",
+              padding: "8px 16px", background: "rgba(255,255,255,.03)", borderBottom: "1px solid rgba(255,255,255,.05)" }}>
+              {["PLAYER","W","L","WIN%"].map((h, j) => (
+                <span key={h} style={{ fontSize: tvF(9), fontWeight: 800, letterSpacing: "1px",
+                  color: "rgba(255,255,255,.24)", textAlign: j > 0 ? "center" : "left",
+                  fontFamily: "'DM Sans',sans-serif" }}>{h}</span>
+              ))}
+            </div>
+            {[...players].sort((a, b) => b.wins - a.wins || a.losses - b.losses).map((p, i) => (
+              <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 38px 38px 44px",
+                padding: "11px 16px", alignItems: "center", borderTop: "1px solid rgba(255,255,255,.04)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                  <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(14), color: "rgba(255,255,255,.22)", flexShrink: 0 }}>{i + 1}</span>
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(14), fontWeight: 700,
+                    color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                </div>
+                <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(12), color: N, fontWeight: 700 }}>{p.wins}</span>
+                <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(12), color: "#FF3355" }}>{p.losses}</span>
+                <span style={{ textAlign: "center", fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(12), color: "rgba(255,255,255,.38)" }}>{pct(p.wins, p.losses)}%</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Top scorer / player leaderboard */}
+      {topScorers.length > 0 && (
+        <>
+          <div style={{ ...colHdrS, marginTop: 8 }}>
+            ⚡ TOP {isGroups ? "SCORERS" : "PLAYERS"}
+          </div>
+          <div style={cardS}>
+            {topScorers.map((p, i) => {
+              const medal = ["#FFD700","#C0C0C0","#CD7F32"];
+              return (
+                <div key={p.id || p.name} style={{ display: "flex", alignItems: "center", gap: 12,
+                  padding: "12px 16px", borderTop: i > 0 ? "1px solid rgba(255,255,255,.04)" : "none" }}>
+                  <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(15),
+                    color: medal[i] || "rgba(255,255,255,.2)", width: 24, textAlign: "center", flexShrink: 0 }}>
+                    {i + 1}
+                  </span>
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(14), fontWeight: 700,
+                    color: "#fff", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {p.name}
+                  </span>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 4, flexShrink: 0 }}>
+                    <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(22),
+                      color: N, textShadow: `0 0 12px rgba(170,255,0,.5)` }}>
+                      {isGroups ? p.goals : p.wins}
+                    </span>
+                    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(10), fontWeight: 800,
+                      color: "rgba(255,255,255,.3)", letterSpacing: "1px" }}>
+                      {isGroups ? "GLS" : "W"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Theater pagination dots */}
+      {theaterMode && isGroups && groups.length > 1 && (
+        <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 20 }}>
+          {groups.map((g, i) => (
+            <button key={g.name} onClick={() => setTheaterIdx(i)}
+              style={{ width: theaterIdx === i ? 26 : 8, height: 8, borderRadius: 4,
+                background: theaterIdx === i ? N : "rgba(255,255,255,.18)", border: "none",
+                cursor: "pointer", transition: "all .35s ease",
+                boxShadow: theaterIdx === i ? `0 0 8px ${N}` : "none" }}/>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      transition={{ duration: 0.22 }}
+      style={{ position: "fixed", inset: 0, zIndex: 9998, background: "#000",
+        display: "flex", flexDirection: "column", fontFamily: "'DM Sans',sans-serif",
+        overflow: "hidden" }}>
+
+      <style>{`
+        @media (max-width: 767px) {
+          .tv-col-a { display: none !important; }
+          .tv-col-a.tv-active, .tv-col-b.tv-active { display: flex !important; flex-direction: column; }
+          .tv-mobtabs { display: flex !important; }
+        }
+        @media (min-width: 768px) {
+          .tv-col-a { display: flex !important; }
+          .tv-mobtabs { display: none !important; }
+        }
+      `}</style>
+
+      {/* ── Header ───────────────────────────────────────────────────────── */}
+      <div style={{ flexShrink: 0, height: 60, display: "flex", alignItems: "center",
+        padding: "0 20px", borderBottom: "1px solid rgba(255,255,255,.08)",
+        background: "rgba(0,0,0,.9)", backdropFilter: "blur(20px)", gap: 14 }}>
+        {/* League name */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(22), letterSpacing: "3px",
+            color: N, textShadow: `0 0 16px rgba(170,255,0,.5)`, lineHeight: 1,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {leagueName}
+          </div>
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(9), color: "rgba(255,255,255,.3)",
+            letterSpacing: "2px", fontWeight: 700, marginTop: 2 }}>TV DASHBOARD</div>
+        </div>
+
+        {/* Theater mode toggle (admin only) */}
+        {isAdmin && (
+          <div style={{ display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
+            <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(11), fontWeight: 700,
+              letterSpacing: ".5px", color: theaterMode ? N : "rgba(255,255,255,.35)" }}>
+              THEATER
+            </span>
+            <button onClick={() => { setTheaterMode(v => !v); setTheaterIdx(0); }}
+              style={{ width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer",
+                background: theaterMode ? N : "rgba(255,255,255,.12)", position: "relative",
+                transition: "background .3s", flexShrink: 0 }}>
+              <motion.div animate={{ x: theaterMode ? 22 : 2 }}
+                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                style={{ position: "absolute", top: 3, left: 0, width: 18, height: 18,
+                  borderRadius: "50%", background: theaterMode ? "#000" : "rgba(255,255,255,.85)" }}/>
+            </button>
+          </div>
+        )}
+
+        {/* Live pulse + close */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <motion.div animate={{ opacity: [1, 0.25, 1] }} transition={{ duration: 1.5, repeat: Infinity }}
+              style={{ width: 7, height: 7, borderRadius: "50%", background: N, boxShadow: `0 0 7px ${N}` }}/>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(10), fontWeight: 700,
+              color: N, letterSpacing: ".5px" }}>LIVE</span>
+          </div>
+          <button onClick={onClose}
+            style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid rgba(255,255,255,.12)",
+              background: "rgba(255,255,255,.06)", cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <X size={15} style={{ color: "rgba(255,255,255,.6)" }}/>
+          </button>
+        </div>
+      </div>
+
+      {/* ── Mobile tab bar ────────────────────────────────────────────────── */}
+      <div className="tv-mobtabs" style={{ display: "none", flexShrink: 0,
+        borderBottom: "1px solid rgba(255,255,255,.07)" }}>
+        {[{ id: "standings", label: "Standings" }, { id: "management", label: "Management" }].map(t => (
+          <button key={t.id} onClick={() => setActiveCol(t.id)}
+            style={{ flex: 1, padding: "10px", border: "none", background: "none", cursor: "pointer",
+              fontFamily: "'DM Sans',sans-serif", fontSize: tvF(12), fontWeight: 700,
+              color: activeCol === t.id ? N : "rgba(255,255,255,.32)",
+              borderBottom: activeCol === t.id ? `2px solid ${N}` : "2px solid transparent" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Two-column body ───────────────────────────────────────────────── */}
+      <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        {/* Col A — Live Management (40%) */}
+        <div className={`tv-col-a${activeCol === "management" ? " tv-active" : ""}`}
+          style={{ width: "40%", flexShrink: 0, overflow: "auto",
+            borderRight: "1px solid rgba(255,255,255,.06)",
+            flexDirection: "column", display: theaterMode ? "none" : undefined }}>
+          <div style={{ padding: "16px 16px 10px", fontFamily: "'Bebas Neue',sans-serif",
+            fontSize: tvF(17), letterSpacing: "3px", color: "#fff", flexShrink: 0 }}>
+            Live <span style={{ color: N }}>Management</span>
+          </div>
+          {colA}
+        </div>
+
+        {/* Col B — Live Standings (60% or fullscreen in theater) */}
+        <div className={`tv-col-b${activeCol === "standings" ? " tv-active" : ""}`}
+          style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column",
+            width: theaterMode ? "100%" : undefined }}>
+          <div style={{ padding: "16px 16px 10px", fontFamily: "'Bebas Neue',sans-serif",
+            fontSize: tvF(17), letterSpacing: "3px", color: "#fff", flexShrink: 0,
+            display: "flex", alignItems: "center", gap: 12 }}>
+            Live <span style={{ color: N }}>Standings</span>
+            {theaterMode && (
+              <span style={{ fontSize: tvF(11), fontWeight: 800, color: N,
+                background: `${N}15`, border: `1px solid ${N}30`, borderRadius: 6,
+                padding: "2px 8px", letterSpacing: "1px", fontFamily: "'DM Sans',sans-serif" }}>
+                THEATER
+              </span>
+            )}
+          </div>
+          {colB}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 /* ── BOTTOM NAV ── */
 function BottomNav({active, onChange}) {
   const tabs = [
@@ -3833,9 +4350,10 @@ function BottomNav({active, onChange}) {
 
 /* ── ROOT ── */
 function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, initialRules = null, leagueId = null, leagueName = "MY LEAGUE", user = null, onBack = null, ownerId = null, onDeleteLeague = null, profile = null, onProfileUpdate = null, squadPhotoUrl = null, onSquadPhotoUpdate = null, onAvatarUpdate = null, joinCode = null }) {
-  const [activeTab,setActiveTab] = useState("home");
-  const [players,  setPlayers]   = useState(initialPlayers);
-  const [feed,     setFeed]      = useState(initialFeed);
+  const [activeTab,  setActiveTab]  = useState("home");
+  const [showTVDash, setShowTVDash] = useState(false);
+  const [players,    setPlayers]    = useState(initialPlayers);
+  const [feed,       setFeed]       = useState(initialFeed);
   const [rules,    setRules]     = useState(initialRules || INIT_RULES);
   const rulesRef = useRef(initialRules || INIT_RULES);
   useEffect(() => { rulesRef.current = rules; }, [rules]);
@@ -4335,13 +4853,23 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                   <div style={{fontSize:9,color:"#C1FF00",fontFamily:"'DM Sans',sans-serif",letterSpacing:"2px",fontWeight:800,marginTop:2,textShadow:"0 0 10px rgba(193,255,0,.4)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{leagueName}</div>
                 </div>
               </div>
-              {(profile?.avatar_url || user?.user_metadata?.avatar_url)
-                ? <img src={profile?.avatar_url || user.user_metadata.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" style={{border:`2px solid ${N}44`}}/>
-                : <div className="flex items-center justify-center rounded-full w-9 h-9 text-[11px] font-black flex-shrink-0"
-                    style={{background:`linear-gradient(135deg,${N},#7DC900)`,color:"#000",fontFamily:"'DM Sans',sans-serif"}}>
-                    {(profile?.display_name||user?.user_metadata?.full_name||user?.email||"YO").trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join("")}
-                  </div>
-              }
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {isAdmin && (
+                  <button onClick={() => setShowTVDash(true)}
+                    title="TV Dashboard"
+                    className="flex items-center justify-center w-8 h-8 rounded-full"
+                    style={{ background: `${N}14`, border: `1px solid ${N}35` }}>
+                    <LayoutDashboard size={16} style={{ color: N }}/>
+                  </button>
+                )}
+                {(profile?.avatar_url || user?.user_metadata?.avatar_url)
+                  ? <img src={profile?.avatar_url || user.user_metadata.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover" style={{border:`2px solid ${N}44`}}/>
+                  : <div className="flex items-center justify-center rounded-full w-9 h-9 text-[11px] font-black"
+                      style={{background:`linear-gradient(135deg,${N},#7DC900)`,color:"#000",fontFamily:"'DM Sans',sans-serif"}}>
+                      {(profile?.display_name||user?.user_metadata?.full_name||user?.email||"YO").trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join("")}
+                    </div>
+                }
+              </div>
             </div>
           </motion.header>
 
@@ -4376,6 +4904,24 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
           <LogModal key="modal" players={sortedPlayers} prefill={editMatch}
             onClose={()=>{setShowLog(false);setEditMatch(null);}}
             onSubmit={handleSubmit}/>
+        )}
+
+        {showTVDash && (
+          <TVDashboard
+            key="tv-dashboard"
+            players={enrichedPlayers}
+            feed={feed}
+            rules={rules}
+            bracket={bracket}
+            groups={groups}
+            groupMatches={groupMatches}
+            leagueId={leagueId}
+            leagueName={leagueName}
+            isAdmin={isAdmin}
+            onClose={() => setShowTVDash(false)}
+            onGroupResult={handleGroupResult}
+            onSyncEntry={entry => setFeed(prev => [entry, ...prev.filter(m => m.id !== entry.id)])}
+          />
         )}
 
         {showDrawReveal && (pendingBracket || pendingGroups?.length > 0) && (
