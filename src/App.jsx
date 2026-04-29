@@ -5695,11 +5695,11 @@ function StepTournamentFormat({ tournamentFormat, setTournamentFormat, groupSett
 // STEP 3 (KNOCKOUT ONLY) — ADD PARTICIPANTS
 // ─────────────────────────────────────────────
 const TIER_META = {
-  A: { label: "Tier A", color: "#FFD700", bg: "rgba(255,215,0,.12)",  border: "rgba(255,215,0,.35)", desc: "Elite"      },
-  B: { label: "Tier B", color: "#AAFF00", bg: "rgba(170,255,0,.10)",  border: "rgba(170,255,0,.32)", desc: "Strong"     },
-  C: { label: "Tier C", color: "#3B8EFF", bg: "rgba(59,142,255,.12)", border: "rgba(59,142,255,.35)", desc: "Mid"       },
-  D: { label: "Tier D", color: "#FF8C42", bg: "rgba(255,140,66,.12)", border: "rgba(255,140,66,.35)", desc: "Developing" },
-  E: { label: "Tier E", color: "#AA7FFF", bg: "rgba(170,127,255,.10)",border: "rgba(170,127,255,.32)", desc: "Novice"   },
+  A: { label: "Tier A", color: "#FFD700", bg: "rgba(255,215,0,.12)",   border: "rgba(255,215,0,.35)",   desc: "Elite"      },
+  B: { label: "Tier B", color: "#00D4FF", bg: "rgba(0,212,255,.10)",   border: "rgba(0,212,255,.32)",   desc: "Strong"     },
+  C: { label: "Tier C", color: "#BF00FF", bg: "rgba(191,0,255,.12)",   border: "rgba(191,0,255,.35)",   desc: "Mid"        },
+  D: { label: "Tier D", color: "#FF8C42", bg: "rgba(255,140,66,.12)",  border: "rgba(255,140,66,.35)",  desc: "Developing" },
+  E: { label: "Tier E", color: "#AA7FFF", bg: "rgba(170,127,255,.10)", border: "rgba(170,127,255,.32)", desc: "Novice"     },
 };
 const TIER_ORDER = ["A", "B", "C", "D", "E"];
 
@@ -7413,15 +7413,24 @@ function FlickerName({ name, isActive, delay = 0 }) {
 // ─────────────────────────────────────────────
 const GROUP_COLORS = ["#00BFFF","#39FF14","#FF1493","#FF6600","#9B59FF","#00FFCC","#FFD700"];
 
-function GroupRevealCard({ group, groupIndex, isVisible }) {
+function GroupRevealCard({ group, groupIndex, isVisible, onComplete }) {
   const [visCount, setVisCount] = useState(0);
   const n = group.participants.length;
+  const firedRef = useRef(false);
 
   useEffect(() => {
     if (!isVisible || visCount >= n) return;
     const t = setTimeout(() => setVisCount(c => c + 1), visCount === 0 ? 320 : 490);
     return () => clearTimeout(t);
   }, [isVisible, visCount, n]);
+
+  // Fire onComplete exactly once when the last slot locks in
+  useEffect(() => {
+    if (isVisible && n > 0 && visCount >= n && !firedRef.current) {
+      firedRef.current = true;
+      onComplete?.();
+    }
+  }, [isVisible, visCount, n, onComplete]);
 
   const gc = GROUP_COLORS[groupIndex % GROUP_COLORS.length];
 
@@ -7500,10 +7509,13 @@ function GroupRevealCard({ group, groupIndex, isVisible }) {
 // DRAW REVEAL OVERLAY — fullscreen cinematic
 // ─────────────────────────────────────────────
 function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueName, leagueId, isAdmin, isSpectator = false, onConfirm }) {
-  const [visGroupCount, setVisGroupCount] = useState(0);
-  const [allRevealed,   setAllRevealed]   = useState(false);
-  const [locking,       setLocking]       = useState(false);
-  const canvasRef = useRef(null);
+  const [visGroupCount,    setVisGroupCount]    = useState(0);
+  const [currentGroupDone, setCurrentGroupDone] = useState(false);
+  const [allRevealed,      setAllRevealed]      = useState(false);
+  const [locking,          setLocking]          = useState(false);
+  const canvasRef      = useRef(null);
+  const scrollRef      = useRef(null);
+  const groupRefs      = useRef([]);
 
   const displayGroups = useMemo(() => {
     if (tournFormat === "groups_knockout" || groups.length > 0) return groups;
@@ -7525,12 +7537,10 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
     const setSize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
     setSize();
     window.addEventListener("resize", setSize);
-
     const ctx = canvas.getContext("2d");
     const CHARS = "01アイウカキクケコサシ#@$%";
     let drops = Array(Math.floor(window.innerWidth / 18) + 1).fill(1);
     let alive = true;
-
     const draw = () => {
       if (!alive) return;
       ctx.fillStyle = "rgba(0,0,0,.055)";
@@ -7549,18 +7559,47 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
     return () => { alive = false; window.removeEventListener("resize", setSize); };
   }, []);
 
-  // Sequential timed group reveals
+  // Reveal first group after intro
   useEffect(() => {
-    if (displayGroups.length === 0) { setTimeout(() => setAllRevealed(true), 2200); return; }
-    let time = 1900;
-    const timers = [];
-    displayGroups.forEach((g, i) => {
-      timers.push(setTimeout(() => setVisGroupCount(i + 1), time));
-      time += 340 + g.participants.length * 510 + 520;
-    });
-    timers.push(setTimeout(() => setAllRevealed(true), time + 400));
-    return () => timers.forEach(clearTimeout);
-  }, [displayGroups]);
+    if (displayGroups.length === 0) { const t = setTimeout(() => setAllRevealed(true), 2200); return () => clearTimeout(t); }
+    const t = setTimeout(() => setVisGroupCount(1), 1900);
+    return () => clearTimeout(t);
+  }, [displayGroups.length]);
+
+  // Spectator: auto-advance to next group 700ms after each group completes
+  useEffect(() => {
+    if (!isSpectator || !currentGroupDone) return;
+    const next = visGroupCount + 1;
+    if (next > displayGroups.length) { setAllRevealed(true); return; }
+    const t = setTimeout(() => { setVisGroupCount(next); setCurrentGroupDone(false); }, 700);
+    return () => clearTimeout(t);
+  }, [isSpectator, currentGroupDone, visGroupCount, displayGroups.length]);
+
+  // Auto-scroll the scroll container to the latest group card
+  useEffect(() => {
+    if (visGroupCount < 1) return;
+    const el = groupRefs.current[visGroupCount - 1];
+    if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "center" }), 120);
+  }, [visGroupCount]);
+
+  // Called by GroupRevealCard when its last player locks in
+  const handleGroupComplete = useCallback(() => {
+    setCurrentGroupDone(true);
+    // Spectator auto-advance is handled by the effect above.
+    // Admin waits for "Next Group" click.
+    // If there are no more groups at all, mark all revealed immediately for spectators.
+  }, []);
+
+  // Admin clicks "Next Group →" or gets final CTA
+  const handleNextGroup = () => {
+    const next = visGroupCount + 1;
+    if (next > displayGroups.length) {
+      setAllRevealed(true);
+    } else {
+      setVisGroupCount(next);
+      setCurrentGroupDone(false);
+    }
+  };
 
   const handleConfirm = async () => {
     setLocking(true);
@@ -7573,6 +7612,10 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
     setLocking(false);
     onConfirm?.();
   };
+
+  const isLastGroup   = visGroupCount >= displayGroups.length;
+  const showNextBtn   = isAdmin && !isSpectator && currentGroupDone && !allRevealed && !isLastGroup;
+  const showLockBtn   = isAdmin && !isSpectator && currentGroupDone && !allRevealed && isLastGroup;
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 5000, background: "#000",
@@ -7614,27 +7657,24 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
       </div>
 
       {/* Scrollable groups */}
-      <div style={{ flex: 1, overflowY: "auto", position: "relative", zIndex: 2, padding: "4px 20px 16px" }}>
+      <div ref={scrollRef}
+        style={{ flex: 1, overflowY: "auto", position: "relative", zIndex: 2, padding: "4px 20px 16px" }}>
         <div style={{ maxWidth: 500, margin: "0 auto" }}>
-          <AnimatePresence>
-            {displayGroups.slice(0, visGroupCount).map((g, i) => (
-              <GroupRevealCard key={g.name} group={g} groupIndex={i} isVisible />
-            ))}
-          </AnimatePresence>
-
-          {/* "Next group loading" pulse */}
-          {visGroupCount > 0 && visGroupCount < displayGroups.length && (
-            <motion.div animate={{ opacity: [0.25, 1, 0.25] }} transition={{ repeat: Infinity, duration: 1.1 }}
-              style={{ textAlign: "center", padding: "14px 0", fontFamily: "'JetBrains Mono',monospace",
-                fontSize: 10, letterSpacing: "4px", color: "rgba(170,255,0,.55)" }}>
-              LOADING GROUP {String.fromCharCode(65 + visGroupCount)}...
-            </motion.div>
-          )}
+          {displayGroups.slice(0, visGroupCount).map((g, i) => (
+            <div key={g.name} ref={el => { groupRefs.current[i] = el; }}>
+              <GroupRevealCard
+                group={g}
+                groupIndex={i}
+                isVisible
+                onComplete={i === visGroupCount - 1 ? handleGroupComplete : undefined}
+              />
+            </div>
+          ))}
 
           {/* Initial "scanning..." before first group */}
           {visGroupCount === 0 && (
             <motion.div animate={{ opacity: [0.2, 0.8, 0.2] }} transition={{ repeat: Infinity, duration: 1.4 }}
-              style={{ textAlign: "center", padding: "40px 0", fontFamily: "'JetBrains Mono',monospace",
+              style={{ textAlign: "center", padding: "48px 0", fontFamily: "'JetBrains Mono',monospace",
                 fontSize: 11, letterSpacing: "4px", color: "rgba(170,255,0,.5)" }}>
               SCANNING DATABASE...
             </motion.div>
@@ -7642,12 +7682,51 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
         </div>
       </div>
 
-      {/* Footer */}
-      <div style={{ position: "relative", zIndex: 2, padding: "12px 20px 36px", flexShrink: 0, textAlign: "center" }}>
-        <AnimatePresence>
-          {allRevealed && isAdmin && !isSpectator && (
-            <motion.div key="cta"
-              initial={{ opacity: 0, y: 28 }} animate={{ opacity: 1, y: 0 }}
+      {/* Sticky footer — progress counter + action buttons */}
+      <div style={{ position: "relative", zIndex: 2, padding: "14px 20px 36px", flexShrink: 0,
+        textAlign: "center", borderTop: "1px solid rgba(170,255,0,.08)",
+        background: "linear-gradient(0deg,rgba(0,0,0,.9) 80%,transparent)" }}>
+
+        <AnimatePresence mode="wait">
+
+          {/* Scanning / in-progress counter */}
+          {!currentGroupDone && !allRevealed && visGroupCount > 0 && (
+            <motion.div key="counter"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, letterSpacing: "4px",
+                color: "rgba(170,255,0,.35)", paddingBottom: 4 }}>
+              GROUP {String.fromCharCode(64 + visGroupCount)} INCOMING — {visGroupCount} / {displayGroups.length}
+            </motion.div>
+          )}
+
+          {/* Admin: Next Group button */}
+          {(showNextBtn) && (
+            <motion.div key="next-btn"
+              initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+              transition={{ type: "spring", stiffness: 260, damping: 22 }}>
+              <motion.button
+                whileTap={{ scale: 0.96 }}
+                animate={{ boxShadow: ["0 0 16px rgba(0,212,255,.3)", "0 0 42px rgba(0,212,255,.7)", "0 0 16px rgba(0,212,255,.3)"] }}
+                transition={{ repeat: Infinity, duration: 1.6 }}
+                onClick={handleNextGroup}
+                style={{ width: "100%", maxWidth: 480, borderRadius: 18, padding: "18px 24px",
+                  cursor: "pointer", border: "1.5px solid rgba(0,212,255,.5)",
+                  background: "rgba(0,212,255,.1)", fontFamily: "'Bebas Neue',sans-serif",
+                  fontSize: 26, letterSpacing: "3px", color: "#00D4FF",
+                  display: "block", margin: "0 auto" }}>
+                REVEAL GROUP {String.fromCharCode(65 + visGroupCount)} →
+              </motion.button>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "3px",
+                color: "rgba(255,255,255,.22)", marginTop: 10 }}>
+                {visGroupCount} / {displayGroups.length} GROUPS REVEALED
+              </div>
+            </motion.div>
+          )}
+
+          {/* Admin: Lock Brackets (last group done, not yet confirmed) */}
+          {(showLockBtn || (allRevealed && isAdmin && !isSpectator)) && (
+            <motion.div key="lock-btn"
+              initial={{ opacity: 0, y: 28 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
               transition={{ duration: 0.6, type: "spring", stiffness: 180, damping: 18 }}>
               <motion.button
                 whileTap={{ scale: 0.97 }}
@@ -7666,9 +7745,14 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
                   opacity: locking ? 0.7 : 1, display: "block", margin: "0 auto" }}>
                 {locking ? "LOCKING..." : "🔒  LOCK BRACKETS & START"}
               </motion.button>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "3px",
+                color: "rgba(170,255,0,.35)", marginTop: 10 }}>
+                ALL {displayGroups.length} GROUPS REVEALED
+              </div>
             </motion.div>
           )}
 
+          {/* Spectator waiting */}
           {allRevealed && isSpectator && (
             <motion.div key="spec" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
               style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13,
@@ -7676,14 +7760,8 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
               Waiting for admin to lock brackets and start...
             </motion.div>
           )}
-        </AnimatePresence>
 
-        {!allRevealed && displayGroups.length > 0 && (
-          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "3px",
-            color: "rgba(170,255,0,.28)" }}>
-            {visGroupCount} / {displayGroups.length} GROUPS REVEALED
-          </div>
-        )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -8068,8 +8146,8 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
                 transition:"opacity .2s" }}>
               {generating ? "Generating..." :
                livePlayers.length < 2 ? "Add at least 2 players first" :
-               tournFormat === "groups_knockout" ? `🎲 Generate Groups (${livePlayers.length} players)` :
-               `🏆 Generate Bracket (${livePlayers.length} players)`}
+               tournFormat === "groups_knockout" ? `🎲 GENERATE DRAW — ${livePlayers.length} Players` :
+               `🏆 GENERATE DRAW — ${livePlayers.length} Players`}
             </motion.button>
           )}
 
