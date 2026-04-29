@@ -693,7 +693,7 @@ function _DrawEmptyState({ isAdmin, onGenerateDraw }) {
           borderRadius: 16, padding: "12px 24px", cursor: "pointer",
           background: `linear-gradient(135deg,${N},#7DC900)`,
           border: "none", fontFamily: "'DM Sans',sans-serif", fontWeight: 800, fontSize: 13, color: "#000",
-        }}>Generate Draw →</button>
+        }}>GENERATE DRAW →</button>
       )}
     </div>
   );
@@ -2886,148 +2886,6 @@ function KnockoutFixtures({ bracket, onMatchTap, isAdmin, matchLegs, feed }) {
 }
 
 // ─────────────────────────────────────────────
-// DRAW CONFIRM SHEET
-// ─────────────────────────────────────────────
-function DrawConfirmSheet({ bracket, groups, groupMatches, format, onConfirm, onCancel, onClose, loading = false }) {
-  const isGroups = format === "groups_knockout";
-  if (!bracket && !groups?.length) return null;
-  const round1   = bracket?.rounds?.[0] || [];
-  const nonByes  = round1.filter(m => !m.isBye);
-  const byeNames = round1.filter(m => m.isBye).map(m => (m.p1 || m.p2)?.name).filter(Boolean);
-  const GC = ["#AAFF00","#3B8EFF","#FFB830","#FF6B35","#AA55FF","#00E5CC","#FF3355","#FFD700"];
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-end justify-center"
-      style={{ background: "rgba(0,0,0,.82)", backdropFilter: "blur(12px)" }}
-      onClick={e => { if (e.target === e.currentTarget && onClose) onClose(); }}
-    >
-      <motion.div
-        initial={{ y: "100%", opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: "100%", opacity: 0 }}
-        transition={{ type: "spring", stiffness: 320, damping: 34 }}
-        className="w-full rounded-t-[28px] overflow-hidden"
-        style={{ maxWidth: 430, background: "#111318", border: "1.5px solid rgba(255,255,255,.08)", borderBottom: "none" }}
-      >
-        <div className="flex justify-center pt-3 pb-1">
-          <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(255,255,255,.15)" }}/>
-        </div>
-
-        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid rgba(255,255,255,.07)" }}>
-          <div>
-            <h3 style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 26, letterSpacing: "2px", color: "#fff", lineHeight: 1 }}>
-              The Draw is <span style={{ color: N }}>Ready</span>
-            </h3>
-            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.35)", marginTop: 4 }}>
-              {isGroups
-                ? `${groups.length} groups · ${groupMatches?.length || 0} fixtures to play`
-                : bracket?.seeded ? "Seeded draw — stronger players kept apart." : "Random draw — all players equal."
-              }
-            </p>
-          </div>
-          <button onClick={onClose || onCancel} style={{
-            width: 32, height: 32, borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center",
-            background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)", cursor: "pointer",
-          }}>
-            <X size={14} style={{ color: "rgba(255,255,255,.5)" }}/>
-          </button>
-        </div>
-
-        <div style={{ padding: "16px 20px", maxHeight: 400, overflowY: "auto" }}>
-          {isGroups ? (
-            <>
-              {(groups || []).map((group, gi) => {
-                const gc = GC[gi % GC.length];
-                const gFixtures = (groupMatches || []).filter(m => m.groupName === group.name);
-                return (
-                  <div key={group.name} style={{ marginBottom: 16 }}>
-                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 800, letterSpacing: "1.5px",
-                      color: gc, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: gc, flexShrink: 0 }}/>
-                      GROUP {group.name} — {group.participants.length} players · {gFixtures.length} matches
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-                      {group.participants.map(p => (
-                        <div key={p.name} style={{
-                          borderRadius: 10, padding: "6px 10px", display: "flex", alignItems: "center", gap: 6,
-                          background: `${gc}10`, border: `1px solid ${gc}30`,
-                        }}>
-                          {p.tier && <div style={{ width: 5, height: 5, borderRadius: "50%", background: TIER_META[p.tier]?.color || gc, flexShrink: 0 }}/>}
-                          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700, color: "#fff" }}>{p.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </>
-          ) : (
-            <>
-              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "1.5px", color: "rgba(255,255,255,.3)", marginBottom: 10 }}>
-                ROUND 1 MATCHUPS
-              </div>
-              <div className="flex flex-col gap-2">
-                {nonByes.map((m, i) => (
-                  <div key={m.id} style={{
-                    borderRadius: 14, padding: "12px 14px",
-                    background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.08)",
-                    display: "flex", alignItems: "center", gap: 10,
-                  }}>
-                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 800,
-                      color: "rgba(255,255,255,.25)", width: 18, flexShrink: 0, textAlign: "center" }}>{i + 1}</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        {m.p1?.tier && <div style={{ width: 5, height: 5, borderRadius: "50%", background: TIER_META[m.p1.tier]?.color, flexShrink: 0 }}/>}
-                        <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700, color: "#fff" }}>{m.p1?.name}</span>
-                      </div>
-                      <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, color: `${N}66`, fontWeight: 700, letterSpacing: "1px", margin: "2px 0" }}>VS</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        {m.p2?.tier && <div style={{ width: 5, height: 5, borderRadius: "50%", background: TIER_META[m.p2.tier]?.color, flexShrink: 0 }}/>}
-                        <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700, color: "#fff" }}>{m.p2?.name}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {byeNames.length > 0 && (
-                <div style={{ marginTop: 14 }}>
-                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "1.5px", color: "rgba(255,255,255,.3)", marginBottom: 8 }}>
-                    AUTO-ADVANCING (BYE)
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {byeNames.map(n => (
-                      <div key={n} style={{ borderRadius: 10, padding: "6px 10px",
-                        background: `${N}10`, border: `1px solid ${N}30`,
-                        fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700, color: N }}>{n}</div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        <div style={{ padding: "12px 20px 32px", display: "flex", gap: 10 }}>
-          <button onClick={onCancel} style={{
-            flex: 1, borderRadius: 16, padding: "14px 0", cursor: "pointer",
-            background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.1)",
-            fontFamily: "'DM Sans',sans-serif", fontWeight: 800, fontSize: 13, color: "rgba(255,255,255,.6)",
-          }}>Re-Draw</button>
-          <button onClick={() => isGroups ? onConfirm({ groups, groupMatches }) : onConfirm(bracket)} disabled={loading} style={{
-            flex: 2, borderRadius: 16, padding: "14px 0", cursor: loading ? "not-allowed" : "pointer",
-            background: loading ? "rgba(255,255,255,.06)" : `linear-gradient(135deg,${N},#7DC900)`,
-            border: "none", fontFamily: "'DM Sans',sans-serif", fontWeight: 800, fontSize: 14,
-            color: loading ? "rgba(255,255,255,.3)" : "#000",
-          }}>
-            {loading ? "Saving…" : isGroups ? "Lock In Groups ✓" : "Lock In the Draw ✓"}
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-}
-
-// ─────────────────────────────────────────────
 // BRACKET MATCH RESULT SHEET
 // ─────────────────────────────────────────────
 function BracketResultSheet({ match, matchLegs = 1, onResult, onClose }) {
@@ -3989,11 +3847,10 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
 
   // ── BRACKET STATE ──────────────────────────────────────────────────────────
   const [bracket,             setBracket]             = useState(initialRules?.bracket || null);
-  const [showDrawConfirm,     setShowDrawConfirm]     = useState(false);
+  const [showDrawReveal,      setShowDrawReveal]      = useState(false);
   const [pendingBracket,      setPendingBracket]      = useState(null);
   const [pendingGroups,       setPendingGroups]       = useState(null);
   const [pendingGroupMatches, setPendingGroupMatches] = useState(null);
-  const [generatingDraw,      setGeneratingDraw]      = useState(false);
   // Unified tournament match modal — holds { match, type: "bracket"|"group", contextLabel }
   const [tournamentModal, setTournamentModal] = useState(null);
 
@@ -4064,47 +3921,27 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       setPendingGroups(null);
       setPendingGroupMatches(null);
     }
-    setShowDrawConfirm(true);
+    setShowDrawReveal(true);
   }, [rules]);
 
   const handleConfirmDraw = useCallback(async (drawData) => {
     if (!leagueId) return;
-    setGeneratingDraw(true);
-    try {
-      const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
-      const isGroups = rules?.tournamentFormat === "groups_knockout";
-      let newSettings;
-      if (isGroups) {
-        const { groups: g, groupMatches: gm } = drawData;
-        newSettings = { ...(data?.settings || {}), groups: g, groupMatches: gm };
-        await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
-        setRules(r => ({ ...r, groups: g, groupMatches: gm }));
-      } else {
-        newSettings = { ...(data?.settings || {}), bracket: drawData };
-        await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
-        setBracket(drawData);
-        setRules(r => ({ ...r, bracket: drawData }));
-      }
-      setShowDrawConfirm(false);
-      setActiveTab("home");
-    } catch (e) {
-      console.error("Draw save failed:", e);
-    }
-    setGeneratingDraw(false);
-  }, [leagueId, rules]);
-
-  const handleRedraw = useCallback(() => {
-    const participants = rules?.participants || [];
-    if (participants.length < 2) return;
-    const isGroupsFormat = rules?.tournamentFormat === "groups_knockout";
-    if (isGroupsFormat) {
-      const { playersPerGroup } = rules?.groupSettings || { playersPerGroup: 4 };
-      const { groups: g, groupMatches: gm } = generateGroupStage(participants, playersPerGroup);
-      setPendingGroups(g); setPendingGroupMatches(gm);
+    const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
+    const isGroups = rules?.tournamentFormat === "groups_knockout";
+    if (isGroups) {
+      const { groups: g, groupMatches: gm } = drawData;
+      const newSettings = { ...(data?.settings || {}), groups: g, groupMatches: gm };
+      await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
+      setRules(r => ({ ...r, groups: g, groupMatches: gm }));
     } else {
-      setPendingBracket(generateKnockoutBracket(participants));
+      const newSettings = { ...(data?.settings || {}), bracket: drawData };
+      await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
+      setBracket(drawData);
+      setRules(r => ({ ...r, bracket: drawData }));
     }
-  }, [rules]);
+    setShowDrawReveal(false);
+    setActiveTab("home");
+  }, [leagueId, rules]);
 
   const _saveBracket = useCallback(async (updatedBracket) => {
     setBracket(updatedBracket);
@@ -4541,17 +4378,22 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
             onSubmit={handleSubmit}/>
         )}
 
-        {showDrawConfirm && (pendingBracket || pendingGroups?.length > 0) && (
-          <DrawConfirmSheet
-            key="draw-confirm"
+        {showDrawReveal && (pendingBracket || pendingGroups?.length > 0) && (
+          <DrawRevealOverlay
+            key="draw-reveal"
+            groups={pendingGroups || []}
             bracket={pendingBracket}
-            groups={pendingGroups}
-            groupMatches={pendingGroupMatches}
-            format={rules?.tournamentFormat}
-            loading={generatingDraw}
-            onConfirm={handleConfirmDraw}
-            onClose={() => { if (!generatingDraw) { setShowDrawConfirm(false); setPendingBracket(null); setPendingGroups(null); setPendingGroupMatches(null); } }}
-            onCancel={handleRedraw}
+            tournFormat={rules?.tournamentFormat}
+            leagueName={leagueName}
+            leagueId={leagueId}
+            isAdmin={isAdmin}
+            onConfirm={async () => {
+              await handleConfirmDraw(
+                pendingGroups
+                  ? { groups: pendingGroups, groupMatches: pendingGroupMatches }
+                  : pendingBracket
+              );
+            }}
           />
         )}
 
@@ -7403,7 +7245,7 @@ function FlickerName({ name, isActive, delay = 0 }) {
 // ─────────────────────────────────────────────
 // DRAW REVEAL — group card with staggered slots
 // ─────────────────────────────────────────────
-const GROUP_COLORS = ["#00BFFF","#39FF14","#FF1493","#FF6600","#9B59FF","#00FFCC","#FFD700"];
+const REVEAL_GROUP_COLORS = ["#00BFFF","#39FF14","#FF1493","#FF6600","#9B59FF","#00FFCC","#FFD700"];
 
 function GroupRevealCard({ group, groupIndex, isVisible, onComplete }) {
   const [visCount, setVisCount] = useState(0);
@@ -7424,7 +7266,7 @@ function GroupRevealCard({ group, groupIndex, isVisible, onComplete }) {
     }
   }, [isVisible, visCount, n, onComplete]);
 
-  const gc = GROUP_COLORS[groupIndex % GROUP_COLORS.length];
+  const gc = REVEAL_GROUP_COLORS[groupIndex % REVEAL_GROUP_COLORS.length];
 
   return (
     <motion.div
