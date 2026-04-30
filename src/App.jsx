@@ -3809,7 +3809,7 @@ function AdminDashboard({ players, feed, rules, bracket, groups, groupMatches })
 
 /* ── TV DASHBOARD ────────────────────────────────────────────────────────── */
 function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
-  leagueId, leagueName, isAdmin, onClose, onGroupResult, onSyncEntry }) {
+  leagueId, leagueName, isAdmin, onClose, onGroupResult, onSyncEntry, onBracketMatchTap }) {
 
   const TV = 1.2;
   const tvF = n => Math.round(n * TV);
@@ -3849,13 +3849,17 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
     })), [groups, groupMatches, feed, completedIds]);
 
   const totalArenaPages = Math.ceil(groupStandings.length / ARENA_PAGE_SIZE);
+  const hasBracketPage  = !!(bracket?.rounds?.length);
+  const totalArenaItems = totalArenaPages + (hasBracketPage ? 1 : 0);
+  const arenaOnBracket  = hasBracketPage && arenaPage >= totalArenaPages;
 
-  // ── Arena View: auto-cycle pages every 10s when >9 groups ───────────────
+  // ── Arena View: variable-delay cycle (10s groups, 12s bracket page) ─────
   useEffect(() => {
-    if (!arenaMode || totalArenaPages <= 1) return;
-    const id = setInterval(() => setArenaPage(p => (p + 1) % totalArenaPages), 10000);
-    return () => clearInterval(id);
-  }, [arenaMode, totalArenaPages]);
+    if (!arenaMode || totalArenaItems <= 1) return;
+    const delay = arenaOnBracket ? 12000 : 10000;
+    const tid = setTimeout(() => setArenaPage(p => (p + 1) % totalArenaItems), delay);
+    return () => clearTimeout(tid);
+  }, [arenaMode, arenaPage, totalArenaItems, arenaOnBracket]);
 
   useEffect(() => { if (!arenaMode) setArenaPage(0); }, [arenaMode]);
 
@@ -4123,6 +4127,67 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
           No fixtures yet — generate a draw first.
         </div>
       )}
+
+      {/* ── Knockout Fixtures (bracket matches for admin logging) ── */}
+      {hasBracketPage && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ ...colHdrS, display: "flex", alignItems: "center", gap: 8 }}>
+            ⚡ KNOCKOUT FIXTURES
+          </div>
+          {bracket.rounds.flatMap(round => round.filter(m => !m.isBye && m.p1 && m.p2))
+            .map(match => {
+              const isDone   = !!match.winner;
+              const canLog   = isAdmin && !isDone;
+              const n        = bracket.rounds.length;
+              const fromEnd  = n - match.round;
+              const rLabel   = fromEnd === 0 ? "FINAL" : fromEnd === 1 ? "SEMI" : fromEnd === 2 ? "QUARTER" : `ROUND ${match.round}`;
+              return (
+                <div key={match.id}
+                  onClick={() => canLog && onBracketMatchTap?.(match)}
+                  style={{ ...cardS, padding: "11px 14px", marginBottom: 8, cursor: canLog ? "pointer" : "default",
+                    borderColor: isDone ? "rgba(170,255,0,.22)" : canLog ? "rgba(255,255,255,.14)" : "rgba(255,255,255,.07)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(8), fontWeight: 800,
+                      letterSpacing: "1.5px", color: "rgba(255,255,255,.28)" }}>{rLabel}</span>
+                    {isDone && (
+                      <span style={{ fontSize: tvF(8), fontWeight: 800, color: N, background: `${N}15`,
+                        border: `1px solid ${N}35`, borderRadius: 4, padding: "1px 6px",
+                        fontFamily: "'DM Sans',sans-serif", letterSpacing: "1px" }}>DONE</span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ flex: 1, fontFamily: "'DM Sans',sans-serif", fontSize: tvF(13), fontWeight: 700,
+                      color: match.winner?.id === match.p1?.id ? N : isDone ? "rgba(255,255,255,.32)" : "#fff",
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "right" }}>
+                      {match.p1?.name || "TBD"}
+                    </span>
+                    {match.score ? (
+                      <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(18), color: N,
+                        textShadow: `0 0 10px rgba(170,255,0,.5)`, flexShrink: 0, minWidth: 44, textAlign: "center" }}>
+                        {match.score.p1Goals}–{match.score.p2Goals}
+                      </span>
+                    ) : (
+                      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(11),
+                        color: "rgba(255,255,255,.2)", flexShrink: 0, minWidth: 44, textAlign: "center" }}>vs</span>
+                    )}
+                    <span style={{ flex: 1, fontFamily: "'DM Sans',sans-serif", fontSize: tvF(13), fontWeight: 700,
+                      color: match.winner?.id === match.p2?.id ? N : isDone ? "rgba(255,255,255,.32)" : "#fff",
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {match.p2?.name || "TBD"}
+                    </span>
+                    {canLog && (
+                      <div style={{ width: 20, height: 20, borderRadius: "50%", background: `${N}18`,
+                        border: `1px solid ${N}40`, display: "flex", alignItems: "center",
+                        justifyContent: "center", flexShrink: 0 }}>
+                        <Plus size={10} style={{ color: N }}/>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      )}
     </div>
   );
 
@@ -4133,41 +4198,91 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
 
   const colB = (
     <div style={{ padding: "0 16px 24px" }}>
-      {/* ── ARENA VIEW: responsive multi-column grid ── */}
-      {arenaMode && isGroups && groupStandings.length > 0 && (
+
+      {/* ── ARENA VIEW: bracket page ── */}
+      {arenaMode && arenaOnBracket && (
         <>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-            <div style={colHdrS}>LIVE STANDINGS — ALL GROUPS</div>
-            {totalArenaPages > 1 && (
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(10),
-                color: "rgba(255,255,255,.35)" }}>
-                PAGE {arenaPage + 1}/{totalArenaPages}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <div style={colHdrS}>⚡ KNOCKOUT BRACKET</div>
+            {totalArenaItems > 1 && (
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(10), color: "rgba(255,255,255,.32)" }}>
+                BRACKET PAGE
               </span>
             )}
           </div>
-          <motion.div key={`arena-page-${arenaPage}`}
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-            transition={{ duration: 0.35 }}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
-              gap: 10,
-            }}>
+          <motion.div key="arena-bracket"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}
+            style={{ borderRadius: 16, border: `1px solid ${N}22`,
+              background: `linear-gradient(135deg,rgba(170,255,0,.03),transparent 60%)`,
+              padding: "18px 4px 12px",
+              boxShadow: `0 0 60px rgba(170,255,0,.04), inset 0 1px 0 ${N}18` }}>
+            <TournamentBracket
+              bracket={bracket}
+              isAdmin={false}
+              onMatchTap={null}
+              matchLegs={rules?.matchLegs || 1}
+            />
+          </motion.div>
+          {/* unified pagination */}
+          {totalArenaItems > 1 && (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 18 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {Array.from({ length: totalArenaItems }, (_, i) => {
+                  const isBkt = hasBracketPage && i === totalArenaItems - 1;
+                  const active = arenaPage === i;
+                  return (
+                    <button key={i} onClick={() => setArenaPage(i)}
+                      style={{ width: active ? 28 : 8, height: 8, borderRadius: 4,
+                        background: active ? N : isBkt ? `${N}50` : "rgba(255,255,255,.18)",
+                        border: "none", cursor: "pointer", transition: "all .35s ease",
+                        boxShadow: active ? `0 0 8px ${N}` : "none" }}/>
+                  );
+                })}
+              </div>
+              <div style={{ width: 120, height: 3, borderRadius: 2, background: "rgba(255,255,255,.08)", overflow: "hidden" }}>
+                <motion.div key={`progress-${arenaPage}`}
+                  initial={{ width: "100%" }} animate={{ width: "0%" }}
+                  transition={{ duration: 12, ease: "linear" }}
+                  style={{ height: "100%", borderRadius: 2, background: N }}/>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── ARENA VIEW: groups grid ── */}
+      {arenaMode && !arenaOnBracket && groupStandings.length > 0 && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div style={colHdrS}>LIVE STANDINGS — ALL GROUPS</div>
+            {totalArenaItems > 1 && (
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(10), color: "rgba(255,255,255,.32)" }}>
+                PAGE {arenaPage + 1}/{totalArenaPages}{hasBracketPage ? ` +KO` : ""}
+              </span>
+            )}
+          </div>
+          <motion.div key={`arena-groups-${arenaPage}`}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }}
+            style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 10 }}>
             {arenaPageGroups.map((gs, i) =>
               renderStandingCard(gs, arenaPage * ARENA_PAGE_SIZE + i, true)
             )}
           </motion.div>
-          {/* Pagination: dots + 10-second countdown bar */}
-          {totalArenaPages > 1 && (
+          {/* unified pagination */}
+          {totalArenaItems > 1 && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 18 }}>
-              <div style={{ display: "flex", gap: 8 }}>
-                {Array.from({ length: totalArenaPages }, (_, i) => (
-                  <button key={i} onClick={() => setArenaPage(i)}
-                    style={{ width: arenaPage === i ? 28 : 8, height: 8, borderRadius: 4,
-                      background: arenaPage === i ? N : "rgba(255,255,255,.18)", border: "none",
-                      cursor: "pointer", transition: "all .35s ease",
-                      boxShadow: arenaPage === i ? `0 0 8px ${N}` : "none" }}/>
-                ))}
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {Array.from({ length: totalArenaItems }, (_, i) => {
+                  const isBkt = hasBracketPage && i === totalArenaItems - 1;
+                  const active = arenaPage === i;
+                  return (
+                    <button key={i} onClick={() => setArenaPage(i)}
+                      style={{ width: active ? 28 : 8, height: 8, borderRadius: 4,
+                        background: active ? N : isBkt ? `${N}50` : "rgba(255,255,255,.18)",
+                        border: "none", cursor: "pointer", transition: "all .35s ease",
+                        boxShadow: active ? `0 0 8px ${N}` : "none" }}/>
+                  );
+                })}
               </div>
               <div style={{ width: 120, height: 3, borderRadius: 2, background: "rgba(255,255,255,.08)", overflow: "hidden" }}>
                 <motion.div key={`progress-${arenaPage}`}
@@ -4186,6 +4301,23 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
           <div style={colHdrS}>LIVE STANDINGS</div>
           {groupStandings.map((gs, i) => renderStandingCard(gs, i, false))}
         </>
+      )}
+
+      {/* ── NORMAL VIEW: bracket fixtures list ── */}
+      {!arenaMode && hasBracketPage && (
+        <div style={{ marginTop: isGroups && groupStandings.length > 0 ? 24 : 0 }}>
+          <div style={{ ...colHdrS }}>⚡ KNOCKOUT BRACKET</div>
+          <div style={{ borderRadius: 14, border: `1px solid ${N}18`,
+            background: `linear-gradient(135deg,rgba(170,255,0,.02),transparent 60%)`,
+            padding: "14px 4px 8px" }}>
+            <TournamentBracket
+              bracket={bracket}
+              isAdmin={isAdmin}
+              onMatchTap={onBracketMatchTap}
+              matchLegs={rules?.matchLegs || 1}
+            />
+          </div>
+        </div>
       )}
 
       {/* Classic standings */}
@@ -4218,7 +4350,7 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
         </>
       )}
 
-      {/* Top scorer leaderboard (hidden in arena mode to maximize grid space) */}
+      {/* Top scorer leaderboard — hidden in arena mode */}
       {!arenaMode && topScorers.length > 0 && (
         <>
           <div style={{ ...colHdrS, marginTop: 8 }}>
@@ -4266,12 +4398,10 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
 
       <style>{`
         @media (max-width: 767px) {
-          .tv-col-a { display: none !important; }
-          .tv-col-a.tv-active, .tv-col-b.tv-active { display: flex !important; flex-direction: column; }
+          .tv-col-b.tv-active { display: flex !important; flex-direction: column; }
           .tv-mobtabs { display: flex !important; }
         }
         @media (min-width: 768px) {
-          .tv-col-a { display: flex !important; }
           .tv-mobtabs { display: none !important; }
         }
       `}</style>
@@ -4343,17 +4473,19 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
 
       {/* ── Two-column body ───────────────────────────────────────────────── */}
       <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
-        {/* Col A — Live Management (40%) */}
-        <div className={`tv-col-a${activeCol === "management" ? " tv-active" : ""}`}
-          style={{ width: "40%", flexShrink: 0, overflow: "auto",
-            borderRight: "1px solid rgba(255,255,255,.06)",
-            flexDirection: "column", display: arenaMode ? "none" : undefined }}>
-          <div style={{ padding: "16px 16px 10px", fontFamily: "'Bebas Neue',sans-serif",
-            fontSize: tvF(17), letterSpacing: "3px", color: "#fff", flexShrink: 0 }}>
-            Live <span style={{ color: N }}>Management</span>
+        {/* Col A — Live Management (40%) — hidden in arena mode */}
+        {!arenaMode && (
+          <div className={`tv-col-a${activeCol === "management" ? " tv-active" : ""}`}
+            style={{ width: "40%", flexShrink: 0, overflow: "auto",
+              borderRight: "1px solid rgba(255,255,255,.06)",
+              flexDirection: "column", display: "flex" }}>
+            <div style={{ padding: "16px 16px 10px", fontFamily: "'Bebas Neue',sans-serif",
+              fontSize: tvF(17), letterSpacing: "3px", color: "#fff", flexShrink: 0 }}>
+              Live <span style={{ color: N }}>Management</span>
+            </div>
+            {colA}
           </div>
-          {colA}
-        </div>
+        )}
 
         {/* Col B — Live Standings (60% or fullscreen in theater) */}
         <div className={`tv-col-b${activeCol === "standings" ? " tv-active" : ""}`}
@@ -4975,6 +5107,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
             onClose={() => setShowTVDash(false)}
             onGroupResult={handleGroupResult}
             onSyncEntry={entry => setFeed(prev => [entry, ...prev.filter(m => m.id !== entry.id)])}
+            onBracketMatchTap={m => setTournamentModal({ match: m, type: "bracket", contextLabel: _bracketRoundLabel(bracket, m) })}
           />
         )}
 
