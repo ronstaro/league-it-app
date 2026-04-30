@@ -3807,6 +3807,167 @@ function AdminDashboard({ players, feed, rules, bracket, groups, groupMatches })
   );
 }
 
+/* ── CHAMPION CELEBRATION ────────────────────────────────────────────────── */
+function ChampionCelebration({ champion, isAdmin, onDismiss }) {
+  const canvasRef = useRef(null);
+  const animRef   = useRef(null);
+  const [timeLeft, setTimeLeft] = useState(15);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+    resize();
+    window.addEventListener("resize", resize);
+
+    const COLORS = ["#CCFF00", "#FFD700", "#AAFF00", "#FFF176", "#FFFFFF", "#FFE57F"];
+    const particles = Array.from({ length: 140 }, () => ({
+      x: Math.random() * window.innerWidth,
+      y: Math.random() * window.innerHeight * -1,
+      r: Math.random() * 6 + 3,
+      d: Math.random() * 120 + 20,
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      tiltAngle: Math.random() * Math.PI * 2,
+      tiltIncrement: Math.random() * 0.07 + 0.04,
+      shape: Math.random() > 0.55 ? "rect" : "circle",
+      vx: (Math.random() - 0.5) * 1.5,
+    }));
+
+    let angle = 0;
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      angle += 0.01;
+      for (const p of particles) {
+        p.tiltAngle += p.tiltIncrement;
+        p.y += (Math.cos(angle + p.d) + 1 + p.r / 2) * 1.3;
+        p.x += Math.sin(angle) * 1.8 + p.vx;
+        if (p.y > canvas.height + 20) { p.y = -10; p.x = Math.random() * canvas.width; }
+        const tilt = Math.sin(p.tiltAngle) * 14;
+        ctx.save();
+        ctx.translate(p.x + tilt + p.r / 2, p.y);
+        ctx.rotate(p.tiltAngle);
+        ctx.globalAlpha = 0.88;
+        ctx.fillStyle = p.color;
+        if (p.shape === "circle") {
+          ctx.beginPath(); ctx.arc(0, 0, p.r, 0, Math.PI * 2); ctx.fill();
+        } else {
+          ctx.fillRect(-p.r, -p.r / 2, p.r * 2, p.r);
+        }
+        ctx.restore();
+      }
+      animRef.current = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => { cancelAnimationFrame(animRef.current); window.removeEventListener("resize", resize); };
+  }, []);
+
+  useEffect(() => {
+    if (timeLeft <= 0) { onDismiss(); return; }
+    const tid = setTimeout(() => setTimeLeft(t => t - 1), 1000);
+    return () => clearTimeout(tid);
+  }, [timeLeft, onDismiss]);
+
+  const initials = champion.name?.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase() || "?";
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      transition={{ duration: 0.45 }}
+      style={{ position: "absolute", inset: 0, zIndex: 20, display: "flex",
+        alignItems: "center", justifyContent: "center",
+        background: "rgba(0,0,0,.88)", backdropFilter: "blur(10px)" }}>
+
+      <canvas ref={canvasRef} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}/>
+
+      <motion.div
+        initial={{ scale: 0.7, opacity: 0, y: 48 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        transition={{ delay: 0.18, type: "spring", stiffness: 170, damping: 18 }}
+        style={{ position: "relative", zIndex: 1, textAlign: "center",
+          padding: "48px 56px 36px", borderRadius: 28,
+          background: "linear-gradient(150deg,rgba(22,22,22,.98),rgba(6,6,6,.98))",
+          border: "2px solid #FFD700",
+          boxShadow: "0 0 70px rgba(255,215,0,.22), 0 0 140px rgba(170,255,0,.10), inset 0 1px 0 rgba(255,215,0,.18)",
+          maxWidth: 480, width: "88vw" }}>
+
+        {/* Animated trophy */}
+        <div style={{ marginBottom: 20 }}>
+          <motion.div animate={{ scale: [1, 1.14, 1], rotate: [-5, 5, -5, 0] }}
+            transition={{ duration: 2.2, repeat: Infinity, repeatDelay: 1.2 }}
+            style={{ display: "inline-flex" }}>
+            <Trophy size={56} style={{ color: "#FFD700", filter: "drop-shadow(0 0 18px rgba(255,215,0,.75))" }}/>
+          </motion.div>
+        </div>
+
+        <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 13, letterSpacing: "5px",
+          color: "#FFD700", marginBottom: 22, opacity: 0.88 }}>
+          TOURNAMENT CHAMPION
+        </div>
+
+        {/* Rotating avatar ring */}
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 22 }}>
+          <div style={{ position: "relative", width: 140, height: 140 }}>
+            <motion.div animate={{ rotate: 360 }} transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+              style={{ position: "absolute", inset: -3, borderRadius: "50%",
+                background: "conic-gradient(#CCFF00,#FFD700,#AAFF00,#FFD700,#CCFF00)",
+                filter: "blur(1.5px)" }}/>
+            <div style={{ position: "absolute", inset: 2, borderRadius: "50%", background: "#000" }}/>
+            <div style={{ position: "absolute", inset: 6, borderRadius: "50%", overflow: "hidden",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: "rgba(170,255,0,.07)" }}>
+              {champion.avatar_url
+                ? <img src={champion.avatar_url} alt={champion.name}
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}/>
+                : <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 46,
+                    color: "#CCFF00", textShadow: "0 0 22px rgba(204,255,0,.65)" }}>
+                    {initials}
+                  </span>}
+            </div>
+          </div>
+        </div>
+
+        {/* Winner name with glow pulse */}
+        <motion.div
+          animate={{ textShadow: ["0 0 18px rgba(204,255,0,.35)","0 0 44px rgba(204,255,0,.85)","0 0 18px rgba(204,255,0,.35)"] }}
+          transition={{ duration: 2.2, repeat: Infinity }}
+          style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 50, letterSpacing: "3px",
+            color: "#CCFF00", lineHeight: 1, marginBottom: 8 }}>
+          {champion.name}
+        </motion.div>
+
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13,
+          color: "rgba(255,255,255,.4)", letterSpacing: "1px", marginBottom: 30 }}>
+          🏆 Tournament Winner
+        </div>
+
+        {/* 15s progress bar */}
+        <div style={{ marginBottom: isAdmin ? 20 : 0 }}>
+          <div style={{ height: 3, borderRadius: 2, background: "rgba(255,255,255,.07)", overflow: "hidden" }}>
+            <motion.div initial={{ width: "100%" }} animate={{ width: "0%" }}
+              transition={{ duration: 15, ease: "linear" }}
+              style={{ height: "100%", borderRadius: 2,
+                background: "linear-gradient(90deg,#CCFF00,#FFD700)" }}/>
+          </div>
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11,
+            color: "rgba(255,255,255,.22)", letterSpacing: "1px", marginTop: 7 }}>
+            Closing in {timeLeft}s
+          </div>
+        </div>
+
+        {isAdmin && (
+          <button onClick={onDismiss}
+            style={{ padding: "10px 32px", borderRadius: 10,
+              border: "1px solid rgba(255,255,255,.14)", background: "rgba(255,255,255,.05)",
+              color: "rgba(255,255,255,.55)", fontFamily: "'DM Sans',sans-serif",
+              fontSize: 13, fontWeight: 700, cursor: "pointer", letterSpacing: "1px" }}>
+            DISMISS
+          </button>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
 /* ── TV DASHBOARD ────────────────────────────────────────────────────────── */
 function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
   leagueId, leagueName, isAdmin, onClose, onGroupResult, onSyncEntry, onBracketMatchTap }) {
@@ -3816,11 +3977,34 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
 
   const ARENA_PAGE_SIZE = 9;
 
-  const [arenaMode,   setArenaMode]   = useState(false);
-  const [arenaPage,   setArenaPage]   = useState(0);
-  const [localScores, setLocalScores] = useState({});
-  const [saving,      setSaving]      = useState(null);
-  const [activeCol,   setActiveCol]   = useState("standings");
+  const [arenaMode,        setArenaMode]        = useState(false);
+  const [arenaPage,        setArenaPage]        = useState(0);
+  const [localScores,      setLocalScores]      = useState({});
+  const [saving,           setSaving]           = useState(null);
+  const [activeCol,        setActiveCol]        = useState("standings");
+  const [champCelebration, setChampCelebration] = useState(null);
+
+  // ── Champion detection: fires only on live final match completion ─────────
+  const finalWinner = useMemo(() => {
+    if (!bracket?.rounds?.length) return null;
+    const lastRound  = bracket.rounds[bracket.rounds.length - 1];
+    const finalMatch = lastRound?.find(m => !m.isBye && m.p1 && m.p2);
+    if (!finalMatch?.winner) return null;
+    const playerObj  = players.find(p =>
+      (finalMatch.winner.id && p.id === finalMatch.winner.id) ||
+      p.name === finalMatch.winner.name
+    );
+    return { name: finalMatch.winner.name || playerObj?.name || "Champion",
+             avatar_url: playerObj?.avatar_url || null };
+  }, [bracket, players]);
+
+  const prevFinalWinnerRef = useRef(finalWinner);
+  useEffect(() => {
+    if (finalWinner && !prevFinalWinnerRef.current) {
+      setChampCelebration(finalWinner);
+    }
+    prevFinalWinnerRef.current = finalWinner;
+  }, [finalWinner]);
 
   const completedIds   = useMemo(() => new Set(feed.map(m => m.id)), [feed]);
   const isGroups       = rules?.tournamentFormat === "groups_knockout";
@@ -4506,6 +4690,18 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
           {colB}
         </div>
       </div>
+
+      {/* ── Champion Celebration overlay ──────────────────────────────────── */}
+      <AnimatePresence>
+        {champCelebration && (
+          <ChampionCelebration
+            key="champion-celebration"
+            champion={champCelebration}
+            isAdmin={isAdmin}
+            onDismiss={() => setChampCelebration(null)}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
