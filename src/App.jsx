@@ -3873,7 +3873,7 @@ function ChampionCelebration({ champion, isAdmin, onDismiss }) {
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       transition={{ duration: 0.45 }}
-      style={{ position: "absolute", inset: 0, zIndex: 20, display: "flex",
+      style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex",
         alignItems: "center", justifyContent: "center",
         background: "rgba(0,0,0,.88)", backdropFilter: "blur(10px)" }}>
 
@@ -3984,27 +3984,33 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
   const [activeCol,        setActiveCol]        = useState("standings");
   const [champCelebration, setChampCelebration] = useState(null);
 
-  // ── Champion detection: fires only on live final match completion ─────────
-  const finalWinner = useMemo(() => {
-    if (!bracket?.rounds?.length) return null;
+  // ── Champion detection: watch bracket directly, 500ms debounce, one-shot ref guard ──
+  // celebratedRef starts true if the final was already complete when TVDashboard mounted
+  // so we never celebrate a past tournament that was already decided.
+  const celebratedRef = useRef(
+    !!(bracket?.rounds?.length &&
+       bracket.rounds[bracket.rounds.length - 1]?.find(m => !m.isBye && m.p1 && m.p2)?.winner)
+  );
+  useEffect(() => {
+    if (!bracket?.rounds?.length || celebratedRef.current) return;
     const lastRound  = bracket.rounds[bracket.rounds.length - 1];
     const finalMatch = lastRound?.find(m => !m.isBye && m.p1 && m.p2);
-    if (!finalMatch?.winner) return null;
-    const playerObj  = players.find(p =>
-      (finalMatch.winner.id && p.id === finalMatch.winner.id) ||
-      p.name === finalMatch.winner.name
-    );
-    return { name: finalMatch.winner.name || playerObj?.name || "Champion",
-             avatar_url: playerObj?.avatar_url || null };
+    if (!finalMatch?.winner) return;
+    // 500ms delay: lets React batch its state updates and DB sync settle
+    const tid = setTimeout(() => {
+      if (celebratedRef.current) return; // race-condition guard
+      celebratedRef.current = true;
+      const playerObj = players.find(p =>
+        (finalMatch.winner.id && p.id === finalMatch.winner.id) ||
+        p.name === finalMatch.winner.name
+      );
+      setChampCelebration({
+        name:       finalMatch.winner.name || playerObj?.name || "Champion",
+        avatar_url: playerObj?.avatar_url  || null,
+      });
+    }, 500);
+    return () => clearTimeout(tid);
   }, [bracket, players]);
-
-  const prevFinalWinnerRef = useRef(finalWinner);
-  useEffect(() => {
-    if (finalWinner && !prevFinalWinnerRef.current) {
-      setChampCelebration(finalWinner);
-    }
-    prevFinalWinnerRef.current = finalWinner;
-  }, [finalWinner]);
 
   const completedIds   = useMemo(() => new Set(feed.map(m => m.id)), [feed]);
   const isGroups       = rules?.tournamentFormat === "groups_knockout";
