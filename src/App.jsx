@@ -3959,7 +3959,8 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
     return () => clearTimeout(tid);
   }, [arenaMode, arenaPage, totalArenaItems, arenaOnBracket]);
 
-  useEffect(() => { if (!arenaMode) setArenaPage(0); }, [arenaMode]);
+  // Intentional: reset page to 0 when arena mode is disabled so re-enabling starts from the beginning
+  useEffect(() => { if (!arenaMode) setArenaPage(0); }, [arenaMode]); // eslint-disable-line react-hooks/set-state-in-effect
 
   const topScorers = useMemo(() => {
     if (isGroups) {
@@ -8216,7 +8217,8 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
   useEffect(() => {
     if (!isSpectator || !currentGroupDone) return;
     const next = visGroupCount + 1;
-    if (next > displayGroups.length) { setAllRevealed(true); return; }
+    // Intentional: terminal step of the draw-reveal animation sequence — all groups have been shown
+    if (next > displayGroups.length) { setAllRevealed(true); return; } // eslint-disable-line react-hooks/set-state-in-effect
     const t = setTimeout(() => { setVisGroupCount(next); setCurrentGroupDone(false); }, 700);
     return () => clearTimeout(t);
   }, [isSpectator, currentGroupDone, visGroupCount, displayGroups.length]);
@@ -8470,7 +8472,7 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
   }, [leagueId]);
 
   useEffect(() => {
-    fetchPlayers();
+    fetchPlayers(); // eslint-disable-line react-hooks/set-state-in-effect -- async fetch; setState runs after await, not synchronously
     if (locked) return;
     const t = setInterval(fetchPlayers, 4000);
     return () => clearInterval(t);
