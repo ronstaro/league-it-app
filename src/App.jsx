@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "./lib/supabase";
-import { parseMG, countGames, enrichPlayers, derivePlayerStats, byWins, medal } from "./lib/stats";
+import { parseMG, enrichPlayers, derivePlayerStats, byWins, medal } from "./lib/stats";
 import {
   Plus, X, Check, ChevronRight, TrendingUp, TrendingDown,
   Minus, Clock, Home, BarChart2, Users, User, Edit2,
