@@ -3133,15 +3133,16 @@ function GroupResultSheet({ match, onResult, onClose }) {
 // TOURNAMENT LOG MODAL (full-screen, locked participants)
 // ─────────────────────────────────────────────
 function TournamentLogModal({ match, matchType, matchLegs = 1, contextLabel = "", onGroupResult, onBracketResult, onClose }) {
-  if (!match) return null;
-  const initP1 = match.existingP1Goals != null ? String(match.existingP1Goals)
-    : match.score?.p1Goals != null ? String(match.score.p1Goals) : "";
-  const initP2 = match.existingP2Goals != null ? String(match.existingP2Goals)
-    : match.score?.p2Goals != null ? String(match.score.p2Goals) : "";
+  const initP1 = match?.existingP1Goals != null ? String(match.existingP1Goals)
+    : match?.score?.p1Goals != null ? String(match.score.p1Goals) : "";
+  const initP2 = match?.existingP2Goals != null ? String(match.existingP2Goals)
+    : match?.score?.p2Goals != null ? String(match.score.p2Goals) : "";
   const [p1Score, setP1Score] = useState(initP1);
   const [p2Score, setP2Score] = useState(initP2);
   const [tieWinner, setTieWinner] = useState(null); // "p1"|"p2" — only for tied bracket matches
   const [saved, setSaved] = useState(false);
+
+  if (!match) return null;
 
   const p1 = match.p1 || {};
   const p2 = match.p2 || {};
