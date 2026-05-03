@@ -3032,9 +3032,9 @@ function BracketResultSheet({ match, matchLegs = 1, onResult, onClose }) {
 // GROUP MATCH RESULT SHEET
 // ─────────────────────────────────────────────
 function GroupResultSheet({ match, onResult, onClose }) {
-  if (!match) return null;
   const [p1Goals, setP1Goals] = useState("");
   const [p2Goals, setP2Goals] = useState("");
+  if (!match) return null;
   const canSubmit = p1Goals !== "" && p2Goals !== "";
   const p1n = Number(p1Goals) || 0;
   const p2n = Number(p2Goals) || 0;
