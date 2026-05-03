@@ -2793,6 +2793,37 @@ function KnockoutFixtures({ bracket, onMatchTap, isAdmin, matchLegs }) {
 }
 
 // ─────────────────────────────────────────────
+// SCORE INPUT ROW — used by BracketResultSheet
+// ─────────────────────────────────────────────
+const ScoreInputRow = ({ labelL, valueL, onChangeL, labelR, valueR, onChangeR, locked = false }) => (
+  <div className="flex items-center gap-3">
+    <div style={{ flex: 1, textAlign: "center" }}>
+      {labelL && <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 700,
+        color: "rgba(255,255,255,.3)", letterSpacing: "1px", marginBottom: 6 }}>{labelL}</div>}
+      <input value={valueL} onChange={e => !locked && onChangeL(e.target.value)}
+        readOnly={locked} maxLength={4}
+        style={{ width: "100%", borderRadius: 14, padding: "12px 0", textAlign: "center", outline: "none",
+          fontFamily: "'DM Sans',sans-serif", fontSize: 22, fontWeight: 800,
+          background: locked ? "rgba(255,255,255,.03)" : "rgba(255,255,255,.06)",
+          border: `1.5px solid ${valueL && !locked ? N : "rgba(255,255,255,.1)"}`,
+          color: locked ? "rgba(255,255,255,.4)" : "#fff", caretColor: N }}/>
+    </div>
+    <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 16, color: "rgba(255,255,255,.25)", fontWeight: 700, flexShrink: 0 }}>—</span>
+    <div style={{ flex: 1, textAlign: "center" }}>
+      {labelR && <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 700,
+        color: "rgba(255,255,255,.3)", letterSpacing: "1px", marginBottom: 6 }}>{labelR}</div>}
+      <input value={valueR} onChange={e => !locked && onChangeR(e.target.value)}
+        readOnly={locked} maxLength={4}
+        style={{ width: "100%", borderRadius: 14, padding: "12px 0", textAlign: "center", outline: "none",
+          fontFamily: "'DM Sans',sans-serif", fontSize: 22, fontWeight: 800,
+          background: locked ? "rgba(255,255,255,.03)" : "rgba(255,255,255,.06)",
+          border: `1.5px solid ${valueR && !locked ? N : "rgba(255,255,255,.1)"}`,
+          color: locked ? "rgba(255,255,255,.4)" : "#fff", caretColor: N }}/>
+    </div>
+  </div>
+);
+
+// ─────────────────────────────────────────────
 // BRACKET MATCH RESULT SHEET
 // ─────────────────────────────────────────────
 function BracketResultSheet({ match, matchLegs = 1, onResult, onClose }) {
@@ -2844,34 +2875,6 @@ function BracketResultSheet({ match, matchLegs = 1, onResult, onClose }) {
     // tie: winner stays null, sheet still closes — admin can re-open to resolve
     onResult({ match, leg: 2, p1Goals, p2Goals, winner, loser, isLeg1Only: false });
   };
-
-  const ScoreInputRow = ({ labelL, valueL, onChangeL, labelR, valueR, onChangeR, locked = false }) => (
-    <div className="flex items-center gap-3">
-      <div style={{ flex: 1, textAlign: "center" }}>
-        {labelL && <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 700,
-          color: "rgba(255,255,255,.3)", letterSpacing: "1px", marginBottom: 6 }}>{labelL}</div>}
-        <input value={valueL} onChange={e => !locked && onChangeL(e.target.value)}
-          readOnly={locked} maxLength={4}
-          style={{ width: "100%", borderRadius: 14, padding: "12px 0", textAlign: "center", outline: "none",
-            fontFamily: "'DM Sans',sans-serif", fontSize: 22, fontWeight: 800,
-            background: locked ? "rgba(255,255,255,.03)" : "rgba(255,255,255,.06)",
-            border: `1.5px solid ${valueL && !locked ? N : "rgba(255,255,255,.1)"}`,
-            color: locked ? "rgba(255,255,255,.4)" : "#fff", caretColor: N }}/>
-      </div>
-      <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 16, color: "rgba(255,255,255,.25)", fontWeight: 700, flexShrink: 0 }}>—</span>
-      <div style={{ flex: 1, textAlign: "center" }}>
-        {labelR && <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 700,
-          color: "rgba(255,255,255,.3)", letterSpacing: "1px", marginBottom: 6 }}>{labelR}</div>}
-        <input value={valueR} onChange={e => !locked && onChangeR(e.target.value)}
-          readOnly={locked} maxLength={4}
-          style={{ width: "100%", borderRadius: 14, padding: "12px 0", textAlign: "center", outline: "none",
-            fontFamily: "'DM Sans',sans-serif", fontSize: 22, fontWeight: 800,
-            background: locked ? "rgba(255,255,255,.03)" : "rgba(255,255,255,.06)",
-            border: `1.5px solid ${valueR && !locked ? N : "rgba(255,255,255,.1)"}`,
-            color: locked ? "rgba(255,255,255,.4)" : "#fff", caretColor: N }}/>
-      </div>
-    </div>
-  );
 
   const legLabel = isTwoLeg
     ? (legToLog === 1 ? "LEG 1" : "LEG 2")
