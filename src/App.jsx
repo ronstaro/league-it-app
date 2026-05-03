@@ -143,8 +143,8 @@ function PBtn({children,onClick,disabled=false}) {
 /* ── STANDINGS TABLE — shared by Home + League ── */
 // players are expected to be pre-enriched (from derivePlayerStats) — gamesWon/gamesLost already set
 function StandingsTable({players}) {
+  const rows = useMemo(()=>byWins(players ?? []),[players]);
   if (!players || players.length === 0) return <div className="text-center p-10 opacity-30">No players in league yet</div>;
-  const rows = useMemo(()=>byWins(players),[players]);
   // Columns: rank | player name (flex) | W/L | W% | CLT | CB | MG W–L
   // Tighter right-side columns free up ~44 px for the name vs the old layout.
   // No initials avatar — the name column now owns the full 1fr width.
@@ -2180,32 +2180,22 @@ function styleTitle(wins,comebacks,winRate,totalPlayed) {
 function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,onAvatarUpdate=null}) {
   const enriched  = useMemo(()=>enrichPlayers(players,feed),[players,feed]);
   const me        = players.find(p=>p.isMe);
-  // Admin who hasn't joined as a player — show nothing (caller renders AdminDashboard instead)
-  if (!me) return (
-    <div style={{padding:"60px 20px",textAlign:"center",fontFamily:"'DM Sans',sans-serif",color:"rgba(255,255,255,.35)",fontSize:13}}>
-      <div style={{fontSize:36,marginBottom:12}}>👤</div>
-      <div style={{fontWeight:700,marginBottom:6}}>No player profile yet</div>
-      <div style={{fontSize:11}}>Head to the League tab and tap &quot;Join as Player&quot; to create yours.</div>
-    </div>
-  );
   const meE       = enriched.find(p=>p.isMe);
   const displayName = profile?.display_name || user?.user_metadata?.full_name || me?.name || "Player";
+  const wr        = pct(me?.wins ?? 0, me?.losses ?? 0);
   const [editName, setEditName] = useState(false);
   const [draftName,setDraftName] = useState(displayName);
-  const avatarUrl = profile?.avatar_url || user?.user_metadata?.avatar_url || null;
   const rows      = useMemo(()=>byWins(players),[players]);
-  const myRank    = rows.findIndex(p=>p.isMe)+1;
-  const wr        = pct(me.wins,me.losses);
-  const myMatches = useMemo(()=>feed.filter(m=>(m.winnerIds||[]).includes(me.id)||(m.loserIds||[]).includes(me.id)),[feed,me.id]);
+  const myMatches = useMemo(()=>feed.filter(m=>(m.winnerIds||[]).includes(me?.id)||(m.loserIds||[]).includes(me?.id)),[feed,me?.id]);
 
   // ── Gamification ──────────────────────────────────────────────────────────
   const totalXP = useMemo(()=>myMatches.reduce((acc,m)=>{
-    const isWin=(m.winnerIds||[]).includes(me.id);
+    const isWin=(m.winnerIds||[]).includes(me?.id);
     return acc+(isWin?100:25)+(isWin&&m.isComeback?75:0);
-  },0),[myMatches,me.id]);
+  },0),[myMatches,me?.id]);
   const lvlData   = useMemo(()=>calcLevel(totalXP),[totalXP]);
-  const ovr       = useMemo(()=>calcOVR(me.wins,me.losses,me.totalPlayed,me.clutchWins,me.comebacks,wr),[me,wr]);
-  const dnaTitle  = useMemo(()=>styleTitle(me.wins,me.comebacks,wr,me.totalPlayed),[me,wr]);
+  const ovr       = useMemo(()=>calcOVR(me?.wins??0,me?.losses??0,me?.totalPlayed??0,me?.clutchWins??0,me?.comebacks??0,wr),[me,wr]);
+  const dnaTitle  = useMemo(()=>styleTitle(me?.wins??0,me?.comebacks??0,wr,me?.totalPlayed??0),[me,wr]);
 
   const [ready, setReady] = useState(true);
   const [quote, setQuote] = useState("I came for trophies, not prisoners.");
@@ -2230,19 +2220,31 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
   }, [user, onAvatarUpdate]);
 
   const skills = useMemo(()=>[
-    {l:"Clutch",      v:Math.min(99,Math.round(50+wr/2+(me.streak>0?me.streak*3:0))),c:N},
-    {l:"Power",       v:Math.min(99,Math.round(40+meE.gamesWon*.8)),                  c:"#3B8EFF"},
-    {l:"Reliability", v:Math.min(99,Math.round(me.totalPlayed/14*85+10)),             c:"#FFB830"},
-    {l:"Stamina",     v:Math.min(99,Math.round(45+me.totalPlayed*2.5)),               c:"#AA55FF"},
+    {l:"Clutch",      v:Math.min(99,Math.round(50+wr/2+((me?.streak??0)>0?(me?.streak??0)*3:0))),c:N},
+    {l:"Power",       v:Math.min(99,Math.round(40+(meE?.gamesWon??0)*.8)),                  c:"#3B8EFF"},
+    {l:"Reliability", v:Math.min(99,Math.round((me?.totalPlayed??0)/14*85+10)),             c:"#FFB830"},
+    {l:"Stamina",     v:Math.min(99,Math.round(45+(me?.totalPlayed??0)*2.5)),               c:"#AA55FF"},
   ].map(s=>({...s,v:Math.round(s.v)})),[me,meE,wr]);
 
   // Trophies
   const mvpPlayer  = useMemo(()=>[...players].sort((a,b)=>b.wins-a.wins)[0],[players]);
   const mgChampion = useMemo(()=>[...enriched].sort((a,b)=>b.gamesWon-a.gamesWon)[0],[enriched]);
-  const isMVP      = mvpPlayer.id===me.id;
-  const isMGChamp  = mgChampion.id===me.id;
   const clutchLeader = useMemo(()=>[...players].sort((a,b)=>(b.clutchWins||0)-(a.clutchWins||0))[0],[players]);
   const streakLeader = useMemo(()=>[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0],[players]);
+
+  // Admin who hasn't joined as a player — show nothing (caller renders AdminDashboard instead)
+  if (!me) return (
+    <div style={{padding:"60px 20px",textAlign:"center",fontFamily:"'DM Sans',sans-serif",color:"rgba(255,255,255,.35)",fontSize:13}}>
+      <div style={{fontSize:36,marginBottom:12}}>👤</div>
+      <div style={{fontWeight:700,marginBottom:6}}>No player profile yet</div>
+      <div style={{fontSize:11}}>Head to the League tab and tap &quot;Join as Player&quot; to create yours.</div>
+    </div>
+  );
+
+  const avatarUrl = profile?.avatar_url || user?.user_metadata?.avatar_url || null;
+  const myRank    = rows.findIndex(p=>p.isMe)+1;
+  const isMVP      = mvpPlayer.id===me.id;
+  const isMGChamp  = mgChampion.id===me.id;
   const isClutchLeader = clutchLeader.id===me.id;
   const isStreakLeader = streakLeader.id===me.id;
   const rankLabel  = myRank===1?"🥇":myRank===2?"🥈":myRank===3?"🥉":`#${myRank}`;
@@ -2794,16 +2796,16 @@ function KnockoutFixtures({ bracket, onMatchTap, isAdmin, matchLegs }) {
 // BRACKET MATCH RESULT SHEET
 // ─────────────────────────────────────────────
 function BracketResultSheet({ match, matchLegs = 1, onResult, onClose }) {
+  // Single-leg / leg-2 state
+  const [p1Goals, setP1Goals] = useState("");
+  const [p2Goals, setP2Goals] = useState("");
+  const [chosen,  setChosen]  = useState(null); // "p1" | "p2" — only for single-leg or tie-break
+
   if (!match) return null;
 
   // Determine which leg to log
   const legToLog = (matchLegs === 2 && match.leg1 && !match.leg2) ? 2 : 1;
   const isTwoLeg = matchLegs === 2;
-
-  // Single-leg / leg-2 state
-  const [p1Goals, setP1Goals] = useState("");
-  const [p2Goals, setP2Goals] = useState("");
-  const [chosen,  setChosen]  = useState(null); // "p1" | "p2" — only for single-leg or tie-break
 
   // Aggregate live display for leg-2
   const l1p1 = Number(match.leg1?.p1Goals) || 0;
@@ -3032,9 +3034,9 @@ function BracketResultSheet({ match, matchLegs = 1, onResult, onClose }) {
 // GROUP MATCH RESULT SHEET
 // ─────────────────────────────────────────────
 function GroupResultSheet({ match, onResult, onClose }) {
-  if (!match) return null;
   const [p1Goals, setP1Goals] = useState("");
   const [p2Goals, setP2Goals] = useState("");
+  if (!match) return null;
   const canSubmit = p1Goals !== "" && p2Goals !== "";
   const p1n = Number(p1Goals) || 0;
   const p2n = Number(p2Goals) || 0;
@@ -3133,15 +3135,16 @@ function GroupResultSheet({ match, onResult, onClose }) {
 // TOURNAMENT LOG MODAL (full-screen, locked participants)
 // ─────────────────────────────────────────────
 function TournamentLogModal({ match, matchType, matchLegs = 1, contextLabel = "", onGroupResult, onBracketResult, onClose }) {
-  if (!match) return null;
-  const initP1 = match.existingP1Goals != null ? String(match.existingP1Goals)
-    : match.score?.p1Goals != null ? String(match.score.p1Goals) : "";
-  const initP2 = match.existingP2Goals != null ? String(match.existingP2Goals)
-    : match.score?.p2Goals != null ? String(match.score.p2Goals) : "";
+  const initP1 = match?.existingP1Goals != null ? String(match.existingP1Goals)
+    : match?.score?.p1Goals != null ? String(match.score.p1Goals) : "";
+  const initP2 = match?.existingP2Goals != null ? String(match.existingP2Goals)
+    : match?.score?.p2Goals != null ? String(match.score.p2Goals) : "";
   const [p1Score, setP1Score] = useState(initP1);
   const [p2Score, setP2Score] = useState(initP2);
   const [tieWinner, setTieWinner] = useState(null); // "p1"|"p2" — only for tied bracket matches
   const [saved, setSaved] = useState(false);
+
+  if (!match) return null;
 
   const p1 = match.p1 || {};
   const p2 = match.p2 || {};
