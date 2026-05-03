@@ -3,7 +3,9 @@
   "short_name": "League-It",
   "description": "Your sports league, your rules.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#0A0A0A",
   "theme_color": "#AAFF00",
   "icons": [
