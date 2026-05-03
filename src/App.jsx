@@ -9307,8 +9307,8 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
     return [...items, ...items]; // duplicate for seamless loop
   }, [lastMatch, hubStats, leagues, leagueRanks, nextChallenge, ovr, currentMonth]);
 
-  const fallbackFact = useMemo(() => {
-    if (!hubStats) return null;
+  const fallbackFactPool = useMemo(() => {
+    if (!hubStats) return [];
     const pool = [];
     if (hubStats.winStreak >= 3) pool.push(`${hubStats.winStreak}-match win streak 🔥`);
     else if (hubStats.winStreak === 2) pool.push(`Two wins in a row ⚡`);
@@ -9316,8 +9316,10 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
     if (hubStats.total >= 10) pool.push(`${hubStats.total} total matches logged 🏆`);
     if (hubStats.leagueCount > 1) pool.push(`Active in ${hubStats.leagueCount} leagues 🎯`);
     if (!pool.length && hubStats.total > 0) pool.push(`${hubStats.total} total match${hubStats.total>1?"es":""} logged`);
-    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+    return pool;
   }, [hubStats]);
+  const [fallbackFactSeed] = useState(() => Math.floor(Math.random() * 1000));
+  const fallbackFact = fallbackFactPool.length ? fallbackFactPool[fallbackFactSeed % fallbackFactPool.length] : null;
 
   const handleJoin = async () => {
     if (!joinCode.trim()) return;
