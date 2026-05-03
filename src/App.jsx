@@ -2794,16 +2794,16 @@ function KnockoutFixtures({ bracket, onMatchTap, isAdmin, matchLegs }) {
 // BRACKET MATCH RESULT SHEET
 // ─────────────────────────────────────────────
 function BracketResultSheet({ match, matchLegs = 1, onResult, onClose }) {
+  // Single-leg / leg-2 state
+  const [p1Goals, setP1Goals] = useState("");
+  const [p2Goals, setP2Goals] = useState("");
+  const [chosen,  setChosen]  = useState(null); // "p1" | "p2" — only for single-leg or tie-break
+
   if (!match) return null;
 
   // Determine which leg to log
   const legToLog = (matchLegs === 2 && match.leg1 && !match.leg2) ? 2 : 1;
   const isTwoLeg = matchLegs === 2;
-
-  // Single-leg / leg-2 state
-  const [p1Goals, setP1Goals] = useState("");
-  const [p2Goals, setP2Goals] = useState("");
-  const [chosen,  setChosen]  = useState(null); // "p1" | "p2" — only for single-leg or tie-break
 
   // Aggregate live display for leg-2
   const l1p1 = Number(match.leg1?.p1Goals) || 0;
