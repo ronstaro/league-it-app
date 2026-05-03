@@ -1099,9 +1099,6 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
 
   const mePlayer = players.find(p => p.isMe) || enriched.find(p => p.isMe);
   const [selectedName, setSelectedName] = useState(() => mePlayer?.name || "");
-  useEffect(() => {
-    if (!selectedName && mePlayer?.name) setSelectedName(mePlayer.name);
-  }, [mePlayer?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Combined feed for tournament mode: group results (matched by fixture ID) + bracket results
   const tournamentFeed = useMemo(() => {
