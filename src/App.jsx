@@ -1793,7 +1793,7 @@ function JoinCodeCard({ code }) {
           <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:800,color:N}}>{copied?"Copied!":"Copy"}</span>
         </motion.button>
       </div>
-      <div style={{fontSize:11,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:8}}>Players enter this code in "Join by Code" to join your league</div>
+      <div style={{fontSize:11,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",marginTop:8}}>Players enter this code in &quot;Join by Code&quot; to join your league</div>
     </div>
   );
 }
@@ -1999,7 +1999,7 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
           </div>
           <div className="flex-1">
             <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:800,color:N,lineHeight:1}}>
-              You're not in the standings yet
+              You&apos;re not in the standings yet
             </div>
             <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,color:"rgba(255,255,255,.38)",marginTop:3}}>
               Admins must opt in to play
@@ -2197,7 +2197,7 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
     <div style={{padding:"60px 20px",textAlign:"center",fontFamily:"'DM Sans',sans-serif",color:"rgba(255,255,255,.35)",fontSize:13}}>
       <div style={{fontSize:36,marginBottom:12}}>👤</div>
       <div style={{fontWeight:700,marginBottom:6}}>No player profile yet</div>
-      <div style={{fontSize:11}}>Head to the League tab and tap "Join as Player" to create yours.</div>
+      <div style={{fontSize:11}}>Head to the League tab and tap &quot;Join as Player&quot; to create yours.</div>
     </div>
   );
   const meE       = enriched.find(p=>p.isMe);
@@ -2390,7 +2390,7 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
               style={{background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)"}}
               onClick={()=>{setDraftQ(quote);setEditQ(true);}}>
               <span style={{fontSize:16,flexShrink:0}}>💬</span>
-              <span className="flex-1 text-sm italic" style={{color:"rgba(255,255,255,.6)",fontFamily:"'DM Sans',sans-serif"}}>"{quote}"</span>
+              <span className="flex-1 text-sm italic" style={{color:"rgba(255,255,255,.6)",fontFamily:"'DM Sans',sans-serif"}}>&quot;{quote}&quot;</span>
               <Edit2 size={13} style={{color:"rgba(255,255,255,.3)",flexShrink:0}}/>
             </div>
           )}
@@ -3606,7 +3606,7 @@ function AdminDashboard({ players, feed, rules, bracket, groups, groupMatches })
               Admin Dashboard
             </div>
             <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.4)", marginTop: 2 }}>
-              League overview — you're managing, not playing
+              League overview — you&apos;re managing, not playing
             </div>
           </div>
         </div>
@@ -3718,7 +3718,7 @@ function AdminDashboard({ players, feed, rules, bracket, groups, groupMatches })
       <div style={{ borderRadius: 16, padding: "12px 16px",
         background: "rgba(170,255,0,.04)", border: `1px solid ${N}18`,
         fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.4)", lineHeight: 1.5 }}>
-        💡 Want to appear in standings? Go to the <strong style={{ color: N }}>League</strong> tab and tap "Join as Player".
+        💡 Want to appear in standings? Go to the <strong style={{ color: N }}>League</strong> tab and tap &quot;Join as Player&quot;.
       </div>
     </div>
   );
@@ -5278,7 +5278,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                   <h3 style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:24,letterSpacing:"2px",color:"#fff"}}>
                     Add <span style={{color:N}}>Player</span>
                   </h3>
-                  <p style={{fontSize:11,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>They'll appear on the leaderboard immediately.</p>
+                  <p style={{fontSize:11,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>They&apos;ll appear on the leaderboard immediately.</p>
                 </div>
                 <button onClick={()=>setShowAddPlayer(false)}
                   className="flex items-center justify-center w-8 h-8 rounded-full"
@@ -5644,7 +5644,7 @@ function StepLanding({ onNext, onSignIn = null, hasPendingJoin = false }) {
               color: "rgba(255,255,255,0.88)", lineHeight: 1.2,
             }}
           >
-            doesn't lie.
+            doesn&apos;t lie.
           </p>
         </motion.div>
 
@@ -7140,7 +7140,7 @@ function StepRules({ format, setFormat, points, setPoints, customRules, setCusto
                                   fontFamily: "'DM Sans', sans-serif",
                                 }}
                               >
-                                {customRules.trim().length} chars · Rules will be pinned to your league's info page.
+                                {customRules.trim().length} chars · Rules will be pinned to your league&apos;s info page.
                               </p>
                             </>
                           )}
@@ -7623,7 +7623,7 @@ function StepInvite({ sport, format, points, customSportName, customSportEmoji, 
               <strong style={{ color: "rgba(255,255,255,0.78)" }}>{leagueName}</strong>
               {" "}on LEAGUE-IT. 👉 Join the table here:{" "}
               <span style={{ color: NEON }}>{fullLink}</span>.
-              {" "}No more excuses. Let's see who's #1. 😤
+              {" "}No more excuses. Let&apos;s see who&apos;s #1. 😤
             </p>
           </motion.div>
 
@@ -7951,7 +7951,7 @@ function PlayerJoinFlow({ user, leagueId, leagueName, isSeeded, defaultNickname,
           style={{ fontSize:72,marginBottom:16 }}>🎉</motion.div>
         <motion.div initial={{ opacity:0,y:12 }} animate={{ opacity:1,y:0 }} transition={{ delay:.2 }}>
           <div style={{ fontFamily:"'Bebas Neue',sans-serif",fontSize:48,letterSpacing:"3px",color:"#fff",lineHeight:1,marginBottom:6 }}>
-            YOU'RE <span style={{ color:N }}>IN!</span>
+            YOU&apos;RE <span style={{ color:N }}>IN!</span>
           </div>
           <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:600,color:"rgba(255,255,255,.55)",marginBottom:8 }}>
             {nickname.trim() || defaultNickname}
@@ -7959,7 +7959,7 @@ function PlayerJoinFlow({ user, leagueId, leagueName, isSeeded, defaultNickname,
           </div>
           <div style={{ fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,.3)",lineHeight:1.6,maxWidth:280,margin:"0 auto 32px" }}>
             Wait for the admin to start the tournament.
-            <br/>You'll be notified when the bracket drops.
+            <br/>You&apos;ll be notified when the bracket drops.
           </div>
           <motion.button whileTap={{ scale:.97 }} onClick={onDone}
             style={{ borderRadius:18,padding:"14px 40px",border:`1.5px solid rgba(170,255,0,.4)`,
@@ -10093,7 +10093,7 @@ export default function Root() {
         TROUBLE <span style={{color:"#FF3355"}}>LOADING</span>
       </div>
       <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,color:"rgba(255,255,255,.45)",lineHeight:1.7,maxWidth:300,marginBottom:32}}>
-        We're having trouble loading your data.<br/>
+        We&apos;re having trouble loading your data.<br/>
         Please try again or contact support if the issue persists.
       </div>
       <button
