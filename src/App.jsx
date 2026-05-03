@@ -110,18 +110,6 @@ function Sparkline({data,color,w=88,h=24}) {
   );
 }
 
-function StreakBadge({streak}) {
-  const hot=streak>=3,cold=streak<=-3;
-  return (
-    <span className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-extrabold"
-      style={{fontFamily:"'JetBrains Mono',monospace",
-        background:hot?"rgba(170,255,0,.1)":cold?"rgba(59,142,255,.1)":"rgba(255,255,255,.05)",
-        border:`1px solid ${hot?"rgba(170,255,0,.3)":cold?"rgba(59,142,255,.3)":"rgba(255,255,255,.1)"}`,
-        color:hot?N:cold?"#3B8EFF":"rgba(255,255,255,.38)"}}>
-      {streak>0?"🔥":streak<0?"❄️":"—"}{streak!==0?Math.abs(streak):""}
-    </span>
-  );
-}
 
 function AnimBar({value,color}) {
   const [w,setW]=useState(0);
