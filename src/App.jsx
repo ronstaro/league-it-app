@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { supabase } from "./lib/supabase";
+import { supabase, supabaseConfigured } from "./lib/supabase";
 import { parseMG, enrichPlayers, derivePlayerStats, byWins, medal } from "./lib/stats";
 import {
   Plus, X, Check, ChevronRight, TrendingUp, TrendingDown,
@@ -4700,7 +4700,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
         if (leagueErr) console.error("[mount] leagues fetch error:", leagueErr);
         if (matchErr)  console.error("[mount] matches fetch error:", matchErr);
         // If both requests failed and env vars are missing, the client is misconfigured — reload to pick up fresh Vercel env vars
-        if (leagueErr && matchErr && (!SUPABASE_URL || !SUPABASE_KEY)) {
+        if (leagueErr && matchErr && !supabaseConfigured) {
           console.warn("[mount] Supabase client misconfigured — reloading to pick up env vars");
           setTimeout(() => window.location.reload(), 800);
           return;

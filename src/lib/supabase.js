@@ -6,3 +6,4 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error("⛔ Supabase env vars missing — URL:", SUPABASE_URL, "KEY:", SUPABASE_KEY);
 }
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+export const supabaseConfigured = !!(SUPABASE_URL && SUPABASE_KEY);

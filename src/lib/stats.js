@@ -1,6 +1,6 @@
 // parseMG("6–3") → {w:6,l:3}  — winner gets +6 games, loser gets +3
 export const parseMG = s => {
-  const [a,b] = (s||"").split(/[–\-]/);
+  const [a,b] = (s||"").split(/[–-]/);
   return { w:parseInt(a)||0, l:parseInt(b)||0 };
 };
 
