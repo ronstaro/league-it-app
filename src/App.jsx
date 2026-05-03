@@ -143,8 +143,8 @@ function PBtn({children,onClick,disabled=false}) {
 /* ── STANDINGS TABLE — shared by Home + League ── */
 // players are expected to be pre-enriched (from derivePlayerStats) — gamesWon/gamesLost already set
 function StandingsTable({players}) {
+  const rows = useMemo(()=>byWins(players ?? []),[players]);
   if (!players || players.length === 0) return <div className="text-center p-10 opacity-30">No players in league yet</div>;
-  const rows = useMemo(()=>byWins(players),[players]);
   // Columns: rank | player name (flex) | W/L | W% | CLT | CB | MG W–L
   // Tighter right-side columns free up ~44 px for the name vs the old layout.
   // No initials avatar — the name column now owns the full 1fr width.
