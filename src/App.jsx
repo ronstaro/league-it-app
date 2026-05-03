@@ -10057,7 +10057,7 @@ export default function Root() {
     } else {
       setPhase("hub");
     }
-  }, [user, profile, loadLeagues]);
+  }, [user, loadLeagues]);
 
   if (phase === "loading") return (
     <div style={{background:"#0A0A0A",height:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:16}}>
