@@ -154,7 +154,7 @@ function PBtn({children,onClick,disabled=false}) {
 
 /* ── STANDINGS TABLE — shared by Home + League ── */
 // players are expected to be pre-enriched (from derivePlayerStats) — gamesWon/gamesLost already set
-function StandingsTable({players, feed = []}) {
+function StandingsTable({players}) {
   if (!players || players.length === 0) return <div className="text-center p-10 opacity-30">No players in league yet</div>;
   const rows = useMemo(()=>byWins(players),[players]);
   // Columns: rank | player name (flex) | W/L | W% | CLT | CB | MG W–L
@@ -346,7 +346,7 @@ function LogModal({players, onClose, onSubmit, prefill=null}) {
   const [winners,    setW]         = useState(prefill?.winnerIds||[]);
   const [losers,     setL]         = useState(prefill?.loserIds ||[]);
   const [sets,       setSets]      = useState(
-    prefill?.sets?.map(s=>{const[a,b]=s.split(/[–\-]/);return{w:a||"",l:b||""};}) || [{w:"",l:""}]
+    prefill?.sets?.map(s=>{const[a,b]=s.split(/[–-]/);return{w:a||"",l:b||""};}) || [{w:"",l:""}]
   );
   const [isComeback, setIsComeback] = useState(prefill?.isComeback||false);
 
@@ -855,15 +855,15 @@ function DecisionTouchOverlay({ onClose }) {
       const wIds = shuffled.slice(0, nw).map(c => c.id);
       s.phase = "winner";
       setWinnerIds(wIds); setPhase("winner");
-      try { navigator.vibrate([80,40,160,40,80]); } catch {}
+      try { navigator.vibrate([80,40,160,40,80]); } catch { /* ignore */ }
     }, 4000);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const doCancel = useCallback(() => {
     doStop();
     st.current.phase = "waiting";
     setPhase("waiting"); setCountdown(4); setWinnerIds([]);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const addPt = useCallback((id, x, y) => {
     const s = st.current;
@@ -874,7 +874,7 @@ function DecisionTouchOverlay({ onClose }) {
       s.circles.push({ id, x, y, color: s.colorMap[id] });
     setCircles([...s.circles]);
     if (s.circles.length >= 2 && s.phase === "waiting") doStart();
-  }, [doStart]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [doStart]);
 
   const removePt = useCallback((id) => {
     const s = st.current;
@@ -882,7 +882,7 @@ function DecisionTouchOverlay({ onClose }) {
     s.circles = s.circles.filter(c => c.id !== id);
     setCircles([...s.circles]);
     if (s.circles.length < 2) doCancel();
-  }, [doCancel]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [doCancel]);
 
   const onTS = useCallback((e) => {
     e.preventDefault();
@@ -1144,7 +1144,6 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
   function LbView() {
     const FALLBACK = {name:"N/A",wins:0,losses:0,gamesWon:0,gamesLost:0,totalPlayed:0,mvTrend:[0,0,0,0,0,0,0],partners:{}};
     const me   = enriched.find(p=>p.isMe) || FALLBACK;
-    const totG = (me.gamesWon+me.gamesLost)||1;
     const mW        = players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:FALLBACK;
     const mP        = players.length>0?[...players].sort((a,b)=>b.totalPlayed-a.totalPlayed)[0]:FALLBACK;
     const mL        = players.length>0?[...players].sort((a,b)=>b.losses-a.losses)[0]:FALLBACK;
@@ -1202,9 +1201,7 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
       }
 
       // SOURCE 2: Bracket — walk rounds directly from bracket state (authoritative for knockout scores)
-      let champName = null;
       if (bracket?.rounds?.length) {
-        const lastRoundIdx = bracket.rounds.length - 1;
         for (let ri = 0; ri < bracket.rounds.length; ri++) {
           for (const match of bracket.rounds[ri]) {
             if (!match.winner || match.isBye) continue;
@@ -1220,9 +1217,6 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
             const loser = lookup(loserObj?.id, loserObj?.name);
             if (winner) { winner.wins++; winner.played++; winner.streak++; winner.bestStreak = Math.max(winner.bestStreak, winner.streak); }
             if (loser)  { loser.losses++; loser.played++; loser.streak = 0; }
-            if (ri === lastRoundIdx) {
-              champName = match.winner?.name || winner?.name || null;
-            }
           }
         }
       }
@@ -1591,8 +1585,6 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
       return              { icon:"🚨", title:"NIGHTMARE",          text:`${p2Name} dominates ${p2w}–${p1w}.`,           bg:"rgba(255,51,85,.07)",   bdr:"rgba(255,51,85,.25)",  color:"#FF3355",   badge:"LOSING BADLY"    };
     }, [stats, p1Name, p2Name]);
 
-    const p1Obj = players.find(p => p?.name === p1Name);
-    const p2Obj = players.find(p => p?.name === p2Name);
     const C1 = "#AAFF00", C2 = "#FF3355";
     const total = stats?.total || 0;
     const yp = total ? Math.round((stats.p1w / total) * 100) : 50;
@@ -1831,7 +1823,7 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
       const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
       await supabase.from("leagues").update({ image_url: publicUrl }).eq("id", leagueId);
       onSquadPhotoUpdate?.(publicUrl);
-    } catch {}
+    } catch { /* ignore */ }
     setSquadUploading(false);
     e.target.value = "";
   }, [leagueId, onSquadPhotoUpdate]);
@@ -1841,7 +1833,7 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
     const url = `https://league-it-app.vercel.app/join/${code}`;
     if (navigator.share) {
       try { await navigator.share({ title: "Join my League-It league!", text: "You've been invited 🏆", url }); }
-      catch {} // user cancelled
+      catch { /* user cancelled */ }
     } else {
       navigator.clipboard?.writeText(url).catch(() => {});
       setCopied(true);
@@ -2244,7 +2236,7 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
       const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
       await supabase.from("profiles").update({ avatar_url: publicUrl }).eq("user_id", user.id);
       onAvatarUpdate?.(publicUrl);
-    } catch {}
+    } catch { /* ignore */ }
     setAvatarUploading(false);
     e.target.value = "";
   }, [user, onAvatarUpdate]);
@@ -2707,7 +2699,7 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, matchL
 // ─────────────────────────────────────────────
 // KNOCKOUT FIXTURES LIST
 // ─────────────────────────────────────────────
-function KnockoutFixtures({ bracket, onMatchTap, isAdmin, matchLegs, feed }) {
+function KnockoutFixtures({ bracket, onMatchTap, isAdmin, matchLegs }) {
   if (!bracket?.rounds?.length) return null;
   const n = bracket.rounds.length;
 
@@ -3420,7 +3412,7 @@ function TournamentLogModal({ match, matchType, matchLegs = 1, contextLabel = ""
 const GROUP_COLORS = ["#AAFF00","#3B8EFF","#FFB830","#FF6B35","#AA55FF","#00E5CC","#FF3355","#FFD700"];
 const GROUP_LETTER_IDX = { A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7 };
 
-function GroupTable({ group, groupMatches, feed, allGroupMatches, onMatchTap, isAdmin, advancingPerGroup = 2 }) {
+function GroupTable({ group, groupMatches, feed, onMatchTap, isAdmin, advancingPerGroup = 2 }) {
   const gc = GROUP_COLORS[GROUP_LETTER_IDX[group.name] ?? 0];
   const completedIds = useMemo(() => new Set(feed.map(m => m.id)), [feed]);
 
@@ -4007,7 +3999,7 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
     try {
       await onGroupResult({ match, p1Goals: parseInt(s.p1) || 0, p2Goals: parseInt(s.p2) || 0 });
       setLocalScores(p => { const n = { ...p }; delete n[match.id]; return n; });
-    } catch {}
+    } catch { /* ignore */ }
     setSaving(null);
   };
 
@@ -4958,7 +4950,6 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       is_tournament: true, tournament_stage: bracketRoundLabel,
     };
     setFeed(prev => [entry, ...prev.filter(m => m.id !== match.id)]);
-    const { id: _bid, ...scoreData3 } = entry;
     try {
       await supabase.from("matches").upsert({
         id:        match.id,
@@ -5758,7 +5749,7 @@ function StepSport({ sport, setSport, customSportName, setCustomSportName, custo
 
           {/* Grid */}
           <div className="grid grid-cols-2 gap-3">
-            {SPORTS.map((s, i) => {
+            {SPORTS.map((s, _i) => {
               const selected = sport === s.id;
               return (
                 <motion.button
@@ -6939,7 +6930,7 @@ function StepRules({ format, setFormat, points, setPoints, customRules, setCusto
           />
 
           <div className="flex flex-col gap-3">
-            {FORMATS.map((f, i) => {
+            {FORMATS.map((f, _i) => {
               const sel = format === f.id;
               const { Icon } = f;
               return (
@@ -7375,7 +7366,7 @@ function StepBranding({ sport, format, points, customSportName, customSportEmoji
 // ─────────────────────────────────────────────
 // STEP 4 — VIRAL INVITE
 // ─────────────────────────────────────────────
-function StepInvite({ sport, format, points, customSportName, customSportEmoji, customRules, leagueName, leagueCode, onFinish, saving = false, createErr = "" }) {
+function StepInvite({ sport, format, points, customSportName, customSportEmoji, leagueName, leagueCode, onFinish, saving = false, createErr = "" }) {
   const [copied, setCopied] = useState(false);
 
   const sportData     = SPORTS.find(s => s.id === sport) || SPORTS[0];
@@ -7835,7 +7826,7 @@ function PlayerJoinFlow({ user, leagueId, leagueName, isSeeded, defaultNickname,
     if (isSeeded) { setStep(2); } else { doJoin(null); }
   };
 
-  const C1 = N, C2 = "#FF3355";
+  const C2 = "#FF3355";
 
   // ── Step 1: Nickname ────────────────────────────────────────────────────
   if (step === 1) return (
@@ -7999,7 +7990,7 @@ function JoinTierScreen({ user, leagueId, onDone }) {
       if (pRow) {
         await supabase.from("players").update({ stats: { ...(pRow.stats || {}), tier } }).eq("id", pRow.id);
       }
-    } catch {}
+    } catch { /* ignore */ }
     setSaving(false);
     onDone();
   };
@@ -8202,7 +8193,7 @@ function GroupRevealCard({ group, groupIndex, isVisible, onComplete }) {
 // ─────────────────────────────────────────────
 // DRAW REVEAL OVERLAY — fullscreen cinematic
 // ─────────────────────────────────────────────
-function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueName, leagueId, isAdmin, isSpectator = false, onConfirm }) {
+function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueName, isAdmin, isSpectator = false, onConfirm }) {
   const [visGroupCount,    setVisGroupCount]    = useState(0);
   const [currentGroupDone, setCurrentGroupDone] = useState(false);
   const [allRevealed,      setAllRevealed]      = useState(false);
@@ -8267,7 +8258,7 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
 
   const handleConfirm = async () => {
     setLocking(true);
-    try { await onConfirm?.(); } catch {}
+    try { await onConfirm?.(); } catch { /* ignore */ }
     setLocking(false);
   };
 
@@ -8484,7 +8475,7 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
         .select("id,name,stats,created_at,user_id")
         .eq("league_id", leagueId).order("created_at", { ascending: true });
       if (data) setLivePlayers(data);
-    } catch {}
+    } catch { /* ignore */ }
   }, [leagueId]);
 
   useEffect(() => {
@@ -8501,7 +8492,7 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
       const { data: lg } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
       await supabase.from("leagues").update({ settings: { ...(lg?.settings||{}), lobbyState:"locked" } }).eq("id", leagueId);
       setLocked(true);
-    } catch {}
+    } catch { /* ignore */ }
     setLocking(false);
   };
 
@@ -8519,7 +8510,7 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
                  tier: tier || null },
       });
       await fetchPlayers();
-    } catch {}
+    } catch { /* ignore */ }
     setCommJoining(false);
   };
 
@@ -8551,7 +8542,7 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
       setDrawBracket(revealBracket);
       setDrawSpectator(false);
       setShowDrawReveal(true);
-    } catch {}
+    } catch { /* ignore */ }
     setGenerating(false);
   };
 
@@ -8577,7 +8568,7 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
                 await supabase.from("leagues").update({
                   settings: { ...(lg?.settings || {}), lobbyState: "active" },
                 }).eq("id", leagueId);
-              } catch {}
+              } catch { /* ignore */ }
               setShowDrawReveal(false);
               onClose();
             }}
@@ -9298,7 +9289,7 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
           .filter(r => r.myWins + r.rivalWins >= 2)
           .sort((a, b) => (b.myWins + b.rivalWins) - (a.myWins + a.rivalWins));
         if (rivals.length) setNextChallenge(rivals[0]);
-      } catch {}
+      } catch { /* ignore */ }
     })();
   }, [leagues, user]);
 
@@ -9926,7 +9917,7 @@ export default function Root() {
           defaultNickname,
         });
         setPhase("join_flow");
-      } catch {}
+      } catch { /* ignore */ }
       setPendingJoinCode(null);
     })();
   }, [pendingJoinCode, user]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -10032,19 +10023,16 @@ export default function Root() {
     if (user) loadLeagues(user.id);
   }, [user, loadLeagues]);
 
-  const handleWizardFinish = useCallback(async ({ leagueName, adminName, sport, tournamentFormat, participants, reportingMode, groupSettings, matchLegs, format, points, customSportName, customSportEmoji, customRules, leagueCode, isLiveLobby }) => {
+  const handleWizardFinish = useCallback(async ({ leagueName, sport, tournamentFormat, participants, reportingMode, groupSettings, matchLegs, format, points, customSportName, customSportEmoji, customRules, leagueCode, isLiveLobby }) => {
     if (!user) throw new Error("Not logged in");
 
     const name        = leagueName?.trim() || "My League";
     const sportData   = SPORTS.find(s => s.id === sport);
     const sportLabel  = customSportName?.trim() || sportData?.label || "Sport";
     const sportEmoji  = sport === "custom_sport" ? (customSportEmoji || "⚙️") : (sportData?.emoji || "🏸");
-    const displayName = adminName?.trim() || profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
-    const initials    = displayName.trim().split(/\s+/).map(w => w[0]?.toUpperCase() || "").slice(0, 2).join("") || "??";
     // Generate IDs client-side — never depend on Supabase returning the row back
     // (RLS SELECT policy may block the row even after a successful INSERT)
     const leagueId = crypto.randomUUID();
-    const playerId  = crypto.randomUUID();
     const code      = leagueCode || generateCode();
     const lobbyPin  = isLiveLobby ? generateNumericPin() : null;
     const baseSettings = { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], reportingMode: reportingMode || "admin", groupSettings: groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 }, matchLegs: matchLegs || 1, format, points, customRules, sportEmoji, ...(lobbyPin ? { lobbyPin } : {}) };
