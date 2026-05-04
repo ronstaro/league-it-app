@@ -1100,32 +1100,6 @@ function StatsTab({players, feed, isTournament = false, groupMatches = [], brack
   const mePlayer = players.find(p => p.isMe) || enriched.find(p => p.isMe);
   const [selectedName, setSelectedName] = useState(() => mePlayer?.name || "");
 
-  // Combined feed for tournament mode: group results (matched by fixture ID) + bracket results
-  const tournamentFeed = useMemo(() => {
-    if (!isTournament) return feed;
-    const groupIds = new Set((groupMatches || []).map(m => m.id));
-    const groupResults = feed.filter(m => groupIds.has(m.id));
-    const bracketResults = [];
-    if (bracket?.rounds) {
-      for (const round of bracket.rounds) {
-        for (const match of round) {
-          if (match.winner && !match.isBye) {
-            const loserObj = match.winner.id === match.p1?.id ? match.p2 : match.p1;
-            bracketResults.push({
-              id: match.id,
-              winner: match.winner.name, loser: loserObj?.name || "",
-              winnerIds: match.winner.id ? [match.winner.id] : [],
-              loserIds:  loserObj?.id    ? [loserObj.id]    : [],
-              isDraw: false,
-            });
-          }
-        }
-      }
-    }
-    const groupIdSet = new Set(groupResults.map(m => m.id));
-    return [...groupResults, ...bracketResults.filter(m => !groupIdSet.has(m.id))];
-  }, [feed, isTournament, groupMatches, bracket]);
-
   function LbView() {
     const FALLBACK = {name:"N/A",wins:0,losses:0,gamesWon:0,gamesLost:0,totalPlayed:0,mvTrend:[0,0,0,0,0,0,0],partners:{}};
     const me   = enriched.find(p=>p.isMe) || FALLBACK;
@@ -6173,17 +6147,6 @@ function computeGroupStandings(groupParticipants, groupName, allGroupMatches, fe
   });
 }
 
-// Pick the top N players from each group and return them flat for bracket seeding
-function getAdvancingParticipants(groups, allGroupMatches, feed, advancingPerGroup) {
-  const advancing = [];
-  for (const group of groups) {
-    const standings = computeGroupStandings(group.participants, group.name, allGroupMatches, feed);
-    const topX = standings.slice(0, advancingPerGroup);
-    advancing.push(...topX.map(s => s.participant));
-  }
-  return advancing;
-}
-
 // ─────────────────────────────────────────────
 // STEP 2 — TOURNAMENT FORMAT
 // ─────────────────────────────────────────────
@@ -9918,30 +9881,6 @@ export default function Root() {
       setPendingJoinCode(null);
     })();
   }, [pendingJoinCode, user]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleCreateLeague = useCallback(async (name, sport) => {
-    if (!user) return;
-    try {
-      const code      = generateCode();
-      const leagueId  = crypto.randomUUID();
-      // Insert without .select() — RLS SELECT may block the row back even when INSERT succeeds
-      const { error: leagueErr } = await supabase.from("leagues").insert({
-        id: leagueId, name, sport, join_code: code,
-        settings: { leagueCode: code }, owner_id: user.id, created_by: user.id,
-      });
-      if (leagueErr) return;
-      const displayName = profile?.display_name || user.user_metadata?.full_name || user.email || "Player";
-      const initials    = displayName.trim().split(/\s+/).map(w => w[0]?.toUpperCase() || "").slice(0, 2).join("");
-      await supabase.from("players").insert({
-        id: crypto.randomUUID(), league_id: leagueId, user_id: user.id,
-        name: displayName, is_me: true,
-        stats: { initials, wins:0, losses:0, streak:0, totalPlayed:0, trend:"flat", sport:"🏸", mvTrend:[0,0,0,0,0,0,0], partners:{}, clutchWins:0, bestStreak:0 },
-      });
-      await loadLeagues(user.id);
-    } catch {
-      // network error — silently ignore
-    }
-  }, [user, profile, loadLeagues]);
 
   const handleJoinLeague = useCallback(async (code) => {
     if (!user) return { error: "Not logged in" };
