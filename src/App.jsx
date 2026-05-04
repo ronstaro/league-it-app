@@ -3927,7 +3927,7 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
 
   // ── Supabase real-time: sync scores from other devices ──────────────────
   useEffect(() => {
-    if (!leagueId || !onSyncEntry) return;
+    if (!leagueId || !onSyncEntry || !supabase) return;
     const ch = supabase.channel(`tv-${leagueId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "matches",
         filter: `league_id=eq.${leagueId}` },
@@ -9793,6 +9793,8 @@ export default function Root() {
 
   // Auth listener — single source of truth, handles initial session + changes
   useEffect(() => {
+    // Intentional: no Supabase config — skip auth setup and land on login screen immediately
+    if (!supabaseConfigured || !supabase) { setPhase("login"); return; } // eslint-disable-line react-hooks/set-state-in-effect
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       try {
         if (session?.user) {
