@@ -4495,16 +4495,39 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     const allComplete  = groupMatches.length > 0 && groupMatches.every(m => completedIds.has(m.id));
     if (allComplete) {
       const advancingPerGroup = rules?.groupSettings?.advancingPerGroup || 2;
-      const advancingByGroup = groups.map(g =>
+      const wildcardCount     = rules?.groupSettings?.wildcardCount     || 0;
+      const wildcardRule      = rules?.groupSettings?.wildcardRule      || "none";
+      const targetBracketSize = rules?.groupSettings?.targetBracketSize || null;
+
+      const standingsByGroup = groups.map(g =>
         computeGroupStandings(g.participants, g.name, groupMatches, updatedFeed)
-          .slice(0, advancingPerGroup)
-          .map(s => s.participant)
       );
-      const totalAdvancing = advancingByGroup.reduce((s, g) => s + g.length, 0);
-      if (totalAdvancing >= 2) {
-        const knockoutBracket = groups.length >= 2
-          ? generateCrossoverBracket(advancingByGroup)
-          : generateKnockoutBracket(advancingByGroup.flat());
+      const advancingByGroup = standingsByGroup.map(s =>
+        s.slice(0, advancingPerGroup).map(st => st.participant)
+      );
+      const directQualifiers = advancingByGroup.flat();
+
+      let allQualifiers = directQualifiers;
+      if (wildcardRule === "best_3rd_place" && wildcardCount > 0) {
+        const thirdPlaces = standingsByGroup
+          .map(s => s[advancingPerGroup])
+          .filter(Boolean)
+          .sort((a, b) => (b.pts - a.pts) || ((b.gf - b.ga) - (a.gf - a.ga)) || (b.gf - a.gf));
+        allQualifiers = [
+          ...directQualifiers,
+          ...thirdPlaces.slice(0, wildcardCount).map(s => s.participant),
+        ];
+      }
+
+      if (targetBracketSize && allQualifiers.length !== targetBracketSize) {
+        console.error(`[bracket] qualifier mismatch: expected ${targetBracketSize}, got ${allQualifiers.length}. Bracket not generated.`);
+        return;
+      }
+
+      if (allQualifiers.length >= 2) {
+        const knockoutBracket = (wildcardCount > 0 || groups.length < 2)
+          ? generateKnockoutBracket(allQualifiers)
+          : generateCrossoverBracket(advancingByGroup);
         await _saveGroupsState(undefined, undefined, knockoutBracket);
       }
     }
@@ -5829,6 +5852,206 @@ const TOURNAMENT_FORMATS = [
     sub:   "Group stage then knockout. Everyone gets guaranteed games, best advance.",
   },
 ];
+
+function suggestFormats(playerCount) {
+  if (playerCount < 4) return [];
+
+  const bracketOrder =
+    playerCount >= 32 ? [16, 32] :
+    playerCount >= 17 ? [16, 8]  :
+    playerCount >= 9  ? [8, 16]  :
+                        [4, 8];
+
+  const candidates = [];
+
+  for (const bracketSize of bracketOrder) {
+    for (let numGroups = 2; numGroups <= 8; numGroups++) {
+      const groupSizeMin = Math.floor(playerCount / numGroups);
+      const groupSizeMax = Math.ceil(playerCount / numGroups);
+      if (groupSizeMin < 3 || groupSizeMax > 8) continue;
+
+      // Direct: numGroups × adv = bracketSize, no wildcards
+      if (bracketSize % numGroups === 0) {
+        const adv = bracketSize / numGroups;
+        if (adv >= 1 && adv < groupSizeMin) {
+          candidates.push({ bracketSize, numGroups, groupSizeMin, groupSizeMax, advancingPerGroup: adv, wildcardCount: 0 });
+        }
+      }
+
+      // Wildcard (best 3rd place): numGroups × adv + wc = bracketSize
+      // adv < groupSizeMin - 1 ensures every group has a 3rd-place finisher
+      for (let adv = 1; adv < groupSizeMin - 1; adv++) {
+        const wc = bracketSize - numGroups * adv;
+        if (wc >= 1 && wc < numGroups) {
+          candidates.push({ bracketSize, numGroups, groupSizeMin, groupSizeMax, advancingPerGroup: adv, wildcardCount: wc });
+        }
+      }
+    }
+  }
+
+  function score(c) {
+    let s = 0;
+    if (c.bracketSize !== bracketOrder[0]) s += 10;
+    const ppg = (c.groupSizeMin + c.groupSizeMax) / 2;
+    if (ppg !== 4 && ppg !== 6) s += 2;
+    if (ppg < 3.5)              s += 3;
+    if (c.advancingPerGroup === 1) s += 3;
+    s += c.wildcardCount * 0.5;
+    return s;
+  }
+
+  candidates.sort((a, b) => score(a) - score(b));
+
+  const seen = new Set();
+  const result = [];
+  for (const c of candidates) {
+    const key = `${c.numGroups}-${c.advancingPerGroup}-${c.wildcardCount}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      result.push(c);
+      if (result.length >= 3) break;
+    }
+  }
+  return result;
+}
+
+function StepFormatAdvisor({ participants, groupSettings, setGroupSettings, onNext }) {
+  const options = suggestFormats(participants.length);
+  const [selected, setSelected] = useState(null);
+
+  function groupSizeLabel(opt) {
+    return opt.groupSizeMin === opt.groupSizeMax
+      ? `${opt.groupSizeMin}`
+      : `${opt.groupSizeMin}–${opt.groupSizeMax}`;
+  }
+
+  function describeOption(opt) {
+    const gSize = groupSizeLabel(opt);
+    const direct = `top ${opt.advancingPerGroup} advance`;
+    if (opt.wildcardCount > 0) {
+      return `${opt.numGroups} groups of ${gSize} · ${direct} + ${opt.wildcardCount} best 3rd-place · ${opt.bracketSize}-player bracket`;
+    }
+    return `${opt.numGroups} groups of ${gSize} · ${direct} · ${opt.bracketSize}-player bracket`;
+  }
+
+  function fairnessNote(opt) {
+    const notes = [];
+    if (opt.groupSizeMin !== opt.groupSizeMax) {
+      const big  = opt.numGroups * opt.groupSizeMax - participants.length;
+      const diff = opt.numGroups - big;
+      notes.push(`${diff} group${diff !== 1 ? "s" : ""} of ${opt.groupSizeMax}, ${big} of ${opt.groupSizeMin}`);
+    }
+    if (opt.wildcardCount > 0) {
+      notes.push(`Best ${opt.wildcardCount} third-place finishers earn wildcard spots`);
+    }
+    return notes;
+  }
+
+  function applyOption(opt) {
+    setSelected(opt);
+    setGroupSettings(prev => ({
+      ...prev,
+      playersPerGroup:   opt.groupSizeMax,
+      advancingPerGroup: opt.advancingPerGroup,
+      targetBracketSize: opt.bracketSize,
+      wildcardCount:     opt.wildcardCount,
+      wildcardRule:      opt.wildcardCount > 0 ? "best_3rd_place" : "none",
+    }));
+  }
+
+  if (options.length === 0) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex-1 overflow-y-auto px-5 pt-2 pb-4">
+          <motion.div variants={stagger(0.05)} initial="hidden" animate="show">
+            <StepHeading line1="Format" line2="Advisor" sub="No safe format found." />
+            <p style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 14, color: "rgba(255,120,80,0.9)", lineHeight: 1.6 }}>
+              No safe tournament format was found for {participants.length} players. Please go back and adjust participants or tournament settings.
+            </p>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto px-5 pt-2 pb-4" style={{ WebkitOverflowScrolling: "touch" }}>
+        <motion.div variants={stagger(0.05)} initial="hidden" animate="show">
+          <StepHeading
+            line1="Pick Your"
+            line2="Format"
+            sub={`${participants.length} players · choose how the group stage feeds the bracket`}
+          />
+          <div className="flex flex-col gap-3">
+            {options.map((opt, i) => {
+              const isSelected = selected === opt;
+              const notes = fairnessNote(opt);
+              return (
+                <motion.button
+                  key={i}
+                  variants={fadeUp}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => applyOption(opt)}
+                  style={{
+                    width: "100%", padding: "16px 18px", borderRadius: 20, cursor: "pointer",
+                    textAlign: "left",
+                    background: isSelected ? "rgba(170,255,0,0.07)" : "rgba(255,255,255,0.03)",
+                    border: isSelected ? `1.5px solid ${NEON}` : "1.5px solid rgba(255,255,255,0.07)",
+                    boxShadow: isSelected ? "0 0 28px rgba(170,255,0,0.12)" : "none",
+                    transition: "all 0.18s ease",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 12, flexShrink: 0,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 18,
+                      background: isSelected ? "rgba(170,255,0,0.1)" : "rgba(255,255,255,0.04)",
+                      border: isSelected ? `1px solid ${NEON}44` : "1px solid rgba(255,255,255,0.08)",
+                    }}>
+                      {opt.wildcardCount > 0 ? "🃏" : "🏆"}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 700,
+                        color: isSelected ? NEON : "#fff", lineHeight: 1.3, marginBottom: 4,
+                      }}>
+                        {describeOption(opt)}
+                      </div>
+                      {notes.map((n, ni) => (
+                        <div key={ni} style={{
+                          fontFamily: "'DM Sans',sans-serif", fontSize: 11,
+                          color: "rgba(255,200,50,0.75)", lineHeight: 1.5, marginTop: 2,
+                        }}>
+                          ⚠ {n}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{
+                      width: 20, height: 20, borderRadius: "50%", flexShrink: 0, marginTop: 2,
+                      border: isSelected ? `2px solid ${NEON}` : "2px solid rgba(255,255,255,0.15)",
+                      background: isSelected ? NEON : "transparent",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      transition: "all 0.18s ease",
+                    }}>
+                      {isSelected && <Check size={11} strokeWidth={3} color="#000" />}
+                    </div>
+                  </div>
+                </motion.button>
+              );
+            })}
+          </div>
+        </motion.div>
+      </div>
+      <FixedFooter>
+        <PBtn onClick={onNext} disabled={!selected}>
+          Continue →
+        </PBtn>
+      </FixedFooter>
+    </div>
+  );
+}
 
 function StepTournamentFormat({ tournamentFormat, setTournamentFormat, groupSettings, setGroupSettings, onNext }) {
   const isGroupsKnockout = tournamentFormat === "groups_knockout";
@@ -8418,8 +8641,9 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const [createErr,         setCreateErr]         = useState("");
 
   const isNonClassic        = tournamentFormat !== "classic";
-  const TOTAL_WIZARD_STEPS  = isNonClassic ? 9 : 6;
-  const MAX_STEP            = isNonClassic ? 9 : 6;
+  const isGroupsKnockout    = tournamentFormat === "groups_knockout";
+  const TOTAL_WIZARD_STEPS  = isNonClassic ? (isGroupsKnockout ? 10 : 9) : 6;
+  const MAX_STEP            = isNonClassic ? (isGroupsKnockout ? 10 : 9) : 6;
 
   const goNext = useCallback(() => {
     setDir(1);
@@ -8457,7 +8681,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
       groupSettings={groupSettings} setGroupSettings={setGroupSettings}
       onNext={goNext}
     />,
-    // Non-classic: participants + reporting mode before rules
+    // Non-classic: participants + (groups_knockout: format advisor) + reporting mode before rules
     ...(isNonClassic ? [
       <StepParticipants
         key="participants"
@@ -8465,6 +8689,14 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
         setIsLiveLobby={setIsLiveLobby}
         onNext={goNext}
       />,
+      ...(isGroupsKnockout ? [
+        <StepFormatAdvisor
+          key="format-advisor"
+          participants={participants}
+          groupSettings={groupSettings} setGroupSettings={setGroupSettings}
+          onNext={goNext}
+        />,
+      ] : []),
       <StepReportingMode
         key="reporting-mode"
         reportingMode={reportingMode} setReportingMode={setReportingMode}
