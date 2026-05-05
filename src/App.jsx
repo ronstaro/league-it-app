@@ -4645,8 +4645,8 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
 
   const isTournament = rules?.tournamentFormat && rules.tournamentFormat !== "classic";
   const isAdmin      = !!(user?.id && ownerId && user.id === ownerId);
-  const groups       = rules?.groups       || [];
-  const groupMatches = rules?.groupMatches || [];
+  const groups       = useMemo(() => rules?.groups       || [], [rules]);
+  const groupMatches = useMemo(() => rules?.groupMatches || [], [rules]);
 
 
   // Derive all stats from match history — single source of truth
