@@ -618,27 +618,42 @@ function HomeTab({
   isTournament=false, tournamentFormat="classic",
   bracket=null, onMatchTap=null, onGenerateDraw=null, matchLegs=1,
   groups=[], groupMatches=[], onGroupMatchTap=null, advancingPerGroup=2,
+  wildcardCount=0, wildcardRule="none",
 }) {
   const [showAll,setShowAll]               = useState(false);
   const [showDT,setDT]                     = useState(false);
   const mvp    = useMemo(()=>players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:{name:"No Players",wins:0,losses:0},[players]);
   const streak = useMemo(()=>players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:{name:"No Players",bestStreak:0},[players]);
 
-  // TBD bracket — shown before real bracket is generated; uses crossover pairing to match actual seeding
+  // TBD bracket — shown before real bracket is generated
   const tdbBracket = useMemo(() => {
     if (bracket || !groups.length || tournamentFormat !== "groups_knockout") return null;
     const ordinals = ["1st","2nd","3rd","4th","5th","6th"];
-    const tdbByGroup = groups.map(g =>
+    const directSlots = groups.flatMap(g =>
       Array.from({ length: advancingPerGroup }, (_, rank) => ({
         id: `tbd_${rank}_${g.name}`,
         name: `${ordinals[rank] ?? `${rank+1}th`} Group ${g.name}`,
         isTBD: true,
       }))
     );
-    return groups.length >= 2
-      ? generateCrossoverBracket(tdbByGroup)
-      : generateKnockoutBracket(tdbByGroup.flat());
-  }, [bracket, groups, advancingPerGroup, tournamentFormat]);
+    const wildcardSlots = wildcardRule === "best_3rd_place" && wildcardCount > 0
+      ? Array.from({ length: wildcardCount }, (_, i) => ({
+          id: `tbd_wc_${i}`,
+          name: `Best 3rd-place #${i + 1}`,
+          isTBD: true,
+        }))
+      : [];
+    const allSlots = [...directSlots, ...wildcardSlots];
+    return wildcardSlots.length > 0 || groups.length < 2
+      ? generateKnockoutBracket(allSlots)
+      : generateCrossoverBracket(groups.map(g =>
+          Array.from({ length: advancingPerGroup }, (_, rank) => ({
+            id: `tbd_${rank}_${g.name}`,
+            name: `${ordinals[rank] ?? `${rank+1}th`} Group ${g.name}`,
+            isTBD: true,
+          }))
+        ));
+  }, [bracket, groups, advancingPerGroup, wildcardCount, wildcardRule, tournamentFormat]);
   const visible = showAll ? feed : feed.slice(0,5);
 
   return (
@@ -4767,6 +4782,8 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                groups={groups} groupMatches={groupMatches}
                onGroupMatchTap={m => setTournamentModal({ match: m, type: "group", contextLabel: `Group ${m.groupName}` })}
                advancingPerGroup={rules?.groupSettings?.advancingPerGroup || 2}
+               wildcardCount={rules?.groupSettings?.wildcardCount || 0}
+               wildcardRule={rules?.groupSettings?.wildcardRule || "none"}
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament} groupMatches={groupMatches} bracket={bracket}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw}/>,
@@ -5939,7 +5956,11 @@ function suggestFormats(playerCount, preferredSettings = {}) {
 
 function StepFormatAdvisor({ participants, groupSettings, setGroupSettings, onNext }) {
   const options = suggestFormats(participants.length, groupSettings);
-  const [selected, setSelected] = useState(null);
+  const [selectedKey, setSelectedKey] = useState(null);
+
+  function optionKey(opt) {
+    return `${opt.numGroups}-${opt.groupSizeMin}-${opt.groupSizeMax}-${opt.advancingPerGroup}-${opt.wildcardCount}-${opt.bracketSize}`;
+  }
 
   function groupSizeLabel(opt) {
     return opt.groupSizeMin === opt.groupSizeMax
@@ -5970,7 +5991,7 @@ function StepFormatAdvisor({ participants, groupSettings, setGroupSettings, onNe
   }
 
   function applyOption(opt) {
-    setSelected(opt);
+    setSelectedKey(optionKey(opt));
     setGroupSettings(prev => ({
       ...prev,
       playersPerGroup:   opt.groupSizeMax,
@@ -6007,7 +6028,7 @@ function StepFormatAdvisor({ participants, groupSettings, setGroupSettings, onNe
           />
           <div className="flex flex-col gap-3">
             {options.map((opt, i) => {
-              const isSelected = selected === opt;
+              const isSelected = selectedKey === optionKey(opt);
               const notes = fairnessNote(opt);
               return (
                 <motion.button
