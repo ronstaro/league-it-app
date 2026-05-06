@@ -7951,12 +7951,10 @@ function GroupRevealCard({ group, groupIndex, isVisible, onComplete }) {
 // DRAW REVEAL OVERLAY — fullscreen cinematic
 // ─────────────────────────────────────────────
 function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueName, isAdmin, isSpectator = false, onConfirm }) {
-  const [visGroupCount,    setVisGroupCount]    = useState(0);
-  const [currentGroupDone, setCurrentGroupDone] = useState(false);
-  const [allRevealed,      setAllRevealed]      = useState(false);
-  const [locking,          setLocking]          = useState(false);
-  const scrollRef      = useRef(null);
-  const groupRefs      = useRef([]);
+  const [currentGroupIndex, setCurrentGroupIndex] = useState(-1); // -1 = intro
+  const [currentGroupDone,  setCurrentGroupDone]  = useState(false);
+  const [allRevealed,       setAllRevealed]       = useState(false);
+  const [locking,           setLocking]           = useState(false);
 
   const displayGroups = useMemo(() => {
     if (tournFormat === "groups_knockout" || groups.length > 0) return groups;
@@ -7971,45 +7969,41 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
     return [];
   }, [groups, bracket, tournFormat]);
 
-  // Reveal first group after intro
+  // Show first group after intro pause (or go straight to allRevealed if no groups)
   useEffect(() => {
     if (displayGroups.length === 0) { const t = setTimeout(() => setAllRevealed(true), 2200); return () => clearTimeout(t); }
-    const t = setTimeout(() => setVisGroupCount(1), 1900);
+    const t = setTimeout(() => setCurrentGroupIndex(0), 1900);
     return () => clearTimeout(t);
   }, [displayGroups.length]);
 
-  // Spectator: auto-advance to next group 700ms after each group completes
+  // Spectator: auto-advance 700ms after each group completes
   useEffect(() => {
     if (!isSpectator || !currentGroupDone) return;
-    const next = visGroupCount + 1;
+    const next = currentGroupIndex + 1;
     // Intentional: terminal step of the draw-reveal animation sequence — all groups have been shown
-    if (next > displayGroups.length) { setAllRevealed(true); return; } // eslint-disable-line react-hooks/set-state-in-effect
-    const t = setTimeout(() => { setVisGroupCount(next); setCurrentGroupDone(false); }, 700);
+    if (next >= displayGroups.length) { setAllRevealed(true); return; } // eslint-disable-line react-hooks/set-state-in-effect
+    const t = setTimeout(() => { setCurrentGroupIndex(next); setCurrentGroupDone(false); }, 700);
     return () => clearTimeout(t);
-  }, [isSpectator, currentGroupDone, visGroupCount, displayGroups.length]);
-
-  // Auto-scroll the scroll container to the latest group card
-  useEffect(() => {
-    if (visGroupCount < 1) return;
-    const el = groupRefs.current[visGroupCount - 1];
-    if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "center" }), 120);
-  }, [visGroupCount]);
+  }, [isSpectator, currentGroupDone, currentGroupIndex, displayGroups.length]);
 
   // Called by GroupRevealCard when its last player locks in
   const handleGroupComplete = useCallback(() => {
     setCurrentGroupDone(true);
-    // Spectator auto-advance is handled by the effect above.
-    // Admin waits for "Next Group" click.
-    // If there are no more groups at all, mark all revealed immediately for spectators.
   }, []);
 
-  // Admin clicks "Next Group →" or gets final CTA
   const handleNextGroup = () => {
-    const next = visGroupCount + 1;
-    if (next > displayGroups.length) {
+    const next = currentGroupIndex + 1;
+    if (next >= displayGroups.length) {
       setAllRevealed(true);
     } else {
-      setVisGroupCount(next);
+      setCurrentGroupIndex(next);
+      setCurrentGroupDone(false);
+    }
+  };
+
+  const handlePrevGroup = () => {
+    if (currentGroupIndex > 0) {
+      setCurrentGroupIndex(currentGroupIndex - 1);
       setCurrentGroupDone(false);
     }
   };
@@ -8020,68 +8014,99 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
     setLocking(false);
   };
 
-  const isLastGroup   = visGroupCount >= displayGroups.length;
-  const showNextBtn   = isAdmin && !isSpectator && currentGroupDone && !allRevealed && !isLastGroup;
-  const showLockBtn   = isAdmin && !isSpectator && currentGroupDone && !allRevealed && isLastGroup;
+  const isLastGroup  = currentGroupIndex >= displayGroups.length - 1;
+  const showNavBtns  = isAdmin && !isSpectator && currentGroupDone && !allRevealed && currentGroupIndex >= 0;
+  const currentGroup = displayGroups[currentGroupIndex] ?? null;
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "#000",
       overflow: "hidden", display: "flex", flexDirection: "column" }}>
 
-      {/* Header */}
+      {/* Header — no skip button, symmetric spacers keep title centred */}
       <div style={{ position: "relative", zIndex: 2, padding: "16px 20px 12px", flexShrink: 0,
         display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-
-        {/* Left spacer — mirrors the skip button width so title stays centred */}
         <div style={{ width: 80 }} />
-
-        {/* Centred title */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           style={{ textAlign: "center" }}>
           <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 36, letterSpacing: "3px",
             color: N, lineHeight: 1, textShadow: `0 0 20px rgba(170,255,0,.6)` }}>
-            Tournament Draw
+            {allRevealed ? "Draw Complete" : "Tournament Draw"}
           </div>
           <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11,
             color: "rgba(170,255,0,.55)", marginTop: 3 }}>
             {leagueName}
           </div>
         </motion.div>
-
-        {/* Skip button — always visible */}
-        <motion.button
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}
-          whileTap={{ scale: 0.94 }}
-          onClick={handleConfirm}
-          style={{ width: 80, borderRadius: 12, padding: "8px 0", cursor: "pointer",
-            background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.14)",
-            fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 700,
-            color: "rgba(255,255,255,.5)", letterSpacing: ".3px", flexShrink: 0 }}>
-          Skip →
-        </motion.button>
+        <div style={{ width: 80 }} />
       </div>
 
       {/* Thin divider */}
       <div style={{ height: 1, background: "rgba(255,255,255,.07)", flexShrink: 0, position: "relative", zIndex: 2 }} />
 
-      {/* Scrollable groups */}
-      <div ref={scrollRef}
-        style={{ flex: 1, overflowY: "auto", position: "relative", zIndex: 2, padding: "4px 20px 16px" }}>
+      {/* Content area */}
+      <div style={{ flex: 1, overflowY: "auto", position: "relative", zIndex: 2, padding: "4px 20px 16px" }}>
         <div style={{ maxWidth: 500, margin: "0 auto" }}>
-          {displayGroups.slice(0, visGroupCount).map((g, i) => (
-            <div key={g.name} ref={el => { groupRefs.current[i] = el; }}>
-              <GroupRevealCard
-                group={g}
-                groupIndex={i}
-                isVisible
-                onComplete={i === visGroupCount - 1 ? handleGroupComplete : undefined}
-              />
-            </div>
-          ))}
 
-          {/* Initial "scanning..." before first group */}
-          {visGroupCount === 0 && (
+          {/* All Groups Summary — final screen */}
+          {allRevealed && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
+              <div style={{ textAlign: "center", padding: "18px 0 20px",
+                fontFamily: "'JetBrains Mono',monospace", fontSize: 10, letterSpacing: "4px",
+                color: "rgba(170,255,0,.45)" }}>
+                ALL {displayGroups.length} GROUPS · {displayGroups.reduce((s, g) => s + g.participants.length, 0)} PLAYERS
+              </div>
+              {displayGroups.map((g, gi) => {
+                const gc = REVEAL_GROUP_COLORS[gi % REVEAL_GROUP_COLORS.length];
+                return (
+                  <div key={g.name} style={{ marginBottom: 14, borderRadius: 16, overflow: "hidden",
+                    border: `1px solid ${gc}30`, background: "rgba(0,0,0,.72)" }}>
+                    <div style={{ padding: "10px 18px", background: `${gc}0d`,
+                      borderBottom: `1px solid ${gc}20`, display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 10,
+                        letterSpacing: "5px", color: gc, opacity: 0.65 }}>GROUP</div>
+                      <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 26,
+                        color: gc, lineHeight: 1, textShadow: `0 0 16px ${gc}` }}>{g.name}</div>
+                      <div style={{ flex: 1 }} />
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10,
+                        color: "rgba(255,255,255,.28)", letterSpacing: "1px" }}>
+                        {g.participants.length} PLAYERS
+                      </div>
+                    </div>
+                    {g.participants.map((p, pi) => (
+                      <div key={p.id || p.name + pi}
+                        style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 18px",
+                          borderBottom: pi < g.participants.length - 1 ? "1px solid rgba(255,255,255,.05)" : "none" }}>
+                        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11,
+                          color: "rgba(255,255,255,.22)", width: 22, textAlign: "right", flexShrink: 0 }}>
+                          {String(pi + 1).padStart(2, "0")}
+                        </div>
+                        <div style={{ flex: 1, fontFamily: "'Bebas Neue',sans-serif", fontSize: 20,
+                          letterSpacing: "1px", color: "#fff",
+                          overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                          {p.name}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </motion.div>
+          )}
+
+          {/* Single group reveal */}
+          {!allRevealed && currentGroup && (
+            <GroupRevealCard
+              key={currentGroup.name}
+              group={currentGroup}
+              groupIndex={currentGroupIndex}
+              isVisible
+              onComplete={handleGroupComplete}
+            />
+          )}
+
+          {/* Intro scanning */}
+          {!allRevealed && currentGroupIndex < 0 && (
             <motion.div animate={{ opacity: [0.2, 0.8, 0.2] }} transition={{ repeat: Infinity, duration: 1.4 }}
               style={{ textAlign: "center", padding: "48px 0", fontFamily: "'JetBrains Mono',monospace",
                 fontSize: 11, letterSpacing: "4px", color: "rgba(170,255,0,.5)" }}>
@@ -8091,49 +8116,63 @@ function DrawRevealOverlay({ groups = [], bracket = null, tournFormat, leagueNam
         </div>
       </div>
 
-      {/* Sticky footer — progress counter + action buttons */}
+      {/* Sticky footer */}
       <div style={{ position: "relative", zIndex: 2, padding: "14px 20px 36px", flexShrink: 0,
         textAlign: "center", borderTop: "1px solid rgba(170,255,0,.08)",
         background: "linear-gradient(0deg,rgba(0,0,0,.9) 80%,transparent)" }}>
 
         <AnimatePresence mode="wait">
 
-          {/* Scanning / in-progress counter */}
-          {!currentGroupDone && !allRevealed && visGroupCount > 0 && (
+          {/* In-progress counter */}
+          {!allRevealed && !currentGroupDone && currentGroupIndex >= 0 && (
             <motion.div key="counter"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, letterSpacing: "4px",
                 color: "rgba(170,255,0,.35)", paddingBottom: 4 }}>
-              GROUP {String.fromCharCode(64 + visGroupCount)} INCOMING — {visGroupCount} / {displayGroups.length}
+              GROUP {currentGroup?.name} INCOMING — {currentGroupIndex + 1} / {displayGroups.length}
             </motion.div>
           )}
 
-          {/* Admin: Next Group button */}
-          {(showNextBtn) && (
-            <motion.div key="next-btn"
+          {/* Admin navigation: Previous + Next Group / View All Groups */}
+          {showNavBtns && (
+            <motion.div key="nav-btns"
               initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
               transition={{ type: "spring", stiffness: 260, damping: 22 }}>
-              <motion.button
-                whileTap={{ scale: 0.96 }}
-                animate={{ boxShadow: ["0 0 16px rgba(0,212,255,.3)", "0 0 42px rgba(0,212,255,.7)", "0 0 16px rgba(0,212,255,.3)"] }}
-                transition={{ repeat: Infinity, duration: 1.6 }}
-                onClick={handleNextGroup}
-                style={{ width: "100%", maxWidth: 480, borderRadius: 18, padding: "18px 24px",
-                  cursor: "pointer", border: "1.5px solid rgba(0,212,255,.5)",
-                  background: "rgba(0,212,255,.1)", fontFamily: "'Bebas Neue',sans-serif",
-                  fontSize: 26, letterSpacing: "3px", color: "#00D4FF",
-                  display: "block", margin: "0 auto" }}>
-                REVEAL GROUP {String.fromCharCode(65 + visGroupCount)} →
-              </motion.button>
+              <div style={{ display: "flex", gap: 10, maxWidth: 480, margin: "0 auto" }}>
+                {currentGroupIndex > 0 && (
+                  <motion.button
+                    whileTap={{ scale: 0.96 }}
+                    onClick={handlePrevGroup}
+                    style={{ flex: 1, borderRadius: 16, padding: "16px 0", cursor: "pointer",
+                      border: "1.5px solid rgba(255,255,255,.18)", background: "rgba(255,255,255,.06)",
+                      fontFamily: "'Bebas Neue',sans-serif", fontSize: 20, letterSpacing: "2px",
+                      color: "rgba(255,255,255,.55)" }}>
+                    ← PREV
+                  </motion.button>
+                )}
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  animate={!isLastGroup ? { boxShadow: ["0 0 16px rgba(0,212,255,.3)", "0 0 42px rgba(0,212,255,.7)", "0 0 16px rgba(0,212,255,.3)"] } : {}}
+                  transition={{ repeat: Infinity, duration: 1.6 }}
+                  onClick={handleNextGroup}
+                  style={{ flex: currentGroupIndex > 0 ? 2 : 1, borderRadius: 16, padding: "16px 0",
+                    cursor: "pointer",
+                    border: isLastGroup ? `1.5px solid ${N}88` : "1.5px solid rgba(0,212,255,.5)",
+                    background: isLastGroup ? `${N}18` : "rgba(0,212,255,.1)",
+                    fontFamily: "'Bebas Neue',sans-serif", fontSize: 20, letterSpacing: "2px",
+                    color: isLastGroup ? N : "#00D4FF" }}>
+                  {isLastGroup ? "ALL GROUPS →" : `REVEAL GROUP ${String.fromCharCode(65 + currentGroupIndex + 1)} →`}
+                </motion.button>
+              </div>
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, letterSpacing: "3px",
                 color: "rgba(255,255,255,.22)", marginTop: 10 }}>
-                {visGroupCount} / {displayGroups.length} GROUPS REVEALED
+                {currentGroupIndex + 1} / {displayGroups.length} GROUPS REVEALED
               </div>
             </motion.div>
           )}
 
-          {/* Admin: Lock Brackets (last group done, not yet confirmed) */}
-          {(showLockBtn || (allRevealed && isAdmin && !isSpectator)) && (
+          {/* Lock button — only on summary screen, admin only */}
+          {allRevealed && isAdmin && !isSpectator && (
             <motion.div key="lock-btn"
               initial={{ opacity: 0, y: 28 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
               transition={{ duration: 0.6, type: "spring", stiffness: 180, damping: 18 }}>
