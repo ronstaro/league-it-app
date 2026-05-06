@@ -6088,7 +6088,7 @@ function StepFormatAdvisor({ participants, groupSettings, setGroupSettings, onNe
         </motion.div>
       </div>
       <FixedFooter>
-        <PBtn onClick={onNext} disabled={!selected}>
+        <PBtn onClick={onNext} disabled={!selectedKey}>
           Continue →
         </PBtn>
       </FixedFooter>
