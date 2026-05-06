@@ -5915,7 +5915,7 @@ function suggestFormats(playerCount, preferredSettings = {}) {
     const ppg = (c.groupSizeMin + c.groupSizeMax) / 2;
     s += Math.abs(ppg - prefPpg) * 1.0;
     // Penalise small groups and adv=1
-    if (ppg < 3.5)              s += 3;
+    if (c.groupSizeMin < 4)     s += 3;
     if (c.advancingPerGroup === 1) s += 3;
     // Slight penalty for wildcards
     s += c.wildcardCount * 0.5;
