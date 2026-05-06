@@ -5853,14 +5853,30 @@ const TOURNAMENT_FORMATS = [
   },
 ];
 
-function suggestFormats(playerCount) {
+function suggestFormats(playerCount, preferredSettings = {}) {
   if (playerCount < 4) return [];
 
-  const bracketOrder =
-    playerCount >= 32 ? [16, 32] :
-    playerCount >= 17 ? [16, 8]  :
-    playerCount >= 9  ? [8, 16]  :
-                        [4, 8];
+  const prefPpg = preferredSettings.playersPerGroup  || 4;
+  const prefAdv = preferredSettings.advancingPerGroup || 2;
+  const VALID_BRACKETS = [4, 8, 16, 32];
+
+  // Compute bracket size implied by admin's preferred settings
+  const prefNumGroups   = Math.max(2, Math.min(8, Math.round(playerCount / prefPpg)));
+  const prefBracketSize = prefNumGroups * prefAdv;
+  const prefBracketValid = VALID_BRACKETS.includes(prefBracketSize);
+
+  // Size-based fallback bracket (player-count heuristic)
+  const sizeBracket =
+    playerCount >= 32 ? 16 :
+    playerCount >= 17 ? 16 :
+    playerCount >= 9  ? 8  :
+                        4;
+
+  // Lead bracket: admin's preferred bracket if valid, otherwise size-based
+  const leadBracket = prefBracketValid ? prefBracketSize : sizeBracket;
+
+  // Full search order: lead first, then remaining valid sizes
+  const bracketOrder = [...new Set([leadBracket, ...VALID_BRACKETS])];
 
   const candidates = [];
 
@@ -5891,11 +5907,17 @@ function suggestFormats(playerCount) {
 
   function score(c) {
     let s = 0;
-    if (c.bracketSize !== bracketOrder[0]) s += 10;
+    // Prefer the lead bracket (admin-derived or size-based)
+    if (c.bracketSize !== leadBracket) s += 8;
+    // Prefer admin's chosen advancingPerGroup
+    if (c.advancingPerGroup !== prefAdv) s += 3;
+    // Prefer group sizes close to admin's preferred playersPerGroup
     const ppg = (c.groupSizeMin + c.groupSizeMax) / 2;
-    if (ppg !== 4 && ppg !== 6) s += 2;
+    s += Math.abs(ppg - prefPpg) * 1.0;
+    // Penalise small groups and adv=1
     if (ppg < 3.5)              s += 3;
     if (c.advancingPerGroup === 1) s += 3;
+    // Slight penalty for wildcards
     s += c.wildcardCount * 0.5;
     return s;
   }
@@ -5916,7 +5938,7 @@ function suggestFormats(playerCount) {
 }
 
 function StepFormatAdvisor({ participants, groupSettings, setGroupSettings, onNext }) {
-  const options = suggestFormats(participants.length);
+  const options = suggestFormats(participants.length, groupSettings);
   const [selected, setSelected] = useState(null);
 
   function groupSizeLabel(opt) {
