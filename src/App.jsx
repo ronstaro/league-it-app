@@ -5962,32 +5962,25 @@ function StepFormatAdvisor({ participants, groupSettings, setGroupSettings, onNe
     return `${opt.numGroups}-${opt.groupSizeMin}-${opt.groupSizeMax}-${opt.advancingPerGroup}-${opt.wildcardCount}-${opt.bracketSize}`;
   }
 
-  function groupSizeLabel(opt) {
-    return opt.groupSizeMin === opt.groupSizeMax
-      ? `${opt.groupSizeMin}`
-      : `${opt.groupSizeMin}–${opt.groupSizeMax}`;
-  }
-
   function describeOption(opt) {
-    const gSize = groupSizeLabel(opt);
-    const direct = `top ${opt.advancingPerGroup} advance`;
-    if (opt.wildcardCount > 0) {
-      return `${opt.numGroups} groups of ${gSize} · ${direct} + ${opt.wildcardCount} best 3rd-place · ${opt.bracketSize}-player bracket`;
+    if (opt.groupSizeMin === opt.groupSizeMax) {
+      return `${opt.numGroups} groups of ${opt.groupSizeMin}`;
     }
-    return `${opt.numGroups} groups of ${gSize} · ${direct} · ${opt.bracketSize}-player bracket`;
+    const smallCount = opt.numGroups * opt.groupSizeMax - participants.length;
+    const largeCount = opt.numGroups - smallCount;
+    return `${opt.numGroups} groups: ${smallCount} group${smallCount !== 1 ? "s" : ""} of ${opt.groupSizeMin}, ${largeCount} of ${opt.groupSizeMax}`;
   }
 
-  function fairnessNote(opt) {
-    const notes = [];
-    if (opt.groupSizeMin !== opt.groupSizeMax) {
-      const big  = opt.numGroups * opt.groupSizeMax - participants.length;
-      const diff = opt.numGroups - big;
-      notes.push(`${diff} group${diff !== 1 ? "s" : ""} of ${opt.groupSizeMax}, ${big} of ${opt.groupSizeMin}`);
-    }
+  function detailLines(opt) {
+    const directCount = opt.numGroups * opt.advancingPerGroup;
+    const lines = [
+      `Top ${opt.advancingPerGroup} from each group advance directly (${directCount} players)`,
+    ];
     if (opt.wildcardCount > 0) {
-      notes.push(`Best ${opt.wildcardCount} third-place finishers earn wildcard spots`);
+      lines.push(`Best ${opt.wildcardCount} third-place player${opt.wildcardCount !== 1 ? "s" : ""} also advance`);
     }
-    return notes;
+    lines.push(`${opt.bracketSize}-player knockout bracket`);
+    return lines;
   }
 
   function applyOption(opt) {
@@ -6029,7 +6022,7 @@ function StepFormatAdvisor({ participants, groupSettings, setGroupSettings, onNe
           <div className="flex flex-col gap-3">
             {options.map((opt, i) => {
               const isSelected = selectedKey === optionKey(opt);
-              const notes = fairnessNote(opt);
+              const details = detailLines(opt);
               return (
                 <motion.button
                   key={i}
@@ -6062,12 +6055,12 @@ function StepFormatAdvisor({ participants, groupSettings, setGroupSettings, onNe
                       }}>
                         {describeOption(opt)}
                       </div>
-                      {notes.map((n, ni) => (
-                        <div key={ni} style={{
+                      {details.map((d, di) => (
+                        <div key={di} style={{
                           fontFamily: "'DM Sans',sans-serif", fontSize: 11,
-                          color: "rgba(255,200,50,0.75)", lineHeight: 1.5, marginTop: 2,
+                          color: "rgba(255,255,255,0.45)", lineHeight: 1.5, marginTop: 2,
                         }}>
-                          ⚠ {n}
+                          {d}
                         </div>
                       ))}
                     </div>
