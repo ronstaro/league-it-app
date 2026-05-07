@@ -646,7 +646,7 @@ function HomeTab({
       : [];
     const allSlots = [...directSlots, ...wildcardSlots];
     return wildcardSlots.length > 0 || groups.length < 2
-      ? generateKnockoutBracket(allSlots, { ordered: true })
+      ? buildTbdPreviewBracket(allSlots)
       : generateCrossoverBracket(groups.map(g =>
           Array.from({ length: advancingPerGroup }, (_, rank) => ({
             id: `tbd_${rank}_${g.name}`,
@@ -5714,6 +5714,32 @@ function generateCrossoverBracket(advancingByGroup) {
   }
 
   return { rounds, seeded: true, crossover: true, size: r1Size, generatedAt: new Date().toISOString() };
+}
+
+// Preview-only bracket for TBD placeholders — no shuffle, no seed remapping, no auto-advance.
+// Each slot appears exactly once in R1; later rounds are empty TBD.
+function buildTbdPreviewBracket(slots) {
+  if (!slots?.length) return null;
+  const size   = _nextPow2(slots.length);
+  const padded = [...slots, ...Array(size - slots.length).fill(null)];
+
+  const round1 = [];
+  for (let i = 0; i < size; i += 2) {
+    round1.push({ id: `tbd_r1_${i / 2}`, round: 1, position: i / 2,
+      p1: padded[i] ?? null, p2: padded[i + 1] ?? null,
+      winner: null, isBye: false });
+  }
+
+  const totalRounds = Math.log2(size);
+  const rounds = [round1];
+  for (let r = 2; r <= totalRounds; r++) {
+    const prev = rounds[r - 2];
+    rounds.push(Array.from({ length: prev.length / 2 }, (_, i) => ({
+      id: `tbd_r${r}_${i}`, round: r, position: i,
+      p1: null, p2: null, winner: null, isBye: false,
+    })));
+  }
+  return { rounds, seeded: false, size, generatedAt: new Date().toISOString() };
 }
 
 // Store a leg score on a bracket match (for Home & Away).
