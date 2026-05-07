@@ -636,10 +636,11 @@ function HomeTab({
         isTBD: true,
       }))
     );
+    const wcRank = (["1st","2nd","3rd","4th","5th","6th"][advancingPerGroup]) ?? `${advancingPerGroup + 1}th`;
     const wildcardSlots = wildcardRule === "best_3rd_place" && wildcardCount > 0
       ? Array.from({ length: wildcardCount }, (_, i) => ({
           id: `tbd_wc_${i}`,
-          name: `Best 3rd-place #${i + 1}`,
+          name: `Best ${wcRank}-place #${i + 1}`,
           isTBD: true,
         }))
       : [];
@@ -5979,7 +5980,8 @@ function StepFormatAdvisor({ participants, groupSettings, setGroupSettings, onNe
       `Top ${opt.advancingPerGroup} from each group advance directly (${directCount} players)`,
     ];
     if (opt.wildcardCount > 0) {
-      lines.push(`Best ${opt.wildcardCount} third-place player${opt.wildcardCount !== 1 ? "s" : ""} also advance`);
+      const wcRank = ["1st","2nd","3rd","4th","5th","6th"][opt.advancingPerGroup] ?? `${opt.advancingPerGroup + 1}th`;
+      lines.push(`Best ${opt.wildcardCount} ${wcRank}-place player${opt.wildcardCount !== 1 ? "s" : ""} also advance`);
     }
     lines.push(`${opt.bracketSize}-player knockout bracket`);
     return lines;
