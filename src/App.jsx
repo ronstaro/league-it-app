@@ -4373,8 +4373,8 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     if (participants.length < 2) return;
     const isGroupsFormat = rules?.tournamentFormat === "groups_knockout";
     if (isGroupsFormat) {
-      const { playersPerGroup } = rules?.groupSettings || { playersPerGroup: 4 };
-      const { groups: g, groupMatches: gm } = generateGroupStage(participants, playersPerGroup);
+      const { playersPerGroup, targetNumGroups } = rules?.groupSettings || { playersPerGroup: 4 };
+      const { groups: g, groupMatches: gm } = generateGroupStage(participants, playersPerGroup, targetNumGroups);
       setPendingGroups(g);
       setPendingGroupMatches(gm);
       setPendingBracket(null);
@@ -5770,9 +5770,9 @@ function applyBracketResult(bracket, matchId, winnerObj, score) {
 // ─────────────────────────────────────────────
 // GROUP STAGE GENERATION
 // ─────────────────────────────────────────────
-function generateGroupStage(participants, playersPerGroup) {
+function generateGroupStage(participants, playersPerGroup, numGroupsOverride) {
   if (!participants || participants.length < 2) return { groups: [], groupMatches: [] };
-  const numGroups = Math.max(1, Math.ceil(participants.length / playersPerGroup));
+  const numGroups = numGroupsOverride || Math.max(1, Math.ceil(participants.length / playersPerGroup));
   const groups = Array.from({ length: numGroups }, (_, i) => ({
     name: String.fromCharCode(65 + i), // A, B, C, D...
     participants: [],
@@ -5988,6 +5988,7 @@ function StepFormatAdvisor({ participants, groupSettings, setGroupSettings, onNe
     setGroupSettings(prev => ({
       ...prev,
       playersPerGroup:   opt.groupSizeMax,
+      targetNumGroups:   opt.numGroups,
       advancingPerGroup: opt.advancingPerGroup,
       targetBracketSize: opt.bracketSize,
       wildcardCount:     opt.wildcardCount,
@@ -8360,7 +8361,7 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
       let revealGroups = [];
       let revealBracket = null;
       if (tournFormat === "groups_knockout") {
-        const { groups: g, groupMatches: gm } = generateGroupStage(participants, grpSettings.playersPerGroup || 4);
+        const { groups: g, groupMatches: gm } = generateGroupStage(participants, grpSettings.playersPerGroup || 4, grpSettings.targetNumGroups);
         newSettings = { ...base, groups: g, groupMatches: gm, lobbyState: "draw_in_progress" };
         revealGroups = g;
       } else {
