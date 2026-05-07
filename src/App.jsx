@@ -645,7 +645,7 @@ function HomeTab({
       : [];
     const allSlots = [...directSlots, ...wildcardSlots];
     return wildcardSlots.length > 0 || groups.length < 2
-      ? generateKnockoutBracket(allSlots)
+      ? generateKnockoutBracket(allSlots, { ordered: true })
       : generateCrossoverBracket(groups.map(g =>
           Array.from({ length: advancingPerGroup }, (_, rank) => ({
             id: `tbd_${rank}_${g.name}`,
@@ -5609,18 +5609,20 @@ function _bracketSeedOrder(n) {
   return order;
 }
 
-function generateKnockoutBracket(participants) {
+function generateKnockoutBracket(participants, { ordered = false } = {}) {
   if (!participants || participants.length < 2) return null;
   const isSeeded = participants.some(p => p.tier);
   const TIER_RANK = { A: 0, B: 1, C: 2, D: 3, E: 4 };
 
-  let sorted = isSeeded
-    ? [...participants].sort((a, b) => {
-        const ra = a.tier ? (TIER_RANK[a.tier] ?? 9) : 9;
-        const rb = b.tier ? (TIER_RANK[b.tier] ?? 9) : 9;
-        return ra !== rb ? ra - rb : Math.random() - 0.5;
-      })
-    : _shuffleArr([...participants]);
+  let sorted = ordered
+    ? [...participants]
+    : isSeeded
+      ? [...participants].sort((a, b) => {
+          const ra = a.tier ? (TIER_RANK[a.tier] ?? 9) : 9;
+          const rb = b.tier ? (TIER_RANK[b.tier] ?? 9) : 9;
+          return ra !== rb ? ra - rb : Math.random() - 0.5;
+        })
+      : _shuffleArr([...participants]);
 
   const size    = _nextPow2(sorted.length);
   const padded  = [...sorted, ...Array(size - sorted.length).fill(null)]; // nulls = BYEs
