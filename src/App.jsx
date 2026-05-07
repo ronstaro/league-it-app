@@ -3532,10 +3532,9 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
   const TV = 1.2;
   const tvF = n => Math.round(n * TV);
 
-  const ARENA_PAGE_SIZE = 9;
-
   const [arenaMode,        setArenaMode]        = useState(false);
-  const [arenaPage,        setArenaPage]        = useState(0);
+  const [arenaView,        setArenaView]        = useState("all");
+  const [editingConfirm,   setEditingConfirm]   = useState(null);
   const [localScores,      setLocalScores]      = useState({});
   const [saving,           setSaving]           = useState(null);
   const [activeCol,        setActiveCol]        = useState("standings");
@@ -3595,21 +3594,20 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
       played: groupMatches.filter(m => m.groupName === g.name && completedIds.has(m.id)).length,
     })), [groups, groupMatches, feed, completedIds]);
 
-  const totalArenaPages = Math.ceil(groupStandings.length / ARENA_PAGE_SIZE);
   const hasBracketPage  = !!(bracket?.rounds?.length);
-  const totalArenaItems = totalArenaPages + (hasBracketPage ? 1 : 0);
-  const arenaOnBracket  = hasBracketPage && arenaPage >= totalArenaPages;
+  const arenaChampion   = bracket?.rounds?.length
+    ? (bracket.rounds[bracket.rounds.length - 1]?.find(m => !m.isBye && m.p1 && m.p2)?.winner ?? null)
+    : null;
+  const arenaViewOptions = [
+    ...(isGroups && groupStandings.length > 0
+      ? [{ id: "all", label: "All Groups" }, ...groupStandings.map(gs => ({ id: gs.group.name, label: `Group ${gs.group.name}` }))]
+      : []),
+    ...(hasBracketPage ? [{ id: "bracket", label: "Bracket" }] : []),
+    ...(arenaChampion  ? [{ id: "champion", label: "Champion" }] : []),
+  ];
 
-  // ── Arena View: variable-delay cycle (10s groups, 12s bracket page) ─────
-  useEffect(() => {
-    if (!arenaMode || totalArenaItems <= 1) return;
-    const delay = arenaOnBracket ? 12000 : 10000;
-    const tid = setTimeout(() => setArenaPage(p => (p + 1) % totalArenaItems), delay);
-    return () => clearTimeout(tid);
-  }, [arenaMode, arenaPage, totalArenaItems, arenaOnBracket]);
-
-  // Intentional: reset page to 0 when arena mode is disabled so re-enabling starts from the beginning
-  useEffect(() => { if (!arenaMode) setArenaPage(0); }, [arenaMode]); // eslint-disable-line react-hooks/set-state-in-effect
+  // Reset arenaView to "all" when arena mode is disabled
+  useEffect(() => { if (!arenaMode) setArenaView("all"); }, [arenaMode]); // eslint-disable-line react-hooks/set-state-in-effect
 
   const topScorers = useMemo(() => {
     if (isGroups) {
@@ -3831,6 +3829,15 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
     );
   };
 
+  // ── Bracket tap with edit-confirmation for completed matches ────────────
+  const handleBracketTap = useCallback((match) => {
+    if (match.winner && isAdmin) {
+      setEditingConfirm(match);
+    } else {
+      onBracketMatchTap?.(match);
+    }
+  }, [isAdmin, onBracketMatchTap]);
+
   // ── Column A: Live Management ─────────────────────────────────────────────
   const colA = (
     <div style={{ padding: "0 16px 32px" }}>
@@ -3885,15 +3892,15 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
           {bracket.rounds.flatMap(round => round.filter(m => !m.isBye && m.p1 && m.p2))
             .map(match => {
               const isDone   = !!match.winner;
-              const canLog   = isAdmin && !isDone;
+              const canTap   = isAdmin;
               const n        = bracket.rounds.length;
               const fromEnd  = n - match.round;
               const rLabel   = fromEnd === 0 ? "FINAL" : fromEnd === 1 ? "SEMI" : fromEnd === 2 ? "QUARTER" : `ROUND ${match.round}`;
               return (
                 <div key={match.id}
-                  onClick={() => canLog && onBracketMatchTap?.(match)}
-                  style={{ ...cardS, padding: "11px 14px", marginBottom: 8, cursor: canLog ? "pointer" : "default",
-                    borderColor: isDone ? "rgba(170,255,0,.22)" : canLog ? "rgba(255,255,255,.14)" : "rgba(255,255,255,.07)" }}>
+                  onClick={() => canTap && handleBracketTap(match)}
+                  style={{ ...cardS, padding: "11px 14px", marginBottom: 8, cursor: canTap ? "pointer" : "default",
+                    borderColor: isDone ? "rgba(170,255,0,.22)" : canTap ? "rgba(255,255,255,.14)" : "rgba(255,255,255,.07)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                     <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(8), fontWeight: 800,
                       letterSpacing: "1.5px", color: "rgba(255,255,255,.28)" }}>{rLabel}</span>
@@ -3923,11 +3930,14 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
                       overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {match.p2?.name || "TBD"}
                     </span>
-                    {canLog && (
-                      <div style={{ width: 20, height: 20, borderRadius: "50%", background: `${N}18`,
-                        border: `1px solid ${N}40`, display: "flex", alignItems: "center",
-                        justifyContent: "center", flexShrink: 0 }}>
-                        <Plus size={10} style={{ color: N }}/>
+                    {canTap && (
+                      <div style={{ width: 20, height: 20, borderRadius: "50%",
+                        background: isDone ? "rgba(255,255,255,.06)" : `${N}18`,
+                        border: `1px solid ${isDone ? "rgba(255,255,255,.2)" : `${N}40`}`,
+                        display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        {isDone
+                          ? <Edit2 size={9} style={{ color: "rgba(255,255,255,.5)" }}/>
+                          : <Plus size={10} style={{ color: N }}/>}
                       </div>
                     )}
                   </div>
@@ -3940,24 +3950,36 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
   );
 
   // ── Column B: Live Standings ──────────────────────────────────────────────
-  const arenaPageGroups = groupStandings.slice(
-    arenaPage * ARENA_PAGE_SIZE, (arenaPage + 1) * ARENA_PAGE_SIZE
-  );
-
   const colB = (
     <div style={{ padding: "0 16px 24px" }}>
 
-      {/* ── ARENA VIEW: bracket page ── */}
-      {arenaMode && arenaOnBracket && (
+      {/* ── ARENA VIEW: manual selector bar ── */}
+      {arenaMode && arenaViewOptions.length > 1 && (
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 14,
+          scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          {arenaViewOptions.map(opt => {
+            const active = arenaView === opt.id;
+            return (
+              <button key={opt.id} onClick={() => setArenaView(opt.id)}
+                style={{ flexShrink: 0, padding: "6px 14px", borderRadius: 20,
+                  border: `1px solid ${active ? N : "rgba(255,255,255,.15)"}`,
+                  background: active ? `${N}20` : "rgba(255,255,255,.04)",
+                  color: active ? N : "rgba(255,255,255,.5)",
+                  fontFamily: "'DM Sans',sans-serif", fontSize: tvF(11), fontWeight: 700,
+                  letterSpacing: ".5px", cursor: "pointer",
+                  boxShadow: active ? `0 0 8px ${N}40` : "none",
+                  transition: "all .2s" }}>
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── ARENA VIEW: bracket ── */}
+      {arenaMode && arenaView === "bracket" && (
         <>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-            <div style={colHdrS}>⚡ KNOCKOUT BRACKET</div>
-            {totalArenaItems > 1 && (
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(10), color: "rgba(255,255,255,.32)" }}>
-                BRACKET PAGE
-              </span>
-            )}
-          </div>
+          <div style={{ ...colHdrS, marginBottom: 14 }}>⚡ KNOCKOUT BRACKET</div>
           <motion.div key="arena-bracket"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}
             style={{ borderRadius: 16, border: `1px solid ${N}22`,
@@ -3971,76 +3993,48 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
               matchLegs={rules?.matchLegs || 1}
             />
           </motion.div>
-          {/* unified pagination */}
-          {totalArenaItems > 1 && (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 18 }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {Array.from({ length: totalArenaItems }, (_, i) => {
-                  const isBkt = hasBracketPage && i === totalArenaItems - 1;
-                  const active = arenaPage === i;
-                  return (
-                    <button key={i} onClick={() => setArenaPage(i)}
-                      style={{ width: active ? 28 : 8, height: 8, borderRadius: 4,
-                        background: active ? N : isBkt ? `${N}50` : "rgba(255,255,255,.18)",
-                        border: "none", cursor: "pointer", transition: "all .35s ease",
-                        boxShadow: active ? `0 0 8px ${N}` : "none" }}/>
-                  );
-                })}
-              </div>
-              <div style={{ width: 120, height: 3, borderRadius: 2, background: "rgba(255,255,255,.08)", overflow: "hidden" }}>
-                <motion.div key={`progress-${arenaPage}`}
-                  initial={{ width: "100%" }} animate={{ width: "0%" }}
-                  transition={{ duration: 12, ease: "linear" }}
-                  style={{ height: "100%", borderRadius: 2, background: N }}/>
-              </div>
-            </div>
-          )}
         </>
       )}
 
-      {/* ── ARENA VIEW: groups grid ── */}
-      {arenaMode && !arenaOnBracket && groupStandings.length > 0 && (
+      {/* ── ARENA VIEW: all groups grid ── */}
+      {arenaMode && arenaView === "all" && groupStandings.length > 0 && (
         <>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-            <div style={colHdrS}>LIVE STANDINGS — ALL GROUPS</div>
-            {totalArenaItems > 1 && (
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(10), color: "rgba(255,255,255,.32)" }}>
-                PAGE {arenaPage + 1}/{totalArenaPages}{hasBracketPage ? ` +KO` : ""}
-              </span>
-            )}
-          </div>
-          <motion.div key={`arena-groups-${arenaPage}`}
+          <div style={{ ...colHdrS, marginBottom: 12 }}>LIVE STANDINGS — ALL GROUPS</div>
+          <motion.div key="arena-all-groups"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }}
             style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 10 }}>
-            {arenaPageGroups.map((gs, i) =>
-              renderStandingCard(gs, arenaPage * ARENA_PAGE_SIZE + i, true)
-            )}
+            {groupStandings.map((gs, i) => renderStandingCard(gs, i, true))}
           </motion.div>
-          {/* unified pagination */}
-          {totalArenaItems > 1 && (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 18 }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {Array.from({ length: totalArenaItems }, (_, i) => {
-                  const isBkt = hasBracketPage && i === totalArenaItems - 1;
-                  const active = arenaPage === i;
-                  return (
-                    <button key={i} onClick={() => setArenaPage(i)}
-                      style={{ width: active ? 28 : 8, height: 8, borderRadius: 4,
-                        background: active ? N : isBkt ? `${N}50` : "rgba(255,255,255,.18)",
-                        border: "none", cursor: "pointer", transition: "all .35s ease",
-                        boxShadow: active ? `0 0 8px ${N}` : "none" }}/>
-                  );
-                })}
-              </div>
-              <div style={{ width: 120, height: 3, borderRadius: 2, background: "rgba(255,255,255,.08)", overflow: "hidden" }}>
-                <motion.div key={`progress-${arenaPage}`}
-                  initial={{ width: "100%" }} animate={{ width: "0%" }}
-                  transition={{ duration: 10, ease: "linear" }}
-                  style={{ height: "100%", borderRadius: 2, background: N }}/>
-              </div>
-            </div>
-          )}
         </>
+      )}
+
+      {/* ── ARENA VIEW: single group ── */}
+      {arenaMode && arenaView !== "all" && arenaView !== "bracket" && arenaView !== "champion" && (
+        (() => {
+          const gs = groupStandings.find(g => g.group.name === arenaView);
+          return gs ? (
+            <motion.div key={`arena-group-${arenaView}`}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }}>
+              {renderStandingCard(gs, 0, false)}
+            </motion.div>
+          ) : null;
+        })()
+      )}
+
+      {/* ── ARENA VIEW: champion ── */}
+      {arenaMode && arenaView === "champion" && arenaChampion && (
+        <motion.div key="arena-champion"
+          initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5 }}
+          style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            flex: 1, padding: "60px 20px", textAlign: "center" }}>
+          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(16), letterSpacing: "4px",
+            color: "rgba(255,255,255,.4)", marginBottom: 16 }}>TOURNAMENT CHAMPION</div>
+          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(56), letterSpacing: "4px",
+            color: N, textShadow: `0 0 40px rgba(170,255,0,.6), 0 0 80px rgba(170,255,0,.3)`,
+            lineHeight: 1, marginBottom: 20 }}>{arenaChampion.name}</div>
+          <motion.div animate={{ scale: [1, 1.05, 1] }} transition={{ duration: 2, repeat: Infinity }}
+            style={{ fontSize: 64 }}>🏆</motion.div>
+        </motion.div>
       )}
 
       {/* ── NORMAL VIEW: stacked group cards ── */}
@@ -4061,7 +4055,7 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
             <TournamentBracket
               bracket={bracket}
               isAdmin={isAdmin}
-              onMatchTap={onBracketMatchTap}
+              onMatchTap={handleBracketTap}
               matchLegs={rules?.matchLegs || 1}
             />
           </div>
@@ -4254,6 +4248,41 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
           {colB}
         </div>
       </div>
+
+      {/* ── Knockout edit-confirmation dialog ────────────────────────────── */}
+      <AnimatePresence>
+        {editingConfirm && (
+          <motion.div key="edit-confirm"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            style={{ position: "absolute", inset: 0, zIndex: 100,
+              background: "rgba(0,0,0,.72)", display: "flex", alignItems: "center",
+              justifyContent: "center", padding: 24 }}>
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }} transition={{ type: "spring", stiffness: 320, damping: 28 }}
+              style={{ background: "#111", border: `1px solid rgba(255,255,255,.12)`,
+                borderRadius: 20, padding: "28px 28px 24px", maxWidth: 360, width: "100%" }}>
+              <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 22,
+                letterSpacing: "2px", color: "#fff", marginBottom: 10 }}>EDIT RESULT?</div>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13,
+                color: "rgba(255,255,255,.55)", lineHeight: 1.6, marginBottom: 24 }}>
+                Editing this result may affect the next round bracket. Continue?
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => setEditingConfirm(null)}
+                  style={{ flex: 1, padding: "11px 0", borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,.14)", background: "rgba(255,255,255,.05)",
+                    fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700,
+                    color: "rgba(255,255,255,.5)", cursor: "pointer" }}>Cancel</button>
+                <button onClick={() => { const m = editingConfirm; setEditingConfirm(null); onBracketMatchTap?.(m); }}
+                  style={{ flex: 1, padding: "11px 0", borderRadius: 12, border: "none",
+                    background: `linear-gradient(135deg,${N},#7DC900)`,
+                    fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 800,
+                    color: "#000", cursor: "pointer" }}>Continue</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Champion Celebration overlay ──────────────────────────────────── */}
       <AnimatePresence>
