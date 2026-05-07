@@ -5720,8 +5720,37 @@ function generateCrossoverBracket(advancingByGroup) {
 // Each slot appears exactly once in R1; later rounds are empty TBD.
 function buildTbdPreviewBracket(slots) {
   if (!slots?.length) return null;
-  const size   = _nextPow2(slots.length);
-  const padded = [...slots, ...Array(size - slots.length).fill(null)];
+
+  // Interleave slots round-robin by group so no two same-group qualifiers are paired in R1
+  const groupOf = s => { const m = s?.name?.match(/Group ([A-Z])/); return m ? m[1] : '__wc__'; };
+  const buckets = {};
+  for (const s of slots) { const g = groupOf(s); if (!buckets[g]) buckets[g] = []; buckets[g].push(s); }
+  const groups = Object.values(buckets).sort((a, b) => b.length - a.length);
+  const ordered = [];
+  let row = 0;
+  while (ordered.length < slots.length) {
+    let added = false;
+    for (const g of groups) { if (row < g.length) { ordered.push(g[row]); added = true; } }
+    if (!added) break;
+    row++;
+  }
+  // Append any missed slots (shouldn't happen)
+  if (ordered.length < slots.length) {
+    const seen = new Set(ordered.map(s => s.id));
+    for (const s of slots) { if (!seen.has(s.id)) ordered.push(s); }
+  }
+  // Validate: fall back to input order if any R1 pair shares a group
+  for (let i = 0; i < ordered.length - 1; i += 2) {
+    const g1 = groupOf(ordered[i]), g2 = groupOf(ordered[i + 1]);
+    if (g1 !== '__wc__' && g1 === g2) {
+      console.warn('[TBD preview] same-group pair at', i, '— using input order');
+      ordered.splice(0, ordered.length, ...slots);
+      break;
+    }
+  }
+
+  const size   = _nextPow2(ordered.length);
+  const padded = [...ordered, ...Array(size - ordered.length).fill(null)];
 
   const round1 = [];
   for (let i = 0; i < size; i += 2) {
