@@ -1773,13 +1773,44 @@ function JoinCodeCard({ code }) {
   );
 }
 
-function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlayer,onRemovePlayer,onJoinAsPlayer,leagueId,ownerId,user,onDeleteLeague,squadPhotoUrl=null,onSquadPhotoUpdate=null,joinCode=null,bracket=null,onGenerateDraw=null}) {
+// ── Pure helpers for renaming a player across all denormalised rule/bracket data ──
+function renamePlayerInRules(rules, oldName, newName) {
+  if (!rules) return rules;
+  const renP = p => (p?.name === oldName ? { ...p, name: newName } : p);
+  return {
+    ...rules,
+    participants: rules.participants?.map(renP),
+    groups:       rules.groups?.map(g => ({ ...g, participants: g.participants?.map(renP) })),
+    groupMatches: rules.groupMatches?.map(m => ({ ...m, p1: renP(m.p1), p2: renP(m.p2) })),
+  };
+}
+function renamePlayerInBracket(bracket, oldName, newName) {
+  if (!bracket) return bracket;
+  const renP = p => (p?.name === oldName ? { ...p, name: newName } : p);
+  return {
+    ...bracket,
+    rounds: bracket.rounds?.map(round =>
+      round.map(m => ({ ...m, p1: renP(m.p1), p2: renP(m.p2), winner: renP(m.winner), loser: renP(m.loser) }))
+    ),
+  };
+}
+
+function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlayer,onRemovePlayer,onJoinAsPlayer,leagueId,ownerId,user,onDeleteLeague,squadPhotoUrl=null,onSquadPhotoUpdate=null,joinCode=null,bracket=null,onGenerateDraw=null,onRenamePlayer=null}) {
   const [editing,          setEditing]          = useState(false);
   const [draft,            setDraft]            = useState(rules);
   const [confirm,          setConfirm]          = useState(false);
   const [confirmDelete,    setConfirmDelete]    = useState(false);
   const [copied,           setCopied]           = useState(false);
   const [lobbyOpen,        setLobbyOpen]        = useState(false);
+  const [renamingPlayer,   setRenamingPlayer]   = useState(null);
+  const [renameValue,      setRenameValue]      = useState("");
+  const [renameSaving,     setRenameSaving]     = useState(false);
+  const [renameError,      setRenameError]      = useState("");
+  const [groupEditorOpen,  setGroupEditorOpen]  = useState(false);
+  const [groupDraft,       setGroupDraft]       = useState(null);
+  const [groupSaving,      setGroupSaving]      = useState(false);
+  const [groupSaveErr,     setGroupSaveErr]     = useState("");
+  const [groupConfirm,     setGroupConfirm]     = useState(false);
 
   // Admin = strict match only — user must be the league owner.
   // No fallback: if ownerId is null this league pre-dates the owner_id column and
@@ -1815,6 +1846,101 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
       setTimeout(() => setCopied(false), 2500);
     }
   }, [joinCode, leagueId]);
+
+  // ── Admin computed values ────────────────────────────────────────────────
+  const hasGroupResults      = feed.some(m => m.tournament_stage === "group");
+  const isTournamentWithGroups = !!(
+    rules?.tournamentFormat && rules.tournamentFormat !== "classic" && rules?.groups?.length
+  );
+
+  // ── Rename handlers ──────────────────────────────────────────────────────
+  const handleRenameOpen = (player) => {
+    setRenamingPlayer(player);
+    setRenameValue(player.name);
+    setRenameError("");
+  };
+
+  const handleRenameSubmit = async () => {
+    const newName = renameValue.trim();
+    if (!newName || !renamingPlayer || renameSaving) return;
+    if (newName === renamingPlayer.name) { setRenamingPlayer(null); return; }
+    const isDuplicate = players.some(
+      p => p.id !== renamingPlayer.id && p.name.trim().toLowerCase() === newName.toLowerCase()
+    );
+    if (isDuplicate) { setRenameError("A player/team with this name already exists."); return; }
+    setRenameSaving(true);
+    setRenameError("");
+    try {
+      const { error: pErr } = await supabase.from("players").update({ name: newName }).eq("id", renamingPlayer.id);
+      if (pErr) throw pErr;
+      const oldName = renamingPlayer.name;
+      const updRules = renamePlayerInRules(rules, oldName, newName);
+      if (leagueId) {
+        const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).single();
+        const base = data?.settings || {};
+        const updBracket = renamePlayerInBracket(bracket ?? base.bracket ?? null, oldName, newName);
+        const newSettings = {
+          ...base,
+          participants: updRules.participants,
+          groups:       updRules.groups,
+          groupMatches: updRules.groupMatches,
+          ...(updBracket ? { bracket: updBracket } : {}),
+        };
+        const { error: lErr } = await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
+        if (lErr) throw lErr;
+      }
+      onRulesUpdate(updRules);
+      onRenamePlayer?.(renamingPlayer.id, oldName, newName);
+      setRenamingPlayer(null);
+    } catch {
+      setRenameError("Failed to save. Please try again.");
+    }
+    setRenameSaving(false);
+  };
+
+  // ── Group editor handlers ────────────────────────────────────────────────
+  const openGroupEditor = () => {
+    setGroupDraft(JSON.parse(JSON.stringify(rules?.groups || [])));
+    setGroupEditorOpen(true);
+    setGroupSaveErr("");
+    setGroupConfirm(false);
+  };
+
+  const movePlayerToGroup = (playerName, fromGroup, toGroup) => {
+    if (fromGroup === toGroup) return;
+    setGroupDraft(prev => {
+      const next = JSON.parse(JSON.stringify(prev));
+      const from = next.find(g => g.name === fromGroup);
+      const to   = next.find(g => g.name === toGroup);
+      if (!from || !to) return prev;
+      const idx = from.participants.findIndex(p => p.name === playerName);
+      if (idx === -1) return prev;
+      const [player] = from.participants.splice(idx, 1);
+      to.participants.push(player);
+      return next;
+    });
+  };
+
+  const handleGroupSaveConfirm = async () => {
+    if (!groupDraft || groupSaving) return;
+    setGroupSaving(true);
+    setGroupSaveErr("");
+    try {
+      if (leagueId) {
+        const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).single();
+        const newSettings = { ...(data?.settings || {}), groups: groupDraft };
+        const { error } = await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
+        if (error) throw error;
+      }
+      onRulesUpdate({ ...rules, groups: groupDraft });
+      setGroupEditorOpen(false);
+      setGroupDraft(null);
+      setGroupConfirm(false);
+    } catch {
+      setGroupSaveErr("Failed to save. Please try again.");
+    }
+    setGroupSaving(false);
+  };
 
   const TOOLS = [
     {Icon:Settings,  bg:`linear-gradient(135deg,${N},#7DC900)`,        bdr:"rgba(170,255,0,.22)",    lbl:"Edit Rules",       sub:"Modify format, scoring, season",  arr:N,         fn:()=>setEditing(true)},
@@ -2080,6 +2206,158 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
               <ChevronRight size={16} style={{color:"#FF3355",flexShrink:0}}/>
             </button>
           </div>
+
+          {/* ── Rename Player / Team ── */}
+          <ST>✏️ Rename Player / Team</ST>
+          <div className="rounded-[18px] mb-6 overflow-hidden"
+            style={{border:"1px solid rgba(255,255,255,.08)",background:"rgba(255,255,255,.02)"}}>
+            {players.length === 0 ? (
+              <div style={{padding:16,fontSize:12,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif"}}>
+                No players yet.
+              </div>
+            ) : players.map((p, i) => (
+              <div key={p.id || p.name}
+                style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",
+                  borderTop:i>0?"1px solid rgba(255,255,255,.05)":"none"}}>
+                <span style={{flex:1,fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,
+                  color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  {p.name}
+                </span>
+                <button onClick={()=>handleRenameOpen(p)}
+                  style={{flexShrink:0,width:30,height:30,borderRadius:8,
+                    border:"1px solid rgba(255,255,255,.12)",background:"rgba(255,255,255,.05)",
+                    cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Edit2 size={13} style={{color:"rgba(255,255,255,.55)"}}/>
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* ── Emergency Group Editor ── */}
+          {isTournamentWithGroups && (
+            <div style={{marginBottom:24}}>
+              <ST>🗂️ Emergency Group Editor</ST>
+              {!groupEditorOpen ? (
+                <motion.button whileTap={{scale:0.97}}
+                  onClick={openGroupEditor}
+                  className="flex items-center gap-3 rounded-[18px] px-4 py-4 w-full text-left"
+                  style={{background:"rgba(255,184,48,.04)",border:"1px solid rgba(255,184,48,.3)",cursor:"pointer"}}>
+                  <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0"
+                    style={{background:"linear-gradient(135deg,#FFB830,#E08A00)"}}>
+                    <Layers size={18} color="#fff"/>
+                  </div>
+                  <div className="flex-1">
+                    <div style={{fontSize:13,fontWeight:800,color:"#FFB830",fontFamily:"'DM Sans',sans-serif"}}>
+                      Emergency Group Editor
+                    </div>
+                    <div style={{fontSize:11,color:"rgba(255,255,255,.38)",fontFamily:"'DM Sans',sans-serif"}}>
+                      Manually move players between groups
+                    </div>
+                  </div>
+                  <ChevronRight size={16} style={{color:"#FFB830",flexShrink:0}}/>
+                </motion.button>
+              ) : (
+                <div style={{borderRadius:18,padding:16,background:"rgba(255,184,48,.03)",
+                  border:"1px solid rgba(255,184,48,.3)"}}>
+
+                  {/* Strong warning: results already exist */}
+                  {hasGroupResults && (
+                    <div style={{borderRadius:12,padding:"10px 14px",marginBottom:14,
+                      background:"rgba(255,51,85,.08)",border:"1px solid rgba(255,51,85,.4)"}}>
+                      <div style={{fontSize:12,fontWeight:800,color:"#FF3355",
+                        fontFamily:"'DM Sans',sans-serif",marginBottom:4}}>
+                        ⚠️ Results already logged
+                      </div>
+                      <div style={{fontSize:11,color:"rgba(255,255,255,.5)",
+                        fontFamily:"'DM Sans',sans-serif",lineHeight:1.5}}>
+                        Group editing is locked because group results already exist.
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Softer warning: fixtures exist but no results yet */}
+                  {!hasGroupResults && rules?.groupMatches?.length > 0 && (
+                    <div style={{borderRadius:12,padding:"10px 14px",marginBottom:14,
+                      background:"rgba(255,184,48,.06)",border:"1px solid rgba(255,184,48,.25)"}}>
+                      <div style={{fontSize:11,color:"rgba(255,255,255,.5)",
+                        fontFamily:"'DM Sans',sans-serif",lineHeight:1.5}}>
+                        ⚠️ Fixtures already exist. Changing groups now may make fixtures inconsistent
+                        unless fixtures are regenerated.
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Group cards */}
+                  {(groupDraft || []).map(g => (
+                    <div key={g.name} style={{marginBottom:10,borderRadius:12,overflow:"hidden",
+                      border:"1px solid rgba(255,255,255,.07)",background:"rgba(255,255,255,.02)"}}>
+                      <div style={{padding:"8px 12px",background:"rgba(255,255,255,.03)",
+                        borderBottom:"1px solid rgba(255,255,255,.05)",
+                        fontFamily:"'Bebas Neue',sans-serif",fontSize:14,
+                        letterSpacing:"2px",color:"#fff"}}>
+                        Group {g.name}
+                      </div>
+                      {g.participants.length === 0 && (
+                        <div style={{padding:"8px 12px",fontSize:11,color:"rgba(255,255,255,.3)",
+                          fontFamily:"'DM Sans',sans-serif"}}>Empty</div>
+                      )}
+                      {g.participants.map(p => (
+                        <div key={p.name}
+                          style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",
+                            borderTop:"1px solid rgba(255,255,255,.04)"}}>
+                          <span style={{flex:1,fontFamily:"'DM Sans',sans-serif",fontSize:13,
+                            fontWeight:600,color:"#fff",overflow:"hidden",
+                            textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
+                          <select
+                            disabled={hasGroupResults}
+                            value={g.name}
+                            onChange={e=>movePlayerToGroup(p.name,g.name,e.target.value)}
+                            style={{borderRadius:8,border:"1px solid rgba(255,255,255,.15)",
+                              background:"rgba(255,255,255,.06)",color:"#fff",fontSize:12,
+                              padding:"4px 8px",cursor:hasGroupResults?"not-allowed":"pointer",
+                              outline:"none",opacity:hasGroupResults?0.4:1}}>
+                            {(groupDraft||[]).map(og=>(
+                              <option key={og.name} value={og.name}
+                                style={{background:"#111"}}>
+                                {og.name===g.name?`Group ${og.name} (current)`:`→ Group ${og.name}`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+
+                  {groupSaveErr && (
+                    <div style={{fontSize:12,color:"#FF3355",fontFamily:"'DM Sans',sans-serif",
+                      marginBottom:8}}>{groupSaveErr}</div>
+                  )}
+
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={()=>{setGroupEditorOpen(false);setGroupDraft(null);setGroupSaveErr("");}}
+                      style={{borderRadius:12,padding:"9px 16px",background:"rgba(255,255,255,.06)",
+                        border:"1px solid rgba(255,255,255,.1)",color:"rgba(255,255,255,.5)",
+                        cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700}}>
+                      Cancel
+                    </button>
+                    <button
+                      disabled={hasGroupResults||groupSaving}
+                      onClick={()=>setGroupConfirm(true)}
+                      style={{flex:1,borderRadius:12,padding:"9px 0",border:"none",
+                        background:hasGroupResults||groupSaving
+                          ?"rgba(255,184,48,.25)"
+                          :"linear-gradient(135deg,#FFB830,#E08A00)",
+                        color:hasGroupResults||groupSaving?"rgba(255,255,255,.3)":"#000",
+                        cursor:hasGroupResults||groupSaving?"not-allowed":"pointer",
+                        fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:800}}>
+                      {groupSaving?"Saving…":"Save Group Changes"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -2123,6 +2401,93 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
                   style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",color:"rgba(255,255,255,.65)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cancel</button>
                 <button onClick={()=>{onDeleteLeague?.();setConfirmDelete(false);}} className="flex-1 rounded-[16px] py-3.5 font-bold text-sm"
                   style={{background:"linear-gradient(135deg,#FF3355,#C0143C)",color:"#fff",border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Delete Forever</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* ── Rename modal ── */}
+        {renamingPlayer&&(
+          <motion.div key="rename-modal" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+            className="fixed inset-0 z-50 flex items-center justify-center px-6"
+            style={{background:"rgba(0,0,0,.82)",backdropFilter:"blur(12px)"}}
+            onClick={e=>{if(e.target===e.currentTarget&&!renameSaving)setRenamingPlayer(null);}}>
+            <motion.div initial={{scale:.88,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:.88,opacity:0}}
+              transition={{type:"spring",stiffness:360,damping:28}}
+              className="w-full rounded-[24px] p-6" style={{maxWidth:340,background:"#131820",border:"1.5px solid rgba(255,255,255,.12)"}}>
+              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"2px",
+                color:"#fff",marginBottom:4}}>Rename Player</div>
+              <div style={{fontSize:11,color:"rgba(255,255,255,.35)",fontFamily:"'DM Sans',sans-serif",marginBottom:16}}>
+                Current: <span style={{color:N}}>{renamingPlayer.name}</span>
+              </div>
+              <input
+                autoFocus
+                value={renameValue}
+                onChange={e=>setRenameValue(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter")handleRenameSubmit();if(e.key==="Escape"&&!renameSaving)setRenamingPlayer(null);}}
+                placeholder="New name"
+                className="w-full rounded-[12px] px-3 py-3 text-sm outline-none mb-3"
+                style={{background:"rgba(255,255,255,.06)",border:`1.5px solid ${N}55`,
+                  color:"#fff",caretColor:N,fontFamily:"'DM Sans',sans-serif"}}/>
+              {renameError&&(
+                <div style={{fontSize:12,color:"#FF3355",fontFamily:"'DM Sans',sans-serif",marginBottom:10}}>
+                  {renameError}
+                </div>
+              )}
+              <div className="flex gap-3">
+                <button onClick={()=>{if(!renameSaving)setRenamingPlayer(null);}}
+                  disabled={renameSaving}
+                  className="flex-1 rounded-[14px] py-3 font-bold text-sm"
+                  style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",
+                    color:"rgba(255,255,255,.55)",cursor:renameSaving?"not-allowed":"pointer",
+                    fontFamily:"'DM Sans',sans-serif"}}>Cancel</button>
+                <button onClick={handleRenameSubmit}
+                  disabled={renameSaving||!renameValue.trim()}
+                  className="flex-1 rounded-[14px] py-3 font-bold text-sm"
+                  style={{background:renameSaving||!renameValue.trim()
+                    ?`${N}40`:`linear-gradient(135deg,${N},#7DC900)`,
+                    color:"#000",border:"none",
+                    cursor:renameSaving||!renameValue.trim()?"not-allowed":"pointer",
+                    fontFamily:"'DM Sans',sans-serif"}}>
+                  {renameSaving?"Saving…":"Save"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* ── Group editor save-confirmation ── */}
+        {groupConfirm&&(
+          <motion.div key="group-confirm" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+            className="fixed inset-0 z-50 flex items-center justify-center px-6"
+            style={{background:"rgba(0,0,0,.82)",backdropFilter:"blur(12px)"}}
+            onClick={e=>{if(e.target===e.currentTarget)setGroupConfirm(false);}}>
+            <motion.div initial={{scale:.88,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:.88,opacity:0}}
+              transition={{type:"spring",stiffness:360,damping:28}}
+              className="w-full rounded-[24px] p-6" style={{maxWidth:340,background:"#131820",border:"1.5px solid rgba(255,184,48,.4)"}}>
+              <div className="text-4xl text-center mb-4">⚠️</div>
+              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"2px",
+                color:"#FFB830",textAlign:"center",marginBottom:8}}>Save Group Changes?</div>
+              <p style={{fontSize:13,color:"rgba(255,255,255,.45)",lineHeight:1.65,textAlign:"center",
+                fontFamily:"'DM Sans',sans-serif",marginBottom:20}}>
+                Fixtures already exist. Changing groups now may make fixtures inconsistent unless fixtures are regenerated.
+              </p>
+              <div className="flex gap-3">
+                <button onClick={()=>setGroupConfirm(false)}
+                  className="flex-1 rounded-[16px] py-3.5 font-bold text-sm"
+                  style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",
+                    color:"rgba(255,255,255,.65)",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                  Cancel
+                </button>
+                <button onClick={handleGroupSaveConfirm}
+                  disabled={groupSaving}
+                  className="flex-1 rounded-[16px] py-3.5 font-bold text-sm"
+                  style={{background:groupSaving?"rgba(255,184,48,.4)":"linear-gradient(135deg,#FFB830,#E08A00)",
+                    color:"#000",border:"none",
+                    cursor:groupSaving?"not-allowed":"pointer",
+                    fontFamily:"'DM Sans',sans-serif"}}>
+                  {groupSaving?"Saving…":"Confirm"}
+                </button>
               </div>
             </motion.div>
           </motion.div>
@@ -4925,7 +5290,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                wildcardRule={rules?.groupSettings?.wildcardRule || "none"}
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament} groupMatches={groupMatches} bracket={bracket}/>,
-    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw}/>,
+    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName):prev);}}/>,
     profile: isAdmin && !myPlayer
       ? <AdminDashboard players={enrichedPlayers} feed={feed} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches}/>
       : <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate}/>,
