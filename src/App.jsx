@@ -5741,13 +5741,17 @@ function buildTbdPreviewBracket(slots) {
     if (opp) { pairs.push([f, opp]); usedIds.add(f.id); usedIds.add(opp.id); }
   }
 
-  // Pair remaining slots (unpaired first-place + leftover lower ranks) cross-group
+  // Pair remaining slots (unpaired first-place + leftover lower ranks) cross-group.
+  // Sort by group frequency descending (most-constrained first) to avoid forced same-group pairs.
   const unpaired = slots.filter(s => !usedIds.has(s.id));
+  const freq = {};
+  for (const s of unpaired) { const g = groupOf(s) ?? '__wc__'; freq[g] = (freq[g] || 0) + 1; }
+  unpaired.sort((a, b) => (freq[groupOf(b) ?? '__wc__'] || 0) - (freq[groupOf(a) ?? '__wc__'] || 0));
   const unpUsed  = new Set();
   for (let i = 0; i < unpaired.length; i++) {
     if (unpUsed.has(unpaired[i].id)) continue;
     const opp = unpaired.find((s, j) => j > i && !unpUsed.has(s.id) && groupOf(s) !== groupOf(unpaired[i]))
-             ?? unpaired.find((s, j) => j > i && !unpUsed.has(s.id)); // same-group fallback
+             ?? unpaired.find((s, j) => j > i && !unpUsed.has(s.id));
     if (opp) { pairs.push([unpaired[i], opp]); unpUsed.add(unpaired[i].id); unpUsed.add(opp.id); }
   }
 
@@ -5757,22 +5761,11 @@ function buildTbdPreviewBracket(slots) {
     const seen = new Set(ordered.map(s => s.id));
     for (const s of slots) { if (!seen.has(s.id)) ordered.push(s); }
   }
-  // Validate: warn if any R1 pair shares a group
+  // Validate: warn if any R1 pair shares a group (keep ordered as-is — better than reverting)
   for (let i = 0; i < ordered.length - 1; i += 2) {
     const g1 = groupOf(ordered[i]), g2 = groupOf(ordered[i + 1]);
     if (g1 !== null && g1 === g2) {
-      console.warn('[TBD preview] same-group pair at', i, '— falling back to round-robin');
-      const bkts = {};
-      for (const s of slots) { const g = groupOf(s) ?? '__wc__'; if (!bkts[g]) bkts[g] = []; bkts[g].push(s); }
-      const grps = Object.values(bkts).sort((a, b) => b.length - a.length);
-      ordered.length = 0;
-      let row = 0;
-      while (ordered.length < slots.length) {
-        let added = false;
-        for (const g of grps) { if (row < g.length) { ordered.push(g[row]); added = true; } }
-        if (!added) break;
-        row++;
-      }
+      console.warn('[TBD preview] same-group pair at position', i);
       break;
     }
   }
