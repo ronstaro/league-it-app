@@ -5721,30 +5721,58 @@ function generateCrossoverBracket(advancingByGroup) {
 function buildTbdPreviewBracket(slots) {
   if (!slots?.length) return null;
 
-  // Interleave slots round-robin by group so no two same-group qualifiers are paired in R1
-  const groupOf = s => { const m = s?.name?.match(/Group ([A-Z])/); return m ? m[1] : '__wc__'; };
-  const buckets = {};
-  for (const s of slots) { const g = groupOf(s); if (!buckets[g]) buckets[g] = []; buckets[g].push(s); }
-  const groups = Object.values(buckets).sort((a, b) => b.length - a.length);
-  const ordered = [];
-  let row = 0;
-  while (ordered.length < slots.length) {
-    let added = false;
-    for (const g of groups) { if (row < g.length) { ordered.push(g[row]); added = true; } }
-    if (!added) break;
-    row++;
+  // Pair first-place qualifiers against preferred opponents (3rd > wildcard > 2nd), cross-group.
+  // No 1st-vs-1st, no same-group R1 matchups.
+  const groupOf = s => { const m = s?.name?.match(/Group ([A-Z])/); return m ? m[1] : null; };
+  const rankOf  = s => { const m = s?.name?.match(/^(\d+)/); return m ? parseInt(m[1], 10) : 99; };
+
+  const first     = slots.filter(s => rankOf(s) === 1);
+  const preferred = [
+    ...slots.filter(s => rankOf(s) === 3),
+    ...slots.filter(s => rankOf(s) === 99),
+    ...slots.filter(s => rankOf(s) === 2),
+  ];
+
+  const pairs   = [];
+  const usedIds = new Set();
+
+  for (const f of first) {
+    const opp = preferred.find(s => !usedIds.has(s.id) && groupOf(s) !== groupOf(f));
+    if (opp) { pairs.push([f, opp]); usedIds.add(f.id); usedIds.add(opp.id); }
   }
+
+  // Pair remaining slots (unpaired first-place + leftover lower ranks) cross-group
+  const unpaired = slots.filter(s => !usedIds.has(s.id));
+  const unpUsed  = new Set();
+  for (let i = 0; i < unpaired.length; i++) {
+    if (unpUsed.has(unpaired[i].id)) continue;
+    const opp = unpaired.find((s, j) => j > i && !unpUsed.has(s.id) && groupOf(s) !== groupOf(unpaired[i]))
+             ?? unpaired.find((s, j) => j > i && !unpUsed.has(s.id)); // same-group fallback
+    if (opp) { pairs.push([unpaired[i], opp]); unpUsed.add(unpaired[i].id); unpUsed.add(opp.id); }
+  }
+
+  const ordered = pairs.flat();
   // Append any missed slots (shouldn't happen)
   if (ordered.length < slots.length) {
     const seen = new Set(ordered.map(s => s.id));
     for (const s of slots) { if (!seen.has(s.id)) ordered.push(s); }
   }
-  // Validate: fall back to input order if any R1 pair shares a group
+  // Validate: warn if any R1 pair shares a group
   for (let i = 0; i < ordered.length - 1; i += 2) {
     const g1 = groupOf(ordered[i]), g2 = groupOf(ordered[i + 1]);
-    if (g1 !== '__wc__' && g1 === g2) {
-      console.warn('[TBD preview] same-group pair at', i, '— using input order');
-      ordered.splice(0, ordered.length, ...slots);
+    if (g1 !== null && g1 === g2) {
+      console.warn('[TBD preview] same-group pair at', i, '— falling back to round-robin');
+      const bkts = {};
+      for (const s of slots) { const g = groupOf(s) ?? '__wc__'; if (!bkts[g]) bkts[g] = []; bkts[g].push(s); }
+      const grps = Object.values(bkts).sort((a, b) => b.length - a.length);
+      ordered.length = 0;
+      let row = 0;
+      while (ordered.length < slots.length) {
+        let added = false;
+        for (const g of grps) { if (row < g.length) { ordered.push(g[row]); added = true; } }
+        if (!added) break;
+        row++;
+      }
       break;
     }
   }
