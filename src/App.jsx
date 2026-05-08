@@ -3914,18 +3914,24 @@ function ChampionCelebration({ champion, isAdmin, onDismiss }) {
 /* ── TV DASHBOARD ────────────────────────────────────────────────────────── */
 // Deterministic sparkle positions for the champion arena screen — defined once at module level
 const CHAMPION_SPARKLES = [
-  { x:  8, y: 18, delay: 0.0, dur: 3.2 },
-  { x: 88, y: 12, delay: 0.9, dur: 2.8 },
-  { x: 20, y: 78, delay: 1.3, dur: 3.6 },
-  { x: 75, y: 82, delay: 0.4, dur: 3.0 },
-  { x: 50, y:  8, delay: 1.8, dur: 3.4 },
-  { x: 93, y: 52, delay: 0.6, dur: 2.6 },
-  { x:  5, y: 55, delay: 1.1, dur: 3.8 },
-  { x: 62, y: 92, delay: 2.1, dur: 2.9 },
-  { x: 32, y: 38, delay: 1.6, dur: 3.1 },
-  { x: 80, y: 65, delay: 0.3, dur: 3.5 },
-  { x: 42, y: 68, delay: 2.4, dur: 2.7 },
-  { x: 15, y: 42, delay: 0.7, dur: 3.3 },
+  { x:  5, y: 10, delay: 0.0, dur: 3.2, size: 7 },
+  { x: 92, y:  8, delay: 0.9, dur: 2.8, size: 6 },
+  { x:  3, y: 72, delay: 1.3, dur: 3.6, size: 9 },
+  { x: 94, y: 75, delay: 0.4, dur: 3.0, size: 7 },
+  { x: 50, y:  4, delay: 1.8, dur: 3.4, size: 6 },
+  { x: 97, y: 45, delay: 0.6, dur: 2.6, size: 9 },
+  { x:  8, y: 50, delay: 1.1, dur: 3.8, size: 7 },
+  { x: 65, y: 92, delay: 2.1, dur: 2.9, size: 8 },
+  { x: 30, y: 30, delay: 1.6, dur: 3.1, size: 7 },
+  { x: 82, y: 62, delay: 0.3, dur: 3.5, size: 6 },
+  { x: 44, y: 70, delay: 2.4, dur: 2.7, size: 8 },
+  { x: 16, y: 42, delay: 0.7, dur: 3.3, size: 7 },
+  { x: 72, y: 20, delay: 2.0, dur: 3.0, size: 6 },
+  { x: 25, y: 88, delay: 1.4, dur: 3.7, size: 8 },
+  { x: 58, y: 14, delay: 0.5, dur: 2.9, size: 7 },
+  { x: 86, y: 33, delay: 1.9, dur: 3.2, size: 6 },
+  { x: 12, y: 20, delay: 2.3, dur: 3.4, size: 8 },
+  { x: 40, y: 94, delay: 0.8, dur: 2.8, size: 9 },
 ];
 
 function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
@@ -4429,121 +4435,150 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
         <motion.div key="arena-champion"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.9 }}
           style={{ position: "relative", display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center",
-            flex: 1, minHeight: 0, overflow: "hidden", padding: "20px 32px" }}>
+            alignItems: "center", justifyContent: "flex-start",
+            flex: 1, minHeight: 0, overflow: "hidden", padding: "22px 44px 20px" }}>
 
-          {/* Layered radial glows */}
+          {/* Strong radial spotlight — layered */}
           <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
-            background: `radial-gradient(ellipse 90% 80% at 50% 50%, rgba(170,255,0,.10) 0%, rgba(170,255,0,.04) 45%, transparent 72%)` }}/>
+            background: `radial-gradient(ellipse 120% 90% at 50% 55%, rgba(170,255,0,.18) 0%, rgba(170,255,0,.07) 42%, transparent 68%)` }}/>
           <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
-            background: `radial-gradient(ellipse 40% 40% at 50% 50%, rgba(170,255,0,.13) 0%, transparent 100%)` }}/>
+            background: `radial-gradient(ellipse 55% 55% at 50% 55%, rgba(170,255,0,.24) 0%, transparent 100%)` }}/>
 
-          {/* Slowly rotating light beams */}
-          <motion.div animate={{ rotate: 360 }} transition={{ duration: 32, repeat: Infinity, ease: "linear" }}
+          {/* Floor glow / podium base at bottom */}
+          <div style={{ position: "absolute", bottom: 0, left: "5%", right: "5%", height: "40%",
+            pointerEvents: "none",
+            background: `radial-gradient(ellipse 90% 100% at 50% 100%, rgba(170,255,0,.22) 0%, rgba(170,255,0,.07) 55%, transparent 80%)` }}/>
+          <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 3,
+            background: `linear-gradient(to right, transparent, ${N}80, transparent)`, pointerEvents: "none" }}/>
+
+          {/* Rotating light beams — more, brighter */}
+          <motion.div animate={{ rotate: 360 }} transition={{ duration: 24, repeat: Infinity, ease: "linear" }}
             style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-            {[0, 45, 90, 135, 180, 225, 270, 315].map((deg, i) => (
+            {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((deg, i) => (
               <div key={i} style={{ position: "absolute", top: "50%", left: "50%",
-                width: "65%", height: 1, transformOrigin: "left center",
-                transform: `rotate(${deg}deg)`,
-                background: `linear-gradient(90deg, ${N}20, transparent)` }}/>
+                width: "80%", height: i % 2 === 0 ? 2 : 1,
+                transformOrigin: "left center", transform: `rotate(${deg}deg)`,
+                background: `linear-gradient(90deg, ${N}${i % 2 === 0 ? "2a" : "14"}, transparent)` }}/>
             ))}
           </motion.div>
 
-          {/* Expanding rings — 5 rings, staggered */}
-          {[0, 1, 2, 3, 4].map(i => (
+          {/* Large trophy watermark behind content */}
+          <div style={{ position: "absolute", top: "50%", left: "50%",
+            transform: "translate(-50%, -48%)", opacity: 0.07, pointerEvents: "none",
+            color: N, filter: `drop-shadow(0 0 80px ${N})` }}>
+            <Trophy size={tvF(420)}/>
+          </div>
+
+          {/* Expanding rings — larger, brighter, 6 rings */}
+          {[0, 1, 2, 3, 4, 5].map(i => (
             <motion.div key={i}
-              animate={{ scale: [0.3, 2.6], opacity: [0.35, 0] }}
-              transition={{ duration: 4.5, delay: i * 0.9, repeat: Infinity, ease: "easeOut" }}
-              style={{ position: "absolute", width: 420, height: 420, borderRadius: "50%",
-                border: `1px solid ${N}32`, pointerEvents: "none" }}/>
+              animate={{ scale: [0.15, 3.4], opacity: [0.55, 0] }}
+              transition={{ duration: 5.2, delay: i * 0.88, repeat: Infinity, ease: "easeOut" }}
+              style={{ position: "absolute", width: 400, height: 400, borderRadius: "50%",
+                border: `1px solid ${N}55`, pointerEvents: "none" }}/>
           ))}
 
-          {/* Sparkle dots — larger + brighter */}
+          {/* Sparkle dots — bigger + stronger glow */}
           {CHAMPION_SPARKLES.map((s, i) => (
             <motion.div key={i}
-              animate={{ opacity: [0, 1, 0], y: [0, -22, 0], scale: [0.5, 1.5, 0.5] }}
+              animate={{ opacity: [0, 1, 0], y: [0, -30, 0], scale: [0.3, 2.2, 0.3] }}
               transition={{ duration: s.dur, delay: s.delay, repeat: Infinity, ease: "easeInOut" }}
               style={{ position: "absolute", left: `${s.x}%`, top: `${s.y}%`,
-                width: 6, height: 6, borderRadius: "50%", background: N,
-                boxShadow: `0 0 10px ${N}, 0 0 20px ${N}60`, pointerEvents: "none" }}/>
+                width: s.size, height: s.size, borderRadius: "50%", background: N,
+                boxShadow: `0 0 14px ${N}, 0 0 28px ${N}90, 0 0 50px ${N}50`,
+                pointerEvents: "none" }}/>
           ))}
 
-          {/* ── Main content ── */}
-          <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column",
-            alignItems: "center", textAlign: "center", width: "100%" }}>
-
-            {/* Badge + league name */}
-            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(9), fontWeight: 800,
-              letterSpacing: "3px", color: N, background: `${N}12`,
-              border: `1px solid ${N}30`, borderRadius: 6, padding: "3px 16px", marginBottom: 10 }}>
-              FINAL RESULT
-            </div>
-            <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(26), letterSpacing: "6px",
-              color: "rgba(255,255,255,.6)", lineHeight: 1, marginBottom: 22 }}>
+          {/* ── Tournament name — top, large, bright ── */}
+          <div style={{ position: "relative", zIndex: 1, textAlign: "center", width: "100%", marginBottom: 14 }}>
+            <div style={{ fontFamily: "'Bebas Neue',sans-serif",
+              fontSize: `clamp(${tvF(30)}px, 5.5vw, ${tvF(54)}px)`,
+              letterSpacing: "8px", lineHeight: 1, color: "#fff",
+              textShadow: `0 0 18px rgba(170,255,0,.9), 0 0 45px rgba(170,255,0,.5), 0 0 90px rgba(170,255,0,.25), 0 2px 10px rgba(0,0,0,.9)`,
+              wordBreak: "break-word", maxWidth: "94%", margin: "0 auto" }}>
               {leagueName || "LEAGUE-IT TOURNAMENT"}
             </div>
+          </div>
 
-            {/* Trophy — large + dramatic glow */}
+          {/* ── Main content block ── */}
+          <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column",
+            alignItems: "center", textAlign: "center", width: "100%",
+            flex: 1, justifyContent: "center" }}>
+
+            {/* Trophy — animated, strong glow */}
             <motion.div
-              animate={{ scale: [1, 1.09, 1], rotate: [-4, 4, -4] }}
+              animate={{ scale: [1, 1.1, 1], rotate: [-3, 3, -3] }}
               transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
-              style={{ color: N, marginBottom: 10,
-                filter: `drop-shadow(0 0 28px ${N}) drop-shadow(0 0 56px ${N}70)` }}>
-              <Trophy size={tvF(80)}/>
+              style={{ color: N, marginBottom: 6,
+                filter: `drop-shadow(0 0 32px ${N}) drop-shadow(0 0 72px ${N}90) drop-shadow(0 0 130px ${N}50)` }}>
+              <Trophy size={tvF(90)}/>
             </motion.div>
 
-            {/* Winner name — massive, responsive */}
+            {/* Winner name — massive */}
             <div style={{ fontFamily: "'Bebas Neue',sans-serif",
-              fontSize: `clamp(${tvF(42)}px, 8.5vw, ${tvF(92)}px)`,
+              fontSize: `clamp(${tvF(58)}px, 10.5vw, ${tvF(108)}px)`,
               letterSpacing: "2px", color: N,
-              textShadow: `0 0 30px rgba(170,255,0,.9), 0 0 70px rgba(170,255,0,.5), 0 0 120px rgba(170,255,0,.25)`,
-              lineHeight: 1, marginBottom: 14, wordBreak: "break-word",
+              textShadow: `0 0 20px rgba(170,255,0,1), 0 0 50px rgba(170,255,0,.85), 0 0 100px rgba(170,255,0,.55), 0 0 200px rgba(170,255,0,.3)`,
+              lineHeight: 0.95, marginBottom: 10, wordBreak: "break-word",
               maxWidth: "92%", textAlign: "center" }}>
               {arenaChampion.name}
             </div>
 
-            {/* TOURNAMENT CHAMPION with decorative lines */}
-            <div style={{ display: "flex", alignItems: "center", gap: 18,
-              width: "80%", maxWidth: 640, marginBottom: 26 }}>
-              <div style={{ flex: 1, height: 1, background: `linear-gradient(to right, transparent, ${N}55)` }}/>
-              <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(20), letterSpacing: "10px",
-                color: "rgba(255,255,255,.5)", flexShrink: 0 }}>TOURNAMENT CHAMPION</div>
-              <div style={{ flex: 1, height: 1, background: `linear-gradient(to left, transparent, ${N}55)` }}/>
+            {/* TOURNAMENT CHAMPION label — bright, prominent */}
+            <div style={{ display: "flex", alignItems: "center", gap: 16,
+              width: "88%", maxWidth: 720, marginBottom: 20 }}>
+              <div style={{ flex: 1, height: 2, borderRadius: 1,
+                background: `linear-gradient(to right, transparent, ${N}90)` }}/>
+              <div style={{ fontFamily: "'Bebas Neue',sans-serif",
+                fontSize: `clamp(${tvF(20)}px, 3.8vw, ${tvF(34)}px)`,
+                letterSpacing: "12px", flexShrink: 0, color: "#fff",
+                textShadow: `0 0 16px rgba(170,255,0,1), 0 0 40px rgba(170,255,0,.65), 0 0 80px rgba(170,255,0,.3)` }}>
+                TOURNAMENT CHAMPION
+              </div>
+              <div style={{ flex: 1, height: 2, borderRadius: 1,
+                background: `linear-gradient(to left, transparent, ${N}90)` }}/>
             </div>
 
-            {/* Score card — premium split layout */}
+            {/* Score card — bigger, more premium */}
             {arenaFinalMatch?.score && (
-              <div style={{ display: "flex", alignItems: "stretch", marginBottom: 26,
-                background: "rgba(255,255,255,.05)", border: `1px solid ${N}28`,
-                borderRadius: 20, overflow: "hidden",
-                boxShadow: `0 0 48px rgba(170,255,0,.07), inset 0 1px 0 ${N}18` }}>
-                <div style={{ padding: "14px 24px", display: "flex", alignItems: "center",
-                  minWidth: 100, maxWidth: 200 }}>
-                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(14), fontWeight: 800,
-                    color: arenaFinalMatch.winner?.id === arenaFinalMatch.p1?.id ? N : "rgba(255,255,255,.32)",
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "right", width: "100%" }}>
+              <div style={{ display: "flex", alignItems: "stretch", marginBottom: 18,
+                background: "rgba(255,255,255,.06)", border: `1px solid ${N}50`,
+                borderRadius: 22, overflow: "hidden",
+                boxShadow: `0 0 70px rgba(170,255,0,.13), 0 0 140px rgba(170,255,0,.06), inset 0 1px 0 ${N}35` }}>
+                <div style={{ padding: "18px 30px", display: "flex", alignItems: "center",
+                  minWidth: 120, maxWidth: 230 }}>
+                  <span style={{ fontFamily: "'DM Sans',sans-serif",
+                    fontSize: `clamp(${tvF(12)}px, 2.4vw, ${tvF(18)}px)`, fontWeight: 800,
+                    color: arenaFinalMatch.winner?.id === arenaFinalMatch.p1?.id ? N : "rgba(255,255,255,.28)",
+                    textShadow: arenaFinalMatch.winner?.id === arenaFinalMatch.p1?.id ? `0 0 14px ${N}90` : "none",
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    textAlign: "right", width: "100%" }}>
                     {arenaFinalMatch.p1?.name}
                   </span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 28px",
-                  borderLeft: "1px solid rgba(255,255,255,.08)",
-                  borderRight: "1px solid rgba(255,255,255,.08)",
-                  background: "rgba(170,255,0,.04)", flexShrink: 0 }}>
-                  <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(46), color: N,
-                    textShadow: `0 0 20px rgba(170,255,0,.7)`, lineHeight: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 18, padding: "18px 34px",
+                  borderLeft: `1px solid ${N}25`, borderRight: `1px solid ${N}25`,
+                  background: "rgba(170,255,0,.07)", flexShrink: 0 }}>
+                  <span style={{ fontFamily: "'Bebas Neue',sans-serif",
+                    fontSize: `clamp(${tvF(42)}px, 7vw, ${tvF(60)}px)`,
+                    color: N, textShadow: `0 0 28px rgba(170,255,0,.95)`, lineHeight: 1 }}>
                     {arenaFinalMatch.score.p1Goals}
                   </span>
-                  <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(28),
-                    color: "rgba(255,255,255,.22)", lineHeight: 1 }}>–</span>
-                  <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(46), color: N,
-                    textShadow: `0 0 20px rgba(170,255,0,.7)`, lineHeight: 1 }}>
+                  <span style={{ fontFamily: "'Bebas Neue',sans-serif",
+                    fontSize: `clamp(${tvF(26)}px, 4vw, ${tvF(36)}px)`,
+                    color: "rgba(255,255,255,.28)", lineHeight: 1 }}>–</span>
+                  <span style={{ fontFamily: "'Bebas Neue',sans-serif",
+                    fontSize: `clamp(${tvF(42)}px, 7vw, ${tvF(60)}px)`,
+                    color: N, textShadow: `0 0 28px rgba(170,255,0,.95)`, lineHeight: 1 }}>
                     {arenaFinalMatch.score.p2Goals}
                   </span>
                 </div>
-                <div style={{ padding: "14px 24px", display: "flex", alignItems: "center",
-                  minWidth: 100, maxWidth: 200 }}>
-                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(14), fontWeight: 800,
-                    color: arenaFinalMatch.winner?.id === arenaFinalMatch.p2?.id ? N : "rgba(255,255,255,.32)",
+                <div style={{ padding: "18px 30px", display: "flex", alignItems: "center",
+                  minWidth: 120, maxWidth: 230 }}>
+                  <span style={{ fontFamily: "'DM Sans',sans-serif",
+                    fontSize: `clamp(${tvF(12)}px, 2.4vw, ${tvF(18)}px)`, fontWeight: 800,
+                    color: arenaFinalMatch.winner?.id === arenaFinalMatch.p2?.id ? N : "rgba(255,255,255,.28)",
+                    textShadow: arenaFinalMatch.winner?.id === arenaFinalMatch.p2?.id ? `0 0 14px ${N}90` : "none",
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%" }}>
                     {arenaFinalMatch.p2?.name}
                   </span>
@@ -4551,9 +4586,12 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
               </div>
             )}
 
-            {/* Congratulations */}
-            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(12), fontWeight: 500,
-              color: "rgba(255,255,255,.22)", letterSpacing: "2px" }}>
+            {/* Congratulations — clearly visible */}
+            <div style={{ fontFamily: "'DM Sans',sans-serif",
+              fontSize: `clamp(${tvF(10)}px, 2vw, ${tvF(15)}px)`,
+              fontWeight: 600, letterSpacing: "3px", textTransform: "uppercase",
+              color: "rgba(255,255,255,.78)",
+              textShadow: `0 0 22px rgba(170,255,0,.55), 0 1px 6px rgba(0,0,0,.7)` }}>
               Congratulations on winning the tournament
             </div>
           </div>
