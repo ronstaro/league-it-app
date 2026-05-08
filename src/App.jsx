@@ -10167,6 +10167,11 @@ export default function Root() {
   const [lobbyData,        setLobbyData]        = useState(null);   // { leagueId, joinCode, leagueName, ownerId }
   const [joinFlowData,     setJoinFlowData]     = useState(null);   // { leagueId, leagueName, isSeeded, defaultNickname }
 
+  // Tracks current phase synchronously so async callbacks (onAuthStateChange) can
+  // read it without stale-closure issues — avoids kicking user out on TOKEN_REFRESHED.
+  const phaseRef = useRef("loading");
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+
   // ── Hard 10-second loading timeout — completely independent from the auth
   //    effect so it can NEVER be cancelled by auth re-subscriptions or errors.
   //    If the app is still on "loading" after 10 s, show the error screen.
@@ -10231,7 +10236,7 @@ export default function Root() {
         ...(pRows    || []).map(r => r.league_id),
         ...(ownedRows || []).map(r => r.id),
       ]);
-      if (!idSet.size) { setLeagues([]); return; }
+      if (!idSet.size) { setLeagues([]); return []; }
       const ids = [...idSet];
 
       // Step 2 — fetch league rows. Try with join_code first; if the column
@@ -10246,7 +10251,7 @@ export default function Root() {
 
       if (!error) {
         setLeagues(lRowsFull || []);
-        return;
+        return lRowsFull || [];
       }
 
       // join_code column not present — fall back without it
@@ -10257,9 +10262,12 @@ export default function Root() {
           .in("id", ids)
       );
       setLeagues(lRowsBase || []);
+      return lRowsBase || [];
     } catch {
-      // Query timed out or threw — fail gracefully, don't block loading
-      setLeagues([]);
+      // Network error or timeout — preserve existing leagues state rather than
+      // flashing "No leagues" to the user. Return null so callers can distinguish
+      // a real empty set from a failed fetch.
+      return null;
     }
   }, [withTimeout]);
 
@@ -10271,11 +10279,18 @@ export default function Root() {
       try {
         if (session?.user) {
           setUser(session.user);
-          // Each loader has its own try-catch — Promise.all will not hang even if one fails
+          // Snapshot phase *before* any async work. TOKEN_REFRESHED fires silently
+          // ~every hour while the user is active; we must not navigate them away.
+          const currentPhase = phaseRef.current;
+          const isActiveSession = currentPhase === "app" || currentPhase === "lobby" || currentPhase === "join_flow";
+          // Each loader has its own try-catch — Promise.all will not hang even if one fails.
+          // Do NOT call setLeagues([]) on error — preserve existing state on network blips.
           await Promise.all([
-            loadLeagues(session.user.id).catch(() => setLeagues([])),
+            loadLeagues(session.user.id).catch(() => {}),
             loadProfile(session.user.id).catch(() => setProfile(null)),
           ]);
+          // Silent re-auth while user is inside a league/lobby — refresh data but don't navigate
+          if (isActiveSession) return;
           const joinCode = localStorage.getItem("pending_join_code");
           const joinId   = sessionStorage.getItem("league_it_join_id");
           const intent   = sessionStorage.getItem("league_it_intent");
@@ -10295,6 +10310,7 @@ export default function Root() {
           }
         } else {
           setUser(null); setLeagues([]); setActiveData(null); setProfile(null);
+          localStorage.removeItem("league_it_active_id");
           setPhase("login");
         }
       } catch {
@@ -10322,9 +10338,11 @@ export default function Root() {
         joinCode:       league.join_code || league.settings?.leagueCode || null,
         initialRules:   settingsToRules(league.sport, league.settings),
       });
+      localStorage.setItem("league_it_active_id", league.id);
       setPhase("app");
     } catch {
-      // network error — stay on hub
+      // Network error — stay on hub, clear any stale saved id so we don't retry-loop
+      localStorage.removeItem("league_it_active_id");
     }
   }, [user]);
 
@@ -10391,6 +10409,18 @@ export default function Root() {
     })();
   }, [pendingJoinCode, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-restore the last active league after a page reload or PWA cold-start.
+  // Fires when phase reaches "hub" and leagues have loaded. If the user manually
+  // navigated back to hub (handleBack), the savedId is cleared so this is a no-op.
+  useEffect(() => {
+    if (phase !== "hub" || !user || leagues.length === 0) return;
+    const savedId = localStorage.getItem("league_it_active_id");
+    if (!savedId) return;
+    const league = leagues.find(l => l.id === savedId);
+    if (!league) { localStorage.removeItem("league_it_active_id"); return; }
+    handleEnterLeague(league);
+  }, [phase, leagues]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleJoinLeague = useCallback(async (code) => {
     if (!user) return { error: "Not logged in" };
     try {
@@ -10429,6 +10459,7 @@ export default function Root() {
       await supabase.from("matches").delete().eq("league_id", activeData.leagueId);
       await supabase.from("players").delete().eq("league_id", activeData.leagueId);
       await supabase.from("leagues").delete().eq("id", activeData.leagueId);
+      localStorage.removeItem("league_it_active_id");
       setActiveData(null);
       setPhase("hub");
       await loadLeagues(user.id);
@@ -10465,6 +10496,7 @@ export default function Root() {
   const handleBack = useCallback(() => {
     setActiveData(null);
     setPhase("hub");
+    localStorage.removeItem("league_it_active_id");
     if (user) loadLeagues(user.id);
   }, [user, loadLeagues]);
 
