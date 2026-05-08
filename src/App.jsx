@@ -660,10 +660,10 @@ function HomeTab({
   return (
     <div className="px-5 pt-5 pb-2">
 
-      {/* ── FEATURED TOOLS — compact 2-col near top ── */}
+      {/* ── TOOLS — compact 2-col near top ── */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "2px", color: "rgba(255,255,255,.28)", fontFamily: "'DM Sans',sans-serif" }}>FEATURED TOOLS</div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "2px", color: "rgba(255,255,255,.28)", fontFamily: "'DM Sans',sans-serif" }}>TOOLS</div>
           <div style={{ fontSize: 10, color: "rgba(255,255,255,.2)", fontFamily: "'DM Sans',sans-serif" }}>Make your tournament feel alive</div>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -682,14 +682,14 @@ function HomeTab({
             <div style={{ position: "relative", zIndex: 1, flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 800, color: "#fff",
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>
-                Decision Touch
+                Touch Call
                 <span style={{ marginLeft: 5, fontSize: 7, fontWeight: 900, letterSpacing: "1px",
                   background: "rgba(170,85,255,.18)", color: "#AA55FF", border: "1px solid rgba(170,85,255,.4)",
                   borderRadius: 4, padding: "1px 5px", verticalAlign: "middle" }}>NEW</span>
               </div>
               <p style={{ fontSize: 10, color: "rgba(255,255,255,.36)", fontFamily: "'DM Sans',sans-serif",
                 margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                Who goes first? · Last one standing wins
+                Decide first
               </p>
             </div>
             <ChevronRight size={14} style={{ color: "#AA55FF", flexShrink: 0, position: "relative", zIndex: 1 }}/>
@@ -708,14 +708,14 @@ function HomeTab({
             <div style={{ position: "relative", zIndex: 1, flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 800, color: "#fff",
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>
-                AI Referee
+                AI Ref
                 <span style={{ marginLeft: 5, fontSize: 7, fontWeight: 900, letterSpacing: "1px",
                   background: "rgba(170,255,0,.14)", color: N, border: "1px solid rgba(170,255,0,.3)",
                   borderRadius: 4, padding: "1px 5px", verticalAlign: "middle" }}>BETA</span>
               </div>
               <p style={{ fontSize: 10, color: "rgba(255,255,255,.36)", fontFamily: "'DM Sans',sans-serif",
                 margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                Settle disputes · Check rules · Call it fair
+                Rules & disputes
               </p>
             </div>
             <ChevronRight size={14} style={{ color: N, flexShrink: 0, position: "relative", zIndex: 1 }}/>
