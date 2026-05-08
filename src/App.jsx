@@ -659,6 +659,76 @@ function HomeTab({
 
   return (
     <div className="px-5 pt-5 pb-2">
+
+      {/* ── FEATURED TOOLS — compact 2-col near top ── */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "2px", color: "rgba(255,255,255,.28)", fontFamily: "'DM Sans',sans-serif" }}>FEATURED TOOLS</div>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,.2)", fontFamily: "'DM Sans',sans-serif" }}>Make your tournament feel alive</div>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+
+          {/* Decision Touch */}
+          <motion.div whileTap={{ scale: .97 }} onClick={() => setDT(true)}
+            style={{ flex: "1 1 155px", display: "flex", alignItems: "center", gap: 9,
+              borderRadius: 15, padding: "14px 12px",
+              position: "relative", overflow: "hidden", cursor: "pointer",
+              background: "rgba(255,255,255,.03)", border: "1px solid rgba(170,85,255,.28)" }}>
+            <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
+              background: "linear-gradient(135deg,rgba(170,85,255,.06),transparent 60%)" }}/>
+            <div style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center",
+              justifyContent: "center", fontSize: 16, flexShrink: 0, position: "relative", zIndex: 1,
+              background: "linear-gradient(135deg,#AA55FF,#7B2FBE)", boxShadow: "0 3px 12px rgba(170,85,255,.35)" }}>☝️</div>
+            <div style={{ position: "relative", zIndex: 1, flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 800, color: "#fff",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>
+                Decision Touch
+                <span style={{ marginLeft: 5, fontSize: 7, fontWeight: 900, letterSpacing: "1px",
+                  background: "rgba(170,85,255,.18)", color: "#AA55FF", border: "1px solid rgba(170,85,255,.4)",
+                  borderRadius: 4, padding: "1px 5px", verticalAlign: "middle" }}>NEW</span>
+              </div>
+              <p style={{ fontSize: 10, color: "rgba(255,255,255,.36)", fontFamily: "'DM Sans',sans-serif",
+                margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                Who goes first? · Last one standing wins
+              </p>
+            </div>
+            <ChevronRight size={14} style={{ color: "#AA55FF", flexShrink: 0, position: "relative", zIndex: 1 }}/>
+          </motion.div>
+
+          {/* AI Referee */}
+          <div style={{ flex: "1 1 155px", display: "flex", alignItems: "center", gap: 9,
+            borderRadius: 15, padding: "14px 12px",
+            position: "relative", overflow: "hidden", cursor: "pointer",
+            background: "rgba(255,255,255,.03)", border: "1px solid rgba(170,255,0,.22)" }}>
+            <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
+              background: "linear-gradient(135deg,rgba(170,255,0,.04),transparent 60%)" }}/>
+            <div style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center",
+              justifyContent: "center", fontSize: 16, flexShrink: 0, position: "relative", zIndex: 1,
+              background: `linear-gradient(135deg,${N},#7DC900)`, boxShadow: "0 3px 12px rgba(170,255,0,.3)" }}>🤖</div>
+            <div style={{ position: "relative", zIndex: 1, flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 800, color: "#fff",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>
+                AI Referee
+                <span style={{ marginLeft: 5, fontSize: 7, fontWeight: 900, letterSpacing: "1px",
+                  background: "rgba(170,255,0,.14)", color: N, border: "1px solid rgba(170,255,0,.3)",
+                  borderRadius: 4, padding: "1px 5px", verticalAlign: "middle" }}>BETA</span>
+              </div>
+              <p style={{ fontSize: 10, color: "rgba(255,255,255,.36)", fontFamily: "'DM Sans',sans-serif",
+                margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                Settle disputes · Check rules · Call it fair
+              </p>
+            </div>
+            <ChevronRight size={14} style={{ color: N, flexShrink: 0, position: "relative", zIndex: 1 }}/>
+          </div>
+
+        </div>
+      </div>
+
+      {/* Decision Touch Overlay */}
+      <AnimatePresence>
+        {showDT && <DecisionTouchOverlay onClose={() => setDT(false)}/>}
+      </AnimatePresence>
+
       {/* ── CLASSIC: standings table ── */}
       {!isTournament && (
         <>
@@ -763,44 +833,6 @@ function HomeTab({
           <div style={{fontSize:9,fontWeight:700,color:"rgba(170,255,0,.5)",fontFamily:"'DM Sans',sans-serif",marginTop:2}}>WIN STREAK</div>
         </div>
       </div>}
-
-      {/* Decision Touch */}
-      <motion.div whileTap={{scale:.98}} onClick={()=>setDT(true)}
-        className="flex items-center gap-4 rounded-[20px] p-4 mb-3 relative overflow-hidden cursor-pointer hover:brightness-110 transition-all"
-        style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(170,85,255,.28)"}}>
-        <div className="absolute inset-0 pointer-events-none" style={{background:"linear-gradient(135deg,rgba(170,85,255,.06),transparent 60%)"}}/>
-        <div className="w-11 h-11 rounded-[13px] flex items-center justify-center text-xl flex-shrink-0 relative z-10"
-          style={{background:"linear-gradient(135deg,#AA55FF,#7B2FBE)",boxShadow:"0 4px 16px rgba(170,85,255,.35)"}}>☝️</div>
-        <div className="relative z-10 flex-1">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,color:"#fff"}}>Decision Touch</span>
-            <span style={{fontSize:8,fontWeight:900,letterSpacing:"1px",background:"rgba(170,85,255,.18)",color:"#AA55FF",border:"1px solid rgba(170,85,255,.4)",borderRadius:5,padding:"2px 6px"}}>NEW</span>
-          </div>
-          <p style={{fontSize:11,color:"rgba(255,255,255,.38)",fontFamily:"'DM Sans',sans-serif"}}>Who goes first? Place fingers · last one standing wins</p>
-        </div>
-        <ChevronRight size={18} style={{color:"#AA55FF",flexShrink:0,position:"relative",zIndex:10}}/>
-      </motion.div>
-
-      {/* AI Ref */}
-      <div className="flex items-center gap-4 rounded-[20px] p-4 mb-6 relative overflow-hidden cursor-pointer hover:brightness-110 transition-all"
-        style={{background:"rgba(255,255,255,.03)",border:"1px solid rgba(170,255,0,.22)"}}>
-        <div className="absolute inset-0 pointer-events-none" style={{background:"linear-gradient(135deg,rgba(170,255,0,.04),transparent 60%)"}}/>
-        <div className="w-11 h-11 rounded-[13px] flex items-center justify-center text-xl flex-shrink-0 relative z-10"
-          style={{background:`linear-gradient(135deg,${N},#7DC900)`,boxShadow:"0 4px 16px rgba(170,255,0,.3)"}}>🤖</div>
-        <div className="relative z-10 flex-1">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,color:"#fff"}}>AI Referee</span>
-            <span style={{fontSize:8,fontWeight:900,letterSpacing:"1px",background:"rgba(170,255,0,.14)",color:N,border:"1px solid rgba(170,255,0,.3)",borderRadius:5,padding:"2px 6px"}}>BETA</span>
-          </div>
-          <p style={{fontSize:11,color:"rgba(255,255,255,.38)",fontFamily:"'DM Sans',sans-serif"}}>Settle disputes · Check rules · Call it fair</p>
-        </div>
-        <ChevronRight size={18} style={{color:N,flexShrink:0,position:"relative",zIndex:10}}/>
-      </div>
-
-      {/* Decision Touch Overlay */}
-      <AnimatePresence>
-        {showDT && <DecisionTouchOverlay onClose={()=>setDT(false)}/>}
-      </AnimatePresence>
 
       {/* League feed — classic leagues only; tournament results live in group tables + bracket */}
       {!isTournament && (
