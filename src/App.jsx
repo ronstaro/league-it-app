@@ -2262,28 +2262,46 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
 
           {/* ── Rename Player / Team ── */}
           <ST>✏️ Rename Player / Team</ST>
-          <div className="rounded-[18px] mb-6 overflow-hidden"
-            style={{border:"1px solid rgba(255,255,255,.08)",background:"rgba(255,255,255,.02)"}}>
+          <div style={{ marginBottom: 24 }}>
             {editablePlayers.length === 0 ? (
-              <div style={{padding:16,fontSize:12,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif"}}>
+              <div style={{ padding: "12px 16px", fontSize: 12, color: "rgba(255,255,255,.3)",
+                fontFamily: "'DM Sans',sans-serif", borderRadius: 14,
+                background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.08)" }}>
                 No players yet.
               </div>
-            ) : editablePlayers.map((p, i) => (
-              <div key={p.id || p.name}
-                style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",
-                  borderTop:i>0?"1px solid rgba(255,255,255,.05)":"none"}}>
-                <span style={{flex:1,fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,
-                  color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                  {p.name}
-                </span>
-                <button onClick={()=>handleRenameOpen(p)}
-                  style={{flexShrink:0,width:30,height:30,borderRadius:8,
-                    border:"1px solid rgba(255,255,255,.12)",background:"rgba(255,255,255,.05)",
-                    cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                  <Edit2 size={13} style={{color:"rgba(255,255,255,.55)"}}/>
-                </button>
+            ) : (
+              <div style={{ position: "relative" }}>
+                <select
+                  defaultValue=""
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (!val) return;
+                    const p = editablePlayers.find(x => (x.id || x.name) === val);
+                    if (p) handleRenameOpen(p);
+                    e.target.value = "";
+                  }}
+                  style={{
+                    width: "100%", appearance: "none", WebkitAppearance: "none",
+                    background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.12)",
+                    borderRadius: 14, padding: "13px 40px 13px 16px",
+                    fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans',sans-serif",
+                    color: "rgba(255,255,255,.5)", cursor: "pointer", outline: "none",
+                  }}>
+                  <option value="" style={{ background: "#111", color: "rgba(255,255,255,.4)" }}>
+                    Select player / team…
+                  </option>
+                  {editablePlayers.map(p => (
+                    <option key={p.id || p.name} value={p.id || p.name}
+                      style={{ background: "#111", color: "#fff" }}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronRight size={14} style={{ position: "absolute", right: 13, top: "50%",
+                  transform: "translateY(-50%) rotate(90deg)", pointerEvents: "none",
+                  color: "rgba(255,255,255,.38)" }}/>
               </div>
-            ))}
+            )}
           </div>
 
           {/* ── Emergency Group Editor ── */}
