@@ -6558,11 +6558,51 @@ function computeGroupStandings(groupParticipants, groupName, allGroupMatches, fe
       else stats[p2n].lost++;
     }
   });
-  return Object.values(stats).sort((a, b) => {
+  // ── Sort: pts → overall GD → H2H (pts, GD) → overall GF → insertion order ──
+  const rows = Object.values(stats);
+
+  // Primary pass: pts desc, then overall GD desc. Stable within each bucket.
+  rows.sort((a, b) => {
     if (b.pts !== a.pts) return b.pts - a.pts;
-    const gdA = a.gf - a.ga, gdB = b.gf - b.ga;
-    return gdB !== gdA ? gdB - gdA : b.gf - a.gf;
+    return (b.gf - b.ga) - (a.gf - a.ga);
   });
+
+  // Secondary pass: within each equal (pts + GD) bucket, apply H2H then GF.
+  const out = [];
+  let i = 0;
+  while (i < rows.length) {
+    let j = i + 1;
+    const gdI = rows[i].gf - rows[i].ga;
+    while (j < rows.length &&
+           rows[j].pts === rows[i].pts &&
+           rows[j].gf - rows[j].ga === gdI) j++;
+
+    const bucket = rows.slice(i, j);
+    if (bucket.length > 1) {
+      // Build H2H mini-table: only matches between the tied teams
+      const names = new Set(bucket.map(r => r.participant.name));
+      const h2h = {};
+      bucket.forEach(r => { h2h[r.participant.name] = { pts: 0, gd: 0, gf: 0 }; });
+      results.forEach(m => {
+        if (!names.has(m.p1Name) || !names.has(m.p2Name)) return;
+        const g1 = Number(m.p1Goals ?? 0), g2 = Number(m.p2Goals ?? 0);
+        h2h[m.p1Name].gf += g1; h2h[m.p1Name].gd += g1 - g2;
+        h2h[m.p2Name].gf += g2; h2h[m.p2Name].gd += g2 - g1;
+        if      (g1 > g2) h2h[m.p1Name].pts += 3;
+        else if (g1 < g2) h2h[m.p2Name].pts += 3;
+        else              { h2h[m.p1Name].pts += 1; h2h[m.p2Name].pts += 1; }
+      });
+      bucket.sort((a, b) => {
+        const ha = h2h[a.participant.name], hb = h2h[b.participant.name];
+        if (hb.pts !== ha.pts) return hb.pts - ha.pts;   // H2H points
+        if (hb.gd  !== ha.gd)  return hb.gd  - ha.gd;   // H2H goal difference
+        return b.gf - a.gf;                               // overall goals for
+      });
+    }
+    out.push(...bucket);
+    i = j;
+  }
+  return out;
 }
 
 // ─────────────────────────────────────────────
