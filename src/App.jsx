@@ -1853,6 +1853,24 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
     rules?.tournamentFormat && rules.tournamentFormat !== "classic" && rules?.groups?.length
   );
 
+  // Rename tool player list: players table → rules.participants → groups (flattened, de-duped)
+  const editablePlayers = (() => {
+    if (players.length > 0) return players;
+    if (rules?.participants?.length) return rules.participants;
+    if (rules?.groups?.length) {
+      const seen = new Set();
+      const list = [];
+      for (const g of rules.groups) {
+        for (const p of (g.participants || [])) {
+          const key = p.id || p.name?.trim().toLowerCase();
+          if (key && !seen.has(key)) { seen.add(key); list.push(p); }
+        }
+      }
+      return list;
+    }
+    return [];
+  })();
+
   // ── Rename handlers ──────────────────────────────────────────────────────
   const handleRenameOpen = (player) => {
     setRenamingPlayer(player);
@@ -1864,15 +1882,18 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
     const newName = renameValue.trim();
     if (!newName || !renamingPlayer || renameSaving) return;
     if (newName === renamingPlayer.name) { setRenamingPlayer(null); return; }
-    const isDuplicate = players.some(
-      p => p.id !== renamingPlayer.id && p.name.trim().toLowerCase() === newName.toLowerCase()
+    const isDuplicate = editablePlayers.some(
+      p => (p.id ? p.id !== renamingPlayer.id : p.name !== renamingPlayer.name)
+        && p.name.trim().toLowerCase() === newName.toLowerCase()
     );
     if (isDuplicate) { setRenameError("A player/team with this name already exists."); return; }
     setRenameSaving(true);
     setRenameError("");
     try {
-      const { error: pErr } = await supabase.from("players").update({ name: newName }).eq("id", renamingPlayer.id);
-      if (pErr) throw pErr;
+      if (renamingPlayer.id) {
+        const { error: pErr } = await supabase.from("players").update({ name: newName }).eq("id", renamingPlayer.id);
+        if (pErr) throw pErr;
+      }
       const oldName = renamingPlayer.name;
       const updRules = renamePlayerInRules(rules, oldName, newName);
       if (leagueId) {
@@ -2211,11 +2232,11 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
           <ST>✏️ Rename Player / Team</ST>
           <div className="rounded-[18px] mb-6 overflow-hidden"
             style={{border:"1px solid rgba(255,255,255,.08)",background:"rgba(255,255,255,.02)"}}>
-            {players.length === 0 ? (
+            {editablePlayers.length === 0 ? (
               <div style={{padding:16,fontSize:12,color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif"}}>
                 No players yet.
               </div>
-            ) : players.map((p, i) => (
+            ) : editablePlayers.map((p, i) => (
               <div key={p.id || p.name}
                 style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",
                   borderTop:i>0?"1px solid rgba(255,255,255,.05)":"none"}}>
@@ -4409,102 +4430,130 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.9 }}
           style={{ position: "relative", display: "flex", flexDirection: "column",
             alignItems: "center", justifyContent: "center",
-            flex: 1, minHeight: 0, overflow: "hidden", padding: "40px 24px" }}>
+            flex: 1, minHeight: 0, overflow: "hidden", padding: "20px 32px" }}>
 
-          {/* Neon radial background glow */}
+          {/* Layered radial glows */}
           <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
-            background: `radial-gradient(ellipse 70% 55% at 50% 50%, rgba(170,255,0,.07) 0%, transparent 72%)` }}/>
+            background: `radial-gradient(ellipse 90% 80% at 50% 50%, rgba(170,255,0,.10) 0%, rgba(170,255,0,.04) 45%, transparent 72%)` }}/>
+          <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
+            background: `radial-gradient(ellipse 40% 40% at 50% 50%, rgba(170,255,0,.13) 0%, transparent 100%)` }}/>
 
-          {/* Expanding rings */}
-          {[0, 1, 2].map(i => (
+          {/* Slowly rotating light beams */}
+          <motion.div animate={{ rotate: 360 }} transition={{ duration: 32, repeat: Infinity, ease: "linear" }}
+            style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+            {[0, 45, 90, 135, 180, 225, 270, 315].map((deg, i) => (
+              <div key={i} style={{ position: "absolute", top: "50%", left: "50%",
+                width: "65%", height: 1, transformOrigin: "left center",
+                transform: `rotate(${deg}deg)`,
+                background: `linear-gradient(90deg, ${N}20, transparent)` }}/>
+            ))}
+          </motion.div>
+
+          {/* Expanding rings — 5 rings, staggered */}
+          {[0, 1, 2, 3, 4].map(i => (
             <motion.div key={i}
-              animate={{ scale: [0.5, 2.0], opacity: [0.25, 0] }}
-              transition={{ duration: 3.8, delay: i * 1.25, repeat: Infinity, ease: "easeOut" }}
-              style={{ position: "absolute", width: 360, height: 360, borderRadius: "50%",
-                border: `1px solid ${N}28`, pointerEvents: "none" }}/>
+              animate={{ scale: [0.3, 2.6], opacity: [0.35, 0] }}
+              transition={{ duration: 4.5, delay: i * 0.9, repeat: Infinity, ease: "easeOut" }}
+              style={{ position: "absolute", width: 420, height: 420, borderRadius: "50%",
+                border: `1px solid ${N}32`, pointerEvents: "none" }}/>
           ))}
 
-          {/* Floating sparkle dots */}
+          {/* Sparkle dots — larger + brighter */}
           {CHAMPION_SPARKLES.map((s, i) => (
             <motion.div key={i}
-              animate={{ opacity: [0, 0.9, 0], y: [0, -16, 0], scale: [0.6, 1.2, 0.6] }}
+              animate={{ opacity: [0, 1, 0], y: [0, -22, 0], scale: [0.5, 1.5, 0.5] }}
               transition={{ duration: s.dur, delay: s.delay, repeat: Infinity, ease: "easeInOut" }}
               style={{ position: "absolute", left: `${s.x}%`, top: `${s.y}%`,
-                width: 5, height: 5, borderRadius: "50%", background: N,
-                boxShadow: `0 0 8px ${N}`, pointerEvents: "none" }}/>
+                width: 6, height: 6, borderRadius: "50%", background: N,
+                boxShadow: `0 0 10px ${N}, 0 0 20px ${N}60`, pointerEvents: "none" }}/>
           ))}
 
-          {/* Main content */}
+          {/* ── Main content ── */}
           <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column",
-            alignItems: "center", textAlign: "center", width: "100%", maxWidth: 720 }}>
+            alignItems: "center", textAlign: "center", width: "100%" }}>
 
-            {/* FINAL RESULT badge */}
+            {/* Badge + league name */}
             <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(9), fontWeight: 800,
               letterSpacing: "3px", color: N, background: `${N}12`,
-              border: `1px solid ${N}30`, borderRadius: 6, padding: "3px 16px", marginBottom: 22 }}>
+              border: `1px solid ${N}30`, borderRadius: 6, padding: "3px 16px", marginBottom: 10 }}>
               FINAL RESULT
             </div>
-
-            {/* League / tournament name */}
-            <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(24), letterSpacing: "5px",
-              color: "rgba(255,255,255,.65)", marginBottom: 6, lineHeight: 1 }}>
+            <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(26), letterSpacing: "6px",
+              color: "rgba(255,255,255,.6)", lineHeight: 1, marginBottom: 22 }}>
               {leagueName || "LEAGUE-IT TOURNAMENT"}
             </div>
 
-            {/* Subtitle */}
-            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(10), fontWeight: 800,
-              letterSpacing: "3px", color: "rgba(255,255,255,.28)", marginBottom: 30 }}>
-              TOURNAMENT WINNER
-            </div>
-
-            {/* Trophy icon */}
+            {/* Trophy — large + dramatic glow */}
             <motion.div
-              animate={{ scale: [1, 1.07, 1], rotate: [-3, 3, -3] }}
-              transition={{ duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
-              style={{ color: N, filter: `drop-shadow(0 0 22px ${N}90)`, marginBottom: 16 }}>
-              <Trophy size={tvF(54)}/>
+              animate={{ scale: [1, 1.09, 1], rotate: [-4, 4, -4] }}
+              transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
+              style={{ color: N, marginBottom: 10,
+                filter: `drop-shadow(0 0 28px ${N}) drop-shadow(0 0 56px ${N}70)` }}>
+              <Trophy size={tvF(80)}/>
             </motion.div>
 
-            {/* Winner name */}
-            <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(60), letterSpacing: "3px",
-              color: N, textShadow: `0 0 28px rgba(170,255,0,.65), 0 0 60px rgba(170,255,0,.3)`,
-              lineHeight: 1.05, marginBottom: 8, wordBreak: "break-word", maxWidth: "100%" }}>
+            {/* Winner name — massive, responsive */}
+            <div style={{ fontFamily: "'Bebas Neue',sans-serif",
+              fontSize: `clamp(${tvF(42)}px, 8.5vw, ${tvF(92)}px)`,
+              letterSpacing: "2px", color: N,
+              textShadow: `0 0 30px rgba(170,255,0,.9), 0 0 70px rgba(170,255,0,.5), 0 0 120px rgba(170,255,0,.25)`,
+              lineHeight: 1, marginBottom: 14, wordBreak: "break-word",
+              maxWidth: "92%", textAlign: "center" }}>
               {arenaChampion.name}
             </div>
 
-            {/* CHAMPION label */}
-            <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(18), letterSpacing: "9px",
-              color: "rgba(255,255,255,.45)", marginBottom: 26 }}>
-              CHAMPION
+            {/* TOURNAMENT CHAMPION with decorative lines */}
+            <div style={{ display: "flex", alignItems: "center", gap: 18,
+              width: "80%", maxWidth: 640, marginBottom: 26 }}>
+              <div style={{ flex: 1, height: 1, background: `linear-gradient(to right, transparent, ${N}55)` }}/>
+              <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(20), letterSpacing: "10px",
+                color: "rgba(255,255,255,.5)", flexShrink: 0 }}>TOURNAMENT CHAMPION</div>
+              <div style={{ flex: 1, height: 1, background: `linear-gradient(to left, transparent, ${N}55)` }}/>
             </div>
 
-            {/* Final score */}
+            {/* Score card — premium split layout */}
             {arenaFinalMatch?.score && (
-              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 30,
-                background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.1)",
-                borderRadius: 14, padding: "10px 26px" }}>
-                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(13), fontWeight: 700,
-                  color: arenaFinalMatch.winner?.id === arenaFinalMatch.p1?.id ? N : "rgba(255,255,255,.35)",
-                  minWidth: 80, maxWidth: 140, textAlign: "right",
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {arenaFinalMatch.p1?.name}
-                </span>
-                <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(28), color: N,
-                  textShadow: `0 0 12px rgba(170,255,0,.5)`, flexShrink: 0 }}>
-                  {arenaFinalMatch.score.p1Goals} – {arenaFinalMatch.score.p2Goals}
-                </span>
-                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(13), fontWeight: 700,
-                  color: arenaFinalMatch.winner?.id === arenaFinalMatch.p2?.id ? N : "rgba(255,255,255,.35)",
-                  minWidth: 80, maxWidth: 140, textAlign: "left",
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {arenaFinalMatch.p2?.name}
-                </span>
+              <div style={{ display: "flex", alignItems: "stretch", marginBottom: 26,
+                background: "rgba(255,255,255,.05)", border: `1px solid ${N}28`,
+                borderRadius: 20, overflow: "hidden",
+                boxShadow: `0 0 48px rgba(170,255,0,.07), inset 0 1px 0 ${N}18` }}>
+                <div style={{ padding: "14px 24px", display: "flex", alignItems: "center",
+                  minWidth: 100, maxWidth: 200 }}>
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(14), fontWeight: 800,
+                    color: arenaFinalMatch.winner?.id === arenaFinalMatch.p1?.id ? N : "rgba(255,255,255,.32)",
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "right", width: "100%" }}>
+                    {arenaFinalMatch.p1?.name}
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 28px",
+                  borderLeft: "1px solid rgba(255,255,255,.08)",
+                  borderRight: "1px solid rgba(255,255,255,.08)",
+                  background: "rgba(170,255,0,.04)", flexShrink: 0 }}>
+                  <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(46), color: N,
+                    textShadow: `0 0 20px rgba(170,255,0,.7)`, lineHeight: 1 }}>
+                    {arenaFinalMatch.score.p1Goals}
+                  </span>
+                  <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(28),
+                    color: "rgba(255,255,255,.22)", lineHeight: 1 }}>–</span>
+                  <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(46), color: N,
+                    textShadow: `0 0 20px rgba(170,255,0,.7)`, lineHeight: 1 }}>
+                    {arenaFinalMatch.score.p2Goals}
+                  </span>
+                </div>
+                <div style={{ padding: "14px 24px", display: "flex", alignItems: "center",
+                  minWidth: 100, maxWidth: 200 }}>
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(14), fontWeight: 800,
+                    color: arenaFinalMatch.winner?.id === arenaFinalMatch.p2?.id ? N : "rgba(255,255,255,.32)",
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%" }}>
+                    {arenaFinalMatch.p2?.name}
+                  </span>
+                </div>
               </div>
             )}
 
-            {/* Congratulations line */}
-            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(11), fontWeight: 500,
-              color: "rgba(255,255,255,.2)", letterSpacing: "1.5px" }}>
+            {/* Congratulations */}
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(12), fontWeight: 500,
+              color: "rgba(255,255,255,.22)", letterSpacing: "2px" }}>
               Congratulations on winning the tournament
             </div>
           </div>
