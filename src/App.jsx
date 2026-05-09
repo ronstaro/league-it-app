@@ -622,6 +622,7 @@ function HomeTab({
 }) {
   const [showAll,setShowAll]               = useState(false);
   const [showDT,setDT]                     = useState(false);
+  const [showAIRef,setAIRef]               = useState(false);
   const mvp    = useMemo(()=>players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:{name:"No Players",wins:0,losses:0},[players]);
   const streak = useMemo(()=>players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:{name:"No Players",bestStreak:0},[players]);
 
@@ -696,7 +697,8 @@ function HomeTab({
           </motion.div>
 
           {/* AI Referee */}
-          <div style={{ flex: "1 1 155px", display: "flex", alignItems: "center", gap: 9,
+          <motion.div whileTap={{ scale: .97 }} onClick={() => setAIRef(true)}
+            style={{ flex: "1 1 155px", display: "flex", alignItems: "center", gap: 9,
             borderRadius: 15, padding: "14px 12px",
             position: "relative", overflow: "hidden", cursor: "pointer",
             background: "rgba(255,255,255,.03)", border: "1px solid rgba(170,255,0,.22)" }}>
@@ -719,7 +721,7 @@ function HomeTab({
               </p>
             </div>
             <ChevronRight size={14} style={{ color: N, flexShrink: 0, position: "relative", zIndex: 1 }}/>
-          </div>
+          </motion.div>
 
         </div>
       </div>
@@ -727,6 +729,11 @@ function HomeTab({
       {/* Decision Touch Overlay */}
       <AnimatePresence>
         {showDT && <DecisionTouchOverlay onClose={() => setDT(false)}/>}
+      </AnimatePresence>
+
+      {/* AI Ref Overlay */}
+      <AnimatePresence>
+        {showAIRef && <AIRefOverlay onClose={() => setAIRef(false)}/>}
       </AnimatePresence>
 
       {/* ── GROUPS+KNOCKOUT: jump nav selector ── */}
@@ -1155,6 +1162,164 @@ function DecisionTouchOverlay({ onClose }) {
             </motion.div>
           );
         })}
+      </div>
+    </motion.div>
+  );
+}
+
+/* ── AI REF OVERLAY ── */
+const AI_REF_GREEN = "#AAFF00";
+
+function aiRefResponse(question) {
+  const q = question.toLowerCase();
+  const hasTie      = /tie|equal|same points?|ranking|table|tiebreak|tie-break|tied|tied on/.test(q);
+  const hasResult   = /result|report|edit|score|enter|log|record/.test(q);
+  const hasAdmin    = /admin|rename|delete|reset|manage|create group|change group/.test(q);
+
+  if (hasTie) {
+    return "📋 Official ruling — Group ranking order:\n1. Points\n2. Goal Difference\n3. Head-to-Head (H2H)\n4. Goals For\n5. Admin decision if still tied\n\nThis is the standard tie-break sequence for all group stages.";
+  }
+  if (hasResult) {
+    return "✅ Pilot ruling — During this pilot, any logged-in tournament participant may report or edit match results.\n\nFair play is expected. Admins retain the right to correct any result. Report accurate scores only.";
+  }
+  if (hasAdmin) {
+    return "🔒 Admin-only — Actions like renaming players, deleting matches, resetting seasons, or managing groups are reserved for the tournament admin.\n\nContact your admin if you need changes made.";
+  }
+  return "📣 Referee ruling — I don't have a specific rule on that one.\n\nReferee note: if this depends on your league settings, check with the tournament admin for the final call.";
+}
+
+function AIRefOverlay({ onClose }) {
+  const [messages, setMessages] = useState([
+    { from: "ref", text: "👋 AI Ref here. Ask me about rules, tie-breaks, result reporting, or any tournament dispute." }
+  ]);
+  const [input, setInput]     = useState("");
+  const [thinking, setThinking] = useState(false);
+  const bottomRef             = useRef(null);
+  const inputRef              = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, thinking]);
+
+  const send = useCallback(() => {
+    const q = input.trim();
+    if (!q || thinking) return;
+    setMessages(prev => [...prev, { from: "user", text: q }]);
+    setInput("");
+    setThinking(true);
+    setTimeout(() => {
+      setThinking(false);
+      setMessages(prev => [...prev, { from: "ref", text: aiRefResponse(q) }]);
+    }, 700 + Math.random() * 400);
+  }, [input, thinking]);
+
+  const onKey = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      style={{ position: "fixed", inset: 0, zIndex: 9998,
+        background: "rgba(0,0,0,.97)", backdropFilter: "blur(24px)",
+        display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "12px 20px 10px",
+        paddingTop: "max(env(safe-area-inset-top,12px),12px)",
+        background: "rgba(0,0,0,.5)", borderBottom: "1px solid rgba(255,255,255,.06)",
+        flexShrink: 0 }}>
+        <div>
+          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 19, letterSpacing: "3px",
+            color: "#fff", lineHeight: 1 }}>
+            AI REF
+          </div>
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9,
+            color: "rgba(255,255,255,.28)", marginTop: 2 }}>
+            Rules · disputes · tournament decisions
+          </div>
+        </div>
+        <button onClick={onClose}
+          style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.12)",
+            borderRadius: 10, color: "#fff", fontFamily: "'DM Sans',sans-serif",
+            fontSize: 12, fontWeight: 700, padding: "7px 14px", cursor: "pointer" }}>
+          Close
+        </button>
+      </div>
+
+      {/* Message history */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 8px" }}>
+        {messages.map((msg, i) => {
+          const isRef = msg.from === "ref";
+          return (
+            <div key={i} style={{ display: "flex", justifyContent: isRef ? "flex-start" : "flex-end",
+              marginBottom: 10 }}>
+              {isRef && (
+                <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                  background: `linear-gradient(135deg,${AI_REF_GREEN},#7DC900)`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 14, marginRight: 8, alignSelf: "flex-end" }}>
+                  🤖
+                </div>
+              )}
+              <div style={{ maxWidth: "78%",
+                background: isRef ? "rgba(170,255,0,.08)" : "rgba(255,255,255,.07)",
+                border: isRef ? `1px solid rgba(170,255,0,.2)` : "1px solid rgba(255,255,255,.1)",
+                borderRadius: isRef ? "14px 14px 14px 4px" : "14px 14px 4px 14px",
+                padding: "10px 13px",
+                fontFamily: "'DM Sans',sans-serif", fontSize: 13, lineHeight: 1.55,
+                color: isRef ? "rgba(255,255,255,.9)" : "rgba(255,255,255,.75)",
+                whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                {msg.text}
+              </div>
+            </div>
+          );
+        })}
+        {thinking && (
+          <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 10 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+              background: `linear-gradient(135deg,${AI_REF_GREEN},#7DC900)`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 14, marginRight: 8, alignSelf: "flex-end" }}>
+              🤖
+            </div>
+            <div style={{ background: "rgba(170,255,0,.08)", border: "1px solid rgba(170,255,0,.2)",
+              borderRadius: "14px 14px 14px 4px", padding: "10px 13px",
+              fontFamily: "'DM Sans',sans-serif", fontSize: 12,
+              color: "rgba(255,255,255,.4)", fontStyle: "italic" }}>
+              Referee thinking…
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef}/>
+      </div>
+
+      {/* Input row */}
+      <div style={{ flexShrink: 0, padding: "10px 16px",
+        paddingBottom: "max(env(safe-area-inset-bottom,10px),10px)",
+        borderTop: "1px solid rgba(255,255,255,.06)",
+        background: "rgba(0,0,0,.5)", display: "flex", gap: 8 }}>
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={onKey}
+          placeholder="Ask the ref…"
+          style={{ flex: 1, background: "rgba(255,255,255,.05)",
+            border: "1px solid rgba(255,255,255,.12)", borderRadius: 12,
+            padding: "12px 14px", color: "#fff", outline: "none",
+            fontFamily: "'DM Sans',sans-serif", fontSize: 13 }}/>
+        <button onClick={send} disabled={!input.trim() || thinking}
+          style={{ background: input.trim() && !thinking
+            ? `linear-gradient(135deg,${AI_REF_GREEN},#7DC900)` : "rgba(255,255,255,.08)",
+            border: "none", borderRadius: 12, padding: "0 18px",
+            color: input.trim() && !thinking ? "#000" : "rgba(255,255,255,.3)",
+            fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 800,
+            cursor: input.trim() && !thinking ? "pointer" : "default",
+            transition: "all .2s" }}>
+          Send
+        </button>
       </div>
     </motion.div>
   );
