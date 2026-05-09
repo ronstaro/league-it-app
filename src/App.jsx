@@ -697,11 +697,14 @@ function HomeTab({
           </motion.div>
 
           {/* AI Referee */}
-          <motion.div whileTap={{ scale: .97 }} onClick={() => setAIRef(true)}
+          <motion.div whileTap={{ scale: .97 }}
+            onClick={() => setAIRef(true)}
+            onPointerUp={() => setAIRef(true)}
             style={{ flex: "1 1 155px", display: "flex", alignItems: "center", gap: 9,
-            borderRadius: 15, padding: "14px 12px",
-            position: "relative", overflow: "hidden", cursor: "pointer",
-            background: "rgba(255,255,255,.03)", border: "1px solid rgba(170,255,0,.22)" }}>
+              borderRadius: 15, padding: "14px 12px",
+              position: "relative", overflow: "hidden", cursor: "pointer",
+              touchAction: "manipulation",
+              background: "rgba(255,255,255,.03)", border: "1px solid rgba(170,255,0,.22)" }}>
             <div style={{ position: "absolute", inset: 0, pointerEvents: "none",
               background: "linear-gradient(135deg,rgba(170,255,0,.04),transparent 60%)" }}/>
             <div style={{ width: 34, height: 34, borderRadius: 10, display: "flex", alignItems: "center",
@@ -1220,7 +1223,7 @@ function AIRefOverlay({ onClose }) {
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      style={{ position: "fixed", inset: 0, zIndex: 9998,
+      style={{ position: "fixed", inset: 0, zIndex: 9999,
         background: "rgba(0,0,0,.97)", backdropFilter: "blur(24px)",
         display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
