@@ -729,6 +729,37 @@ function HomeTab({
         {showDT && <DecisionTouchOverlay onClose={() => setDT(false)}/>}
       </AnimatePresence>
 
+      {/* ── GROUPS+KNOCKOUT: jump nav selector ── */}
+      {isTournament && tournamentFormat === "groups_knockout" && groups.length > 0 && (groups.length > 1 || !!(bracket || tdbBracket)) && (
+        <div style={{ position: "relative", marginBottom: 16 }}>
+          <select
+            defaultValue=""
+            onChange={e => {
+              const id = e.target.value;
+              if (!id) return;
+              const el = document.getElementById(id);
+              if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+              e.target.value = "";
+            }}
+            style={{ width: "100%", appearance: "none", WebkitAppearance: "none",
+              background: "rgba(255,255,255,.04)", border: "1px solid rgba(255,255,255,.12)",
+              borderRadius: 14, padding: "11px 40px 11px 16px",
+              fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif",
+              color: "rgba(255,255,255,.45)", cursor: "pointer", outline: "none" }}>
+            <option value="">Jump to section…</option>
+            {groups.map(g => (
+              <option key={g.name} value={`group-${g.name}`}>Group {g.name}</option>
+            ))}
+            {(bracket || tdbBracket) && (
+              <option value="knockout-section">⚡ Knockout Bracket</option>
+            )}
+          </select>
+          <ChevronRight size={14} style={{ position: "absolute", right: 13, top: "50%",
+            transform: "translateY(-50%) rotate(90deg)", pointerEvents: "none",
+            color: "rgba(255,255,255,.38)" }}/>
+        </div>
+      )}
+
       {/* ── CLASSIC: standings table ── */}
       {!isTournament && (
         <>
@@ -765,22 +796,23 @@ function HomeTab({
 
           {/* Group standings + fixtures (repeated per group) */}
           {groups.map(group => (
-            <GroupTable
-              key={group.name}
-              group={group}
-              groupMatches={groupMatches.filter(m => m.groupName === group.name)}
-              feed={feed}
-              allGroupMatches={groupMatches}
-              onMatchTap={onGroupMatchTap}
-              isAdmin={isAdmin}
-              canReport={canReport}
-              advancingPerGroup={advancingPerGroup}
-            />
+            <div key={group.name} id={`group-${group.name}`} style={{ scrollMarginTop: "120px" }}>
+              <GroupTable
+                group={group}
+                groupMatches={groupMatches.filter(m => m.groupName === group.name)}
+                feed={feed}
+                allGroupMatches={groupMatches}
+                onMatchTap={onGroupMatchTap}
+                isAdmin={isAdmin}
+                canReport={canReport}
+                advancingPerGroup={advancingPerGroup}
+              />
+            </div>
           ))}
 
           {/* Bracket tree — real if generated, TBD preview while groups in progress */}
           {groups.length > 0 && (bracket || tdbBracket) && (
-            <div style={{ marginTop: 8 }}>
+            <div id="knockout-section" style={{ marginTop: 8, scrollMarginTop: "120px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                 <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 16, letterSpacing: "2px", color: "#fff" }}>
                   ⚡ Knockout <span style={{ color: N }}>Bracket</span>
