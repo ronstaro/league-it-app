@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase, supabaseConfigured } from "./lib/supabase";
 import { parseMG, enrichPlayers, derivePlayerStats, byWins, medal } from "./lib/stats";
@@ -1174,20 +1175,22 @@ function DecisionTouchOverlay({ onClose }) {
 const AI_REF_GREEN = "#AAFF00";
 
 function aiRefResponse(question) {
+  const isHebrew = /[֐-׿]/.test(question);
   const q = question.toLowerCase();
-  const hasTie      = /tie|equal|same points?|ranking|table|tiebreak|tie-break|tied|tied on/.test(q);
-  const hasResult   = /result|report|edit|score|enter|log|record/.test(q);
-  const hasAdmin    = /admin|rename|delete|reset|manage|create group|change group/.test(q);
+  const hasTie    = /tie|equal|same points?|ranking|table|tiebreak|tie-break|tied|שוויון|נקודות|דירוג|טיוב|שוויות/.test(q);
+  const hasResult = /result|report|edit|score|enter|log|record|תוצאה|דיווח|עריכה|ניקוד|הכנסה/.test(q);
+  const hasAdmin  = /admin|rename|delete|reset|manage|create group|change group|מנהל|שינוי שם|מחיקה|איפוס|ניהול/.test(q);
 
-  if (hasTie) {
-    return "📋 Official ruling — Group ranking order:\n1. Points\n2. Goal Difference\n3. Head-to-Head (H2H)\n4. Goals For\n5. Admin decision if still tied\n\nThis is the standard tie-break sequence for all group stages.";
+  if (isHebrew) {
+    if (hasTie)    return "📋 פסיקה רשמית — סדר הדירוג בשלב הבתים:\n1. נקודות\n2. הפרש שערים\n3. עימות ישיר (ראש בראש)\n4. שערים לטובה\n5. החלטת מנהל במקרה של שוויון\n\nזהו סדר הטיוב הסטנדרטי לכל שלבי הבתים.";
+    if (hasResult) return "✅ פסיקת פיילוט — בשלב הפיילוט, כל משתמש מחובר בטורניר רשאי לדווח ולערוך תוצאות משחק.\n\nהוגנות נדרשת. המנהל שומר לעצמו את הזכות לתקן כל תוצאה. דווחו על תוצאות מדויקות בלבד.";
+    if (hasAdmin)  return "🔒 מנהל בלבד — פעולות כגון שינוי שם שחקן, מחיקת משחקים, איפוס עונה או ניהול קבוצות שמורות למנהל הטורניר.\n\nפנו למנהל אם נדרש שינוי.";
+    return "📣 פסיקת שופט — אין לי חוק ספציפי לשאלה זו.\n\nהערת שופט: אם הדבר תלוי בהגדרות הליגה שלכם, פנו למנהל הטורניר להכרעה הסופית.";
   }
-  if (hasResult) {
-    return "✅ Pilot ruling — During this pilot, any logged-in tournament participant may report or edit match results.\n\nFair play is expected. Admins retain the right to correct any result. Report accurate scores only.";
-  }
-  if (hasAdmin) {
-    return "🔒 Admin-only — Actions like renaming players, deleting matches, resetting seasons, or managing groups are reserved for the tournament admin.\n\nContact your admin if you need changes made.";
-  }
+
+  if (hasTie)    return "📋 Official ruling — Group ranking order:\n1. Points\n2. Goal Difference\n3. Head-to-Head (H2H)\n4. Goals For\n5. Admin decision if still tied\n\nThis is the standard tie-break sequence for all group stages.";
+  if (hasResult) return "✅ Pilot ruling — During this pilot, any logged-in tournament participant may report or edit match results.\n\nFair play is expected. Admins retain the right to correct any result. Report accurate scores only.";
+  if (hasAdmin)  return "🔒 Admin-only — Actions like renaming players, deleting matches, resetting seasons, or managing groups are reserved for the tournament admin.\n\nContact your admin if you need changes made.";
   return "📣 Referee ruling — I don't have a specific rule on that one.\n\nReferee note: if this depends on your league settings, check with the tournament admin for the final call.";
 }
 
@@ -1220,10 +1223,11 @@ function AIRefOverlay({ onClose }) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
-  return (
+  return createPortal(
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      style={{ position: "fixed", inset: 0, zIndex: 9999,
+      style={{ position: "fixed", inset: 0, zIndex: 99999,
+        height: "100dvh",
         background: "rgba(0,0,0,.97)", backdropFilter: "blur(24px)",
         display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
@@ -1266,7 +1270,7 @@ function AIRefOverlay({ onClose }) {
                   🤖
                 </div>
               )}
-              <div style={{ maxWidth: "78%",
+              <div dir="auto" style={{ maxWidth: "78%",
                 background: isRef ? "rgba(170,255,0,.08)" : "rgba(255,255,255,.07)",
                 border: isRef ? `1px solid rgba(170,255,0,.2)` : "1px solid rgba(255,255,255,.1)",
                 borderRadius: isRef ? "14px 14px 14px 4px" : "14px 14px 4px 14px",
@@ -1309,6 +1313,7 @@ function AIRefOverlay({ onClose }) {
           onChange={e => setInput(e.target.value)}
           onKeyDown={onKey}
           placeholder="Ask the ref…"
+          dir="auto"
           style={{ flex: 1, background: "rgba(255,255,255,.05)",
             border: "1px solid rgba(255,255,255,.12)", borderRadius: 12,
             padding: "12px 14px", color: "#fff", outline: "none",
@@ -1324,7 +1329,8 @@ function AIRefOverlay({ onClose }) {
           Send
         </button>
       </div>
-    </motion.div>
+    </motion.div>,
+    document.body
   );
 }
 
