@@ -618,7 +618,7 @@ function HomeTab({
   isTournament=false, tournamentFormat="classic",
   bracket=null, onMatchTap=null, onGenerateDraw=null, matchLegs=1,
   groups=[], groupMatches=[], onGroupMatchTap=null, advancingPerGroup=2,
-  wildcardCount=0, wildcardRule="none",
+  wildcardCount=0, wildcardRule="none", canReport=false,
 }) {
   const [showAll,setShowAll]               = useState(false);
   const [showDT,setDT]                     = useState(false);
@@ -751,7 +751,7 @@ function HomeTab({
             )}
           </div>
           {bracket ? (
-            <TournamentBracket bracket={bracket} isAdmin={isAdmin} onMatchTap={onMatchTap} matchLegs={matchLegs}/>
+            <TournamentBracket bracket={bracket} isAdmin={isAdmin} canReport={canReport} onMatchTap={onMatchTap} matchLegs={matchLegs}/>
           ) : (
             <_DrawEmptyState isAdmin={isAdmin} onGenerateDraw={onGenerateDraw}/>
           )}
@@ -773,6 +773,7 @@ function HomeTab({
               allGroupMatches={groupMatches}
               onMatchTap={onGroupMatchTap}
               isAdmin={isAdmin}
+              canReport={canReport}
               advancingPerGroup={advancingPerGroup}
             />
           ))}
@@ -795,6 +796,7 @@ function HomeTab({
               <TournamentBracket
                 bracket={bracket || tdbBracket}
                 isAdmin={!!bracket && isAdmin}
+                canReport={!!bracket && canReport}
                 onMatchTap={bracket ? onMatchTap : null}
                 matchLegs={matchLegs}
               />
@@ -807,6 +809,7 @@ function HomeTab({
               bracket={bracket || tdbBracket}
               onMatchTap={bracket ? onMatchTap : null}
               isAdmin={!!bracket && isAdmin}
+              canReport={!!bracket && canReport}
               matchLegs={matchLegs}
               feed={feed}
             />
@@ -2934,7 +2937,7 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
 const SLOT_H      = 80;  // vertical space per r1 match
 const MATCH_H     = 62;  // actual card height
 
-function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, matchLegs = 1 }) {
+function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, canReport = false, matchLegs = 1 }) {
   if (!bracket?.rounds?.length) return null;
   const { rounds } = bracket;
   const r1Count    = rounds[0].length;
@@ -2978,7 +2981,7 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, matchL
                 const hasWinner = !!match.winner;
                 // For 2-leg: also tappable when leg1 done but leg2 not yet
                 const leg1Done  = matchLegs === 2 && match.leg1 && !match.leg2;
-                const canLog    = isAdmin && bothSet && !match.isBye && (!hasWinner || leg1Done);
+                const canLog    = (isAdmin || canReport) && bothSet && !match.isBye && (!hasWinner || leg1Done);
 
                 // 2-leg score display
                 const showLegs  = matchLegs === 2 && (match.leg1 || match.leg2);
@@ -3112,7 +3115,7 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, matchL
 // ─────────────────────────────────────────────
 // KNOCKOUT FIXTURES LIST
 // ─────────────────────────────────────────────
-function KnockoutFixtures({ bracket, onMatchTap, isAdmin, matchLegs }) {
+function KnockoutFixtures({ bracket, onMatchTap, isAdmin, canReport = false, matchLegs }) {
   if (!bracket?.rounds?.length) return null;
   const n = bracket.rounds.length;
 
@@ -3150,7 +3153,7 @@ function KnockoutFixtures({ bracket, onMatchTap, isAdmin, matchLegs }) {
               const bothKnown = p1 && p2 && !p1.isTBD && !p2.isTBD;
               const isDone = !!match.winner;
               const leg1Done = matchLegs === 2 && match.leg1 && !match.leg2;
-              const tappable = isAdmin && bothKnown && (matchLegs === 2 ? (!isDone || leg1Done) : !p1.isTBD && !p2.isTBD);
+              const tappable = (isAdmin || canReport) && bothKnown && (matchLegs === 2 ? (!isDone || leg1Done) : !p1.isTBD && !p2.isTBD);
 
               let scoreDisplay = null;
               if (match.score) {
@@ -3488,7 +3491,7 @@ function TournamentLogModal({ match, matchType, matchLegs = 1, contextLabel = ""
 const GROUP_COLORS = ["#AAFF00","#3B8EFF","#FFB830","#FF6B35","#AA55FF","#00E5CC","#FF3355","#FFD700"];
 const GROUP_LETTER_IDX = { A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7 };
 
-function GroupTable({ group, groupMatches, feed, onMatchTap, isAdmin, advancingPerGroup = 2 }) {
+function GroupTable({ group, groupMatches, feed, onMatchTap, isAdmin, canReport = false, advancingPerGroup = 2 }) {
   const gc = GROUP_COLORS[GROUP_LETTER_IDX[group.name] ?? 0];
   const completedIds = useMemo(() => new Set(feed.map(m => m.id)), [feed]);
 
@@ -3597,7 +3600,7 @@ function GroupTable({ group, groupMatches, feed, onMatchTap, isAdmin, advancingP
         {groupMatches.map(fixture => {
           const result = feed.find(m => m.id === fixture.id);
           const isPending = !result;
-          const canLog    = isAdmin;
+          const canLog    = isAdmin || canReport;
           return (
             <div key={fixture.id}
               onClick={() => canLog && onMatchTap?.({ ...fixture, existingP1Goals: result?.p1Goals, existingP2Goals: result?.p2Goals })}
@@ -3635,11 +3638,11 @@ function GroupTable({ group, groupMatches, feed, onMatchTap, isAdmin, advancingP
                 </div>
               )}
               {result && (
-                <div style={{ width: 18, height: 18, borderRadius: "50%", background: isAdmin ? "rgba(170,255,0,.08)" : "rgba(170,255,0,.12)",
-                  border: `1px solid ${isAdmin ? "rgba(170,255,0,.4)" : "rgba(170,255,0,.3)"}`,
+                <div style={{ width: 18, height: 18, borderRadius: "50%", background: "rgba(170,255,0,.08)",
+                  border: `1px solid rgba(170,255,0,.4)`,
                   display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                  cursor: isAdmin ? "pointer" : "default" }}>
-                  {isAdmin ? <Edit2 size={9} style={{ color: N }}/> : <Check size={9} style={{ color: N }}/>}
+                  cursor: canLog ? "pointer" : "default" }}>
+                  {canLog ? <Edit2 size={9} style={{ color: N }}/> : <Check size={9} style={{ color: N }}/>}
                 </div>
               )}
             </div>
@@ -4960,6 +4963,9 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
 
   const isTournament = rules?.tournamentFormat && rules.tournamentFormat !== "classic";
   const isAdmin      = !!(user?.id && ownerId && user.id === ownerId);
+  // Any logged-in user inside a tournament may report/edit match results.
+  // This is deliberately broader than isAdmin for the pilot.
+  const canReportTournamentResults = isTournament && !!(user?.id);
   const groups       = useMemo(() => rules?.groups       || [], [rules]);
   const groupMatches = useMemo(() => rules?.groupMatches || [], [rules]);
 
@@ -5425,6 +5431,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                advancingPerGroup={rules?.groupSettings?.advancingPerGroup || 2}
                wildcardCount={rules?.groupSettings?.wildcardCount || 0}
                wildcardRule={rules?.groupSettings?.wildcardRule || "none"}
+               canReport={canReportTournamentResults}
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament} groupMatches={groupMatches} bracket={bracket}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName):prev);}}/>,
