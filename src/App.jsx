@@ -5409,10 +5409,21 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       }
 
       if (allQualifiers.length >= 2) {
+        console.log("[bracket] groups:", groups.length,
+          "| advancing/group:", advancingPerGroup,
+          "| wildcards:", wildcardCount,
+          "| total qualifiers:", allQualifiers.length,
+          "| names:", allQualifiers.map(p => p.name));
+        advancingByGroup.forEach((g, i) =>
+          console.log(`[bracket] Group ${String.fromCharCode(65+i)}:`, g.map(p => p.name)));
         const dedupedAdvancing = advancingByGroup.map(g => dedupeParticipants(g));
         const knockoutBracket = (wildcardCount > 0 || groups.length < 2)
           ? generateKnockoutBracket(allQualifiers)
           : generateCrossoverBracket(dedupedAdvancing);
+        console.log("[bracket] R1 matchups:", knockoutBracket?.rounds?.[0]
+          ?.filter(m => m.p1 || m.p2)
+          .map(m => `${m.p1?.name ?? "BYE"} vs ${m.p2?.name ?? "BYE"}`));
+        validateBracketR1(knockoutBracket);
         await _saveGroupsState(undefined, undefined, knockoutBracket);
       }
     }
@@ -5446,10 +5457,17 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       ]);
     }
     if (allQualifiers.length < 2) return;
+    console.log("[re-generate] groups:", groups.length,
+      "| qualifiers:", allQualifiers.length,
+      "| names:", allQualifiers.map(p => p.name));
     const dedupedAdvancing = advancingByGroup.map(g => dedupeParticipants(g));
     const knockoutBracket = (wildcardCount > 0 || groups.length < 2)
       ? generateKnockoutBracket(allQualifiers)
       : generateCrossoverBracket(dedupedAdvancing);
+    console.log("[re-generate] R1 matchups:", knockoutBracket?.rounds?.[0]
+      ?.filter(m => m.p1 || m.p2)
+      .map(m => `${m.p1?.name ?? "BYE"} vs ${m.p2?.name ?? "BYE"}`));
+    validateBracketR1(knockoutBracket);
     await _saveGroupsState(undefined, undefined, knockoutBracket);
   }, [leagueId, groups, groupMatches, feed, rules, _saveGroupsState]);
 
@@ -6508,9 +6526,11 @@ function _shuffleArr(arr) {
 // Seed 1 and Seed 2 can only meet in the final.
 function _bracketSeedOrder(n) {
   let order = [1, 2];
+  let size = 2;
   while (order.length < n) {
+    size *= 2; // complement must use THIS step's size, not the final n
     const next = [];
-    for (const s of order) { next.push(s); next.push(n + 1 - s); }
+    for (const s of order) { next.push(s); next.push(size + 1 - s); }
     order = next;
   }
   return order;
@@ -6757,21 +6777,46 @@ function applyBracketResult(bracket, matchId, winnerObj, score) {
 // ─────────────────────────────────────────────
 
 // Stable dedup: first occurrence of each id (preferred) or normalized name wins.
+// Dedupe by stable id only. If no id, warn but KEEP the participant —
+// names may legitimately overlap (e.g. "RON & YUVAL" vs "YUVAL & TOM").
 function dedupeParticipants(list) {
-  const seenIds   = new Set();
-  const seenNames = new Set();
-  const out       = [];
+  const seenIds = new Set();
+  const out     = [];
   for (const p of list) {
     if (!p) continue;
-    const id   = p.id ?? null;
-    const name = (p.name ?? "").toLowerCase().trim();
-    if (id   && seenIds.has(id))     { console.error("[bracket] duplicate participant id removed:", p.name);   continue; }
-    if (name && seenNames.has(name)) { console.error("[bracket] duplicate participant name removed:", p.name); continue; }
-    if (id)   seenIds.add(id);
-    if (name) seenNames.add(name);
+    const id = p.id ?? null;
+    if (id) {
+      if (seenIds.has(id)) { console.error("[bracket] duplicate participant id removed:", p.name); continue; }
+      seenIds.add(id);
+    } else {
+      console.warn("[bracket] participant has no stable id:", p.name, "— kept as-is (cannot safely dedup by name)");
+    }
     out.push(p);
   }
   return out;
+}
+
+// Validates R1 of a generated bracket for duplicate participants and duplicate matchups.
+function validateBracketR1(bracket) {
+  if (!bracket?.rounds?.[0]) return;
+  const seenById  = {};
+  const seenPairs = {};
+  let dupFound = false;
+  for (const match of bracket.rounds[0]) {
+    const p1 = match.p1, p2 = match.p2;
+    for (const p of [p1, p2]) {
+      if (!p) continue;
+      const k = p.id ?? p.name;
+      if (seenById[k]) { console.error("[bracket] DUPLICATE R1 participant:", p.name); dupFound = true; }
+      else seenById[k] = true;
+    }
+    if (p1 && p2) {
+      const pk = [p1.id ?? p1.name, p2.id ?? p2.name].sort().join("|||");
+      if (seenPairs[pk]) { console.error("[bracket] DUPLICATE R1 matchup:", p1.name, "vs", p2.name); dupFound = true; }
+      else seenPairs[pk] = true;
+    }
+  }
+  if (!dupFound) console.log("[bracket] R1 OK — no duplicates detected");
 }
 
 function generateGroupStage(participants, playersPerGroup, numGroupsOverride) {
