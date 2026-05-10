@@ -5797,6 +5797,12 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     await _saveBracket(updatedBracket);
   }, [isAdmin, leagueId, _saveBracket]);
 
+  const handleResetSeason = useCallback(async () => {
+    setPlayers([]);
+    setFeed([]);
+    await _saveBracket(null); // clears bracket locally (setBracket(null)) + persists bracket:null to DB
+  }, [_saveBracket]);
+
   const handleBracketResult = useCallback(async ({ match, winner, loser, p1Goals, p2Goals, leg, isLeg1Only }) => {
     if (!bracket || !leagueId) { alert("League ID is missing — cannot save match."); return; }
     setTournamentModal(null);
@@ -6038,7 +6044,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                onEditBracket={isAdmin ? handleEditBracket : null}
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament} groupMatches={groupMatches} bracket={bracket}/>,
-    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName):prev);}}/>,
+    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={handleResetSeason} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName):prev);}}/>,
     profile: isAdmin && !myPlayer
       ? <AdminDashboard players={enrichedPlayers} feed={feed} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches}/>
       : <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate}/>,
@@ -7217,23 +7223,44 @@ function generateGroupStage(participants, playersPerGroup, numGroupsOverride) {
     if (groups[col]) groups[col].participants.push(p);
   });
 
-  // Round-robin fixtures within each group
+  // Round-robin fixtures within each group, ordered for live-friendly play
   const groupMatches = [];
   for (const group of groups) {
-    const ps = group.participants;
-    for (let i = 0; i < ps.length; i++) {
-      for (let j = i + 1; j < ps.length; j++) {
-        groupMatches.push({
-          id: crypto.randomUUID(),
-          groupName: group.name,
-          p1: ps[i],
-          p2: ps[j],
-        });
-      }
+    for (const [p1, p2] of _scheduleRoundRobin(group.participants)) {
+      groupMatches.push({ id: crypto.randomUUID(), groupName: group.name, p1, p2 });
     }
   }
 
   return { groups, groupMatches };
+}
+
+// Circle-method round-robin scheduler.
+// Returns match pairs in round order: each round has floor(n/2) matches,
+// every team plays at most once per round, no team plays back-to-back.
+// For odd n a null phantom provides the BYE; those pairs are skipped.
+function _scheduleRoundRobin(participants) {
+  const n = participants.length;
+  if (n < 2) return [];
+
+  const teams = [...participants];
+  if (n % 2 === 1) teams.push(null); // phantom BYE for odd groups
+
+  const size     = teams.length;
+  const halfSize = size / 2;
+  const fixed    = teams[0];
+  const rotating = teams.slice(1);
+  const matches  = [];
+
+  for (let round = 0; round < size - 1; round++) {
+    const circle = [fixed, ...rotating];
+    for (let i = 0; i < halfSize; i++) {
+      const a = circle[i], b = circle[size - 1 - i];
+      if (a !== null && b !== null) matches.push([a, b]);
+    }
+    rotating.unshift(rotating.pop()); // rotate one position
+  }
+
+  return matches;
 }
 
 // Derive group standings for a single group from the live feed
