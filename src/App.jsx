@@ -620,6 +620,7 @@ function HomeTab({
   bracket=null, onMatchTap=null, onGenerateDraw=null, matchLegs=1,
   groups=[], groupMatches=[], onGroupMatchTap=null, advancingPerGroup=2,
   wildcardCount=0, wildcardRule="none", canReport=false,
+  onRegenerateBracket=null,
 }) {
   const [showAll,setShowAll]               = useState(false);
   const [showDT,setDT]                     = useState(false);
@@ -834,6 +835,14 @@ function HomeTab({
                     border: "1px solid rgba(255,255,255,.1)", borderRadius: 6, padding: "2px 7px" }}>
                     PREVIEW
                   </span>
+                )}
+                {isAdmin && !!bracket && !!onRegenerateBracket && (
+                  <button onClick={onRegenerateBracket}
+                    style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 800,
+                      letterSpacing: "1px", color: "#000", background: N,
+                      border: "none", borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>
+                    Re-generate
+                  </button>
                 )}
               </div>
               <TournamentBracket
@@ -5373,18 +5382,25 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       const advancingByGroup = standingsByGroup.map(s =>
         s.slice(0, advancingPerGroup).map(st => st.participant)
       );
-      const directQualifiers = advancingByGroup.flat();
+      const directQualifiers = dedupeParticipants(advancingByGroup.flat());
+      if (directQualifiers.length < advancingByGroup.flat().length)
+        console.error("[bracket] directQualifiers had duplicates — removed before bracket generation");
 
       let allQualifiers = directQualifiers;
       if (wildcardRule === "best_3rd_place" && wildcardCount > 0) {
+        const directKeys = new Set(directQualifiers.map(p => p.id ?? (p.name ?? "").toLowerCase().trim()));
         const thirdPlaces = standingsByGroup
           .map(s => s[advancingPerGroup])
           .filter(Boolean)
+          .filter(s => {
+            const key = s.participant.id ?? (s.participant.name ?? "").toLowerCase().trim();
+            return !directKeys.has(key); // exclude teams already qualified directly
+          })
           .sort((a, b) => (b.pts - a.pts) || ((b.gf - b.ga) - (a.gf - a.ga)) || (b.gf - a.gf));
-        allQualifiers = [
+        allQualifiers = dedupeParticipants([
           ...directQualifiers,
           ...thirdPlaces.slice(0, wildcardCount).map(s => s.participant),
-        ];
+        ]);
       }
 
       if (targetBracketSize && allQualifiers.length !== targetBracketSize) {
@@ -5393,13 +5409,49 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       }
 
       if (allQualifiers.length >= 2) {
+        const dedupedAdvancing = advancingByGroup.map(g => dedupeParticipants(g));
         const knockoutBracket = (wildcardCount > 0 || groups.length < 2)
           ? generateKnockoutBracket(allQualifiers)
-          : generateCrossoverBracket(advancingByGroup);
+          : generateCrossoverBracket(dedupedAdvancing);
         await _saveGroupsState(undefined, undefined, knockoutBracket);
       }
     }
   }, [leagueId, players, feed, groups, groupMatches, rules, _saveGroupsState]);
+
+  // Admin-only: re-generates ONLY the knockout bracket from current group standings.
+  // Does NOT touch groups or groupMatches. Use after detecting a corrupted/duplicate bracket.
+  const handleRegenerateBracket = useCallback(async () => {
+    if (!leagueId || !groups.length) return;
+    const advancingPerGroup = rules?.groupSettings?.advancingPerGroup || 2;
+    const wildcardCount     = rules?.groupSettings?.wildcardCount     || 0;
+    const wildcardRule      = rules?.groupSettings?.wildcardRule      || "none";
+    const standingsByGroup  = groups.map(g =>
+      computeGroupStandings(g.participants, g.name, groupMatches, feed)
+    );
+    const advancingByGroup  = standingsByGroup.map(s =>
+      s.slice(0, advancingPerGroup).map(st => st.participant)
+    );
+    const directQualifiers  = dedupeParticipants(advancingByGroup.flat());
+    let allQualifiers = directQualifiers;
+    if (wildcardRule === "best_3rd_place" && wildcardCount > 0) {
+      const directKeys = new Set(directQualifiers.map(p => p.id ?? (p.name ?? "").toLowerCase().trim()));
+      const thirdPlaces = standingsByGroup
+        .map(s => s[advancingPerGroup])
+        .filter(Boolean)
+        .filter(s => !directKeys.has(s.participant.id ?? (s.participant.name ?? "").toLowerCase().trim()))
+        .sort((a, b) => (b.pts - a.pts) || ((b.gf - b.ga) - (a.gf - a.ga)) || (b.gf - a.gf));
+      allQualifiers = dedupeParticipants([
+        ...directQualifiers,
+        ...thirdPlaces.slice(0, wildcardCount).map(s => s.participant),
+      ]);
+    }
+    if (allQualifiers.length < 2) return;
+    const dedupedAdvancing = advancingByGroup.map(g => dedupeParticipants(g));
+    const knockoutBracket = (wildcardCount > 0 || groups.length < 2)
+      ? generateKnockoutBracket(allQualifiers)
+      : generateCrossoverBracket(dedupedAdvancing);
+    await _saveGroupsState(undefined, undefined, knockoutBracket);
+  }, [leagueId, groups, groupMatches, feed, rules, _saveGroupsState]);
 
   const handleBracketResult = useCallback(async ({ match, winner, loser, p1Goals, p2Goals, leg, isLeg1Only }) => {
     if (!bracket || !leagueId) { alert("League ID is missing — cannot save match."); return; }
@@ -5638,6 +5690,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                wildcardCount={rules?.groupSettings?.wildcardCount || 0}
                wildcardRule={rules?.groupSettings?.wildcardRule || "none"}
                canReport={canReportTournamentResults}
+               onRegenerateBracket={isAdmin ? handleRegenerateBracket : null}
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament} groupMatches={groupMatches} bracket={bracket}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName):prev);}}/>,
@@ -6702,9 +6755,31 @@ function applyBracketResult(bracket, matchId, winnerObj, score) {
 // ─────────────────────────────────────────────
 // GROUP STAGE GENERATION
 // ─────────────────────────────────────────────
+
+// Stable dedup: first occurrence of each id (preferred) or normalized name wins.
+function dedupeParticipants(list) {
+  const seenIds   = new Set();
+  const seenNames = new Set();
+  const out       = [];
+  for (const p of list) {
+    if (!p) continue;
+    const id   = p.id ?? null;
+    const name = (p.name ?? "").toLowerCase().trim();
+    if (id   && seenIds.has(id))     { console.error("[bracket] duplicate participant id removed:", p.name);   continue; }
+    if (name && seenNames.has(name)) { console.error("[bracket] duplicate participant name removed:", p.name); continue; }
+    if (id)   seenIds.add(id);
+    if (name) seenNames.add(name);
+    out.push(p);
+  }
+  return out;
+}
+
 function generateGroupStage(participants, playersPerGroup, numGroupsOverride) {
   if (!participants || participants.length < 2) return { groups: [], groupMatches: [] };
-  const numGroups = numGroupsOverride || Math.max(1, Math.ceil(participants.length / playersPerGroup));
+  const deduped = dedupeParticipants(participants);
+  if (deduped.length < participants.length)
+    console.error(`[bracket] generateGroupStage: removed ${participants.length - deduped.length} duplicate participant(s) before draw`);
+  const numGroups = numGroupsOverride || Math.max(1, Math.ceil(deduped.length / playersPerGroup));
   const groups = Array.from({ length: numGroups }, (_, i) => ({
     name: String.fromCharCode(65 + i), // A, B, C, D...
     participants: [],
@@ -6712,7 +6787,7 @@ function generateGroupStage(participants, playersPerGroup, numGroupsOverride) {
 
   // Sort by tier (best players first), then snake-draft into groups for balance
   const TIER_RANK = { A: 0, B: 1, C: 2, D: 3, E: 4 };
-  const sorted = [...participants].sort((a, b) => {
+  const sorted = [...deduped].sort((a, b) => {
     const ra = a.tier ? (TIER_RANK[a.tier] ?? 9) : 9;
     const rb = b.tier ? (TIER_RANK[b.tier] ?? 9) : 9;
     return ra !== rb ? ra - rb : Math.random() - 0.5;
