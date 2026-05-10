@@ -648,7 +648,7 @@ function HomeTab({
         }))
       : [];
     const allSlots = [...directSlots, ...wildcardSlots];
-    return wildcardSlots.length > 0 || groups.length < 2
+    return (wildcardSlots.length > 0 || groups.length < 2 || groups.length % 2 !== 0)
       ? buildTbdPreviewBracket(allSlots)
       : generateCrossoverBracket(groups.map(g =>
           Array.from({ length: advancingPerGroup }, (_, rank) => ({
@@ -5388,14 +5388,11 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
 
       let allQualifiers = directQualifiers;
       if (wildcardRule === "best_3rd_place" && wildcardCount > 0) {
-        const directKeys = new Set(directQualifiers.map(p => p.id ?? (p.name ?? "").toLowerCase().trim()));
+        const directIds = new Set(directQualifiers.map(p => p.id).filter(Boolean));
         const thirdPlaces = standingsByGroup
           .map(s => s[advancingPerGroup])
           .filter(Boolean)
-          .filter(s => {
-            const key = s.participant.id ?? (s.participant.name ?? "").toLowerCase().trim();
-            return !directKeys.has(key); // exclude teams already qualified directly
-          })
+          .filter(s => !directIds.has(s.participant.id))
           .sort((a, b) => (b.pts - a.pts) || ((b.gf - b.ga) - (a.gf - a.ga)) || (b.gf - a.gf));
         allQualifiers = dedupeParticipants([
           ...directQualifiers,
@@ -5417,13 +5414,17 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
         advancingByGroup.forEach((g, i) =>
           console.log(`[bracket] Group ${String.fromCharCode(65+i)}:`, g.map(p => p.name)));
         const dedupedAdvancing = advancingByGroup.map(g => dedupeParticipants(g));
-        const knockoutBracket = (wildcardCount > 0 || groups.length < 2)
+        const knockoutBracket = (wildcardCount > 0 || groups.length < 2 || groups.length % 2 !== 0)
           ? generateKnockoutBracket(allQualifiers)
           : generateCrossoverBracket(dedupedAdvancing);
         console.log("[bracket] R1 matchups:", knockoutBracket?.rounds?.[0]
           ?.filter(m => m.p1 || m.p2)
           .map(m => `${m.p1?.name ?? "BYE"} vs ${m.p2?.name ?? "BYE"}`));
         validateBracketR1(knockoutBracket);
+        if (!isBracketValid(knockoutBracket)) {
+          console.error("[bracket] INVALID bracket generated — save blocked. Duplicate participant or matchup in R1.");
+          return;
+        }
         await _saveGroupsState(undefined, undefined, knockoutBracket);
       }
     }
@@ -5445,11 +5446,11 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     const directQualifiers  = dedupeParticipants(advancingByGroup.flat());
     let allQualifiers = directQualifiers;
     if (wildcardRule === "best_3rd_place" && wildcardCount > 0) {
-      const directKeys = new Set(directQualifiers.map(p => p.id ?? (p.name ?? "").toLowerCase().trim()));
+      const directIds = new Set(directQualifiers.map(p => p.id).filter(Boolean));
       const thirdPlaces = standingsByGroup
         .map(s => s[advancingPerGroup])
         .filter(Boolean)
-        .filter(s => !directKeys.has(s.participant.id ?? (s.participant.name ?? "").toLowerCase().trim()))
+        .filter(s => !directIds.has(s.participant.id))
         .sort((a, b) => (b.pts - a.pts) || ((b.gf - b.ga) - (a.gf - a.ga)) || (b.gf - a.gf));
       allQualifiers = dedupeParticipants([
         ...directQualifiers,
@@ -5461,13 +5462,17 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       "| qualifiers:", allQualifiers.length,
       "| names:", allQualifiers.map(p => p.name));
     const dedupedAdvancing = advancingByGroup.map(g => dedupeParticipants(g));
-    const knockoutBracket = (wildcardCount > 0 || groups.length < 2)
+    const knockoutBracket = (wildcardCount > 0 || groups.length < 2 || groups.length % 2 !== 0)
       ? generateKnockoutBracket(allQualifiers)
       : generateCrossoverBracket(dedupedAdvancing);
     console.log("[re-generate] R1 matchups:", knockoutBracket?.rounds?.[0]
       ?.filter(m => m.p1 || m.p2)
       .map(m => `${m.p1?.name ?? "BYE"} vs ${m.p2?.name ?? "BYE"}`));
     validateBracketR1(knockoutBracket);
+    if (!isBracketValid(knockoutBracket)) {
+      console.error("[re-generate] INVALID bracket generated — save blocked. Duplicate participant or matchup in R1.");
+      return;
+    }
     await _saveGroupsState(undefined, undefined, knockoutBracket);
   }, [leagueId, groups, groupMatches, feed, rules, _saveGroupsState]);
 
@@ -6817,6 +6822,27 @@ function validateBracketR1(bracket) {
     }
   }
   if (!dupFound) console.log("[bracket] R1 OK — no duplicates detected");
+}
+
+function isBracketValid(bracket) {
+  if (!bracket?.rounds?.[0]) return false;
+  const seenById = {};
+  const seenPairs = {};
+  for (const match of bracket.rounds[0]) {
+    const p1 = match.p1, p2 = match.p2;
+    for (const p of [p1, p2]) {
+      if (!p) continue;
+      const k = p.id ?? p.name;
+      if (seenById[k]) return false;
+      seenById[k] = true;
+    }
+    if (p1 && p2) {
+      const pk = [p1.id ?? p1.name, p2.id ?? p2.name].sort().join("|||");
+      if (seenPairs[pk]) return false;
+      seenPairs[pk] = true;
+    }
+  }
+  return true;
 }
 
 function generateGroupStage(participants, playersPerGroup, numGroupsOverride) {
