@@ -620,11 +620,12 @@ function HomeTab({
   bracket=null, onMatchTap=null, onGenerateDraw=null, matchLegs=1,
   groups=[], groupMatches=[], onGroupMatchTap=null, advancingPerGroup=2,
   wildcardCount=0, wildcardRule="none", canReport=false,
-  onRegenerateBracket=null,
+  onRegenerateBracket=null, onEditBracket=null,
 }) {
   const [showAll,setShowAll]               = useState(false);
   const [showDT,setDT]                     = useState(false);
   const [showAIRef,setAIRef]               = useState(false);
+  const [showBracketEditor,setBracketEditor]= useState(false);
   const mvp    = useMemo(()=>players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:{name:"No Players",wins:0,losses:0},[players]);
   const streak = useMemo(()=>players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:{name:"No Players",bestStreak:0},[players]);
 
@@ -741,6 +742,18 @@ function HomeTab({
         {showAIRef && <AIRefOverlay onClose={() => setAIRef(false)}/>}
       </AnimatePresence>
 
+      {/* Emergency Bracket Editor (admin-only) */}
+      <AnimatePresence>
+        {showBracketEditor && isAdmin && !!bracket && !!onEditBracket && (
+          <EmergencyBracketEditor
+            bracket={bracket}
+            groups={groups}
+            onSave={async (updated) => { await onEditBracket(updated); setBracketEditor(false); }}
+            onClose={() => setBracketEditor(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* ── GROUPS+KNOCKOUT: jump nav selector ── */}
       {isTournament && tournamentFormat === "groups_knockout" && groups.length > 0 && (groups.length > 1 || !!(bracket || tdbBracket)) && (
         <div style={{ position: "relative", marginBottom: 16 }}>
@@ -836,13 +849,25 @@ function HomeTab({
                     PREVIEW
                   </span>
                 )}
-                {isAdmin && !!bracket && !!onRegenerateBracket && (
-                  <button onClick={onRegenerateBracket}
-                    style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 800,
-                      letterSpacing: "1px", color: "#000", background: N,
-                      border: "none", borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>
-                    Re-generate
-                  </button>
+                {isAdmin && !!bracket && (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {!!onEditBracket && (
+                      <button onClick={() => setBracketEditor(true)}
+                        style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 800,
+                          letterSpacing: "1px", color: "#fff", background: "rgba(255,80,80,.75)",
+                          border: "none", borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>
+                        Edit Bracket
+                      </button>
+                    )}
+                    {!!onRegenerateBracket && (
+                      <button onClick={onRegenerateBracket}
+                        style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 9, fontWeight: 800,
+                          letterSpacing: "1px", color: "#000", background: N,
+                          border: "none", borderRadius: 6, padding: "3px 9px", cursor: "pointer" }}>
+                        Re-generate
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               <TournamentBracket
@@ -1338,6 +1363,296 @@ function AIRefOverlay({ onClose }) {
           Send
         </button>
       </div>
+    </motion.div>,
+    document.body
+  );
+}
+
+/* ── EMERGENCY BRACKET EDITOR (admin-only) ── */
+function EmergencyBracketEditor({ bracket, groups, onSave, onClose }) {
+  const rounds       = bracket?.rounds || [];
+  const totalRounds  = rounds.length;
+
+  const participants = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    const add  = (p) => {
+      if (!p) return;
+      if (p.id) { if (seen.has(p.id)) return; seen.add(p.id); }
+      list.push(p);
+    };
+    (groups || []).forEach(g => (g.participants || []).forEach(add));
+    rounds.forEach(round => round.forEach(m => { add(m.p1); add(m.p2); }));
+    return list;
+  }, [groups, rounds]);
+
+  function findIdx(p) {
+    if (!p) return -1;
+    return p.id
+      ? participants.findIndex(pp => pp.id === p.id)
+      : participants.indexOf(p);
+  }
+
+  function roundLabel(idx) {
+    const fromEnd   = totalRounds - 1 - idx;
+    if (fromEnd === 0) return "Final";
+    if (fromEnd === 1) return "Semi-Final";
+    if (fromEnd === 2) return "Quarter-Final";
+    const cnt = rounds[idx]?.length || 0;
+    return cnt ? `Round of ${cnt * 2}` : `Round ${idx + 1}`;
+  }
+
+  const [tab,        setTab]        = useState("edit");
+  const [editRound,  setEditRound]  = useState(0);
+  const [editMatchId,setEditMatchId]= useState(rounds[0]?.[0]?.id || null);
+  const [editP1,     setEditP1]     = useState(rounds[0]?.[0]?.p1 || null);
+  const [editP2,     setEditP2]     = useState(rounds[0]?.[0]?.p2 || null);
+  const [editP1Name, setEditP1Name] = useState(rounds[0]?.[0]?.p1?.name || "");
+  const [editP2Name, setEditP2Name] = useState(rounds[0]?.[0]?.p2?.name || "");
+  const [addRound,   setAddRound]   = useState(0);
+  const [addP1,      setAddP1]      = useState(null);
+  const [addP2,      setAddP2]      = useState(null);
+  const [addP1Name,  setAddP1Name]  = useState("");
+  const [addP2Name,  setAddP2Name]  = useState("");
+  const [pending,    setPending]    = useState(null);
+  const [saving,     setSaving]     = useState(false);
+
+  const editRoundMatches = rounds[editRound] || [];
+  const currentMatch     = editRoundMatches.find(m => m.id === editMatchId) || editRoundMatches[0] || null;
+
+  useEffect(() => {
+    const first = rounds[editRound]?.[0];
+    setEditMatchId(first?.id || null);
+  }, [editRound, rounds]);
+
+  useEffect(() => {
+    const match = (rounds[editRound] || []).find(m => m.id === editMatchId);
+    if (!match) { setEditP1(null); setEditP2(null); setEditP1Name(""); setEditP2Name(""); return; }
+    setEditP1(match.p1 || null);
+    setEditP2(match.p2 || null);
+    setEditP1Name(match.p1?.name || "");
+    setEditP2Name(match.p2?.name || "");
+  }, [editMatchId, editRound, rounds]);
+
+  function resolve(p, nameStr) {
+    const name = nameStr.trim();
+    if (!p && !name) return null;
+    return p ? { ...p, name: name || p.name } : { name };
+  }
+
+  async function doSaveEdit() {
+    if (!currentMatch) return;
+    setSaving(true);
+    let updated = bracket;
+    const p1 = resolve(editP1, editP1Name);
+    const p2 = resolve(editP2, editP2Name);
+    if (p1 !== null) updated = updateBracketMatchParticipant(updated, currentMatch.id, "p1", p1);
+    if (p2 !== null) updated = updateBracketMatchParticipant(updated, currentMatch.id, "p2", p2);
+    await onSave(updated);
+    setSaving(false);
+  }
+
+  function handleSaveEdit() {
+    if (currentMatch?.winner) {
+      setPending({ message: "This match already has a result. Editing teams may break the result path. Continue?", onConfirm: doSaveEdit });
+    } else {
+      doSaveEdit();
+    }
+  }
+
+  function handleSwap() {
+    const [tp, tn] = [editP1, editP1Name];
+    setEditP1(editP2);  setEditP1Name(editP2Name);
+    setEditP2(tp);      setEditP2Name(tn);
+  }
+
+  async function doAddMatch() {
+    setSaving(true);
+    await onSave(addBracketMatch(bracket, addRound, resolve(addP1, addP1Name), resolve(addP2, addP2Name)));
+    setSaving(false);
+  }
+
+  function handleAddMatch() {
+    const count    = rounds[addRound]?.length || 0;
+    const expected = totalRounds > 0 ? Math.pow(2, totalRounds - 1 - addRound) : 0;
+    if (count >= expected && expected > 0) {
+      setPending({ message: `This round already appears full (${count} matches). Add another match anyway?`, onConfirm: doAddMatch });
+    } else {
+      doAddMatch();
+    }
+  }
+
+  const SEL = {
+    background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.15)",
+    borderRadius: 10, padding: "8px 10px", color: "#fff", fontSize: 12,
+    fontFamily: "'DM Sans',sans-serif", outline: "none", cursor: "pointer",
+    WebkitAppearance: "none", appearance: "none", width: "100%",
+  };
+  const INP = {
+    background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.15)",
+    borderRadius: 10, padding: "8px 10px", color: "#fff", fontSize: 12,
+    fontFamily: "'DM Sans',sans-serif", outline: "none", flex: 1, minWidth: 0,
+  };
+  const mkBtn = (bg = N, col = "#000") => ({
+    fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 800,
+    letterSpacing: ".5px", background: bg, color: col, border: "none",
+    borderRadius: 8, padding: "8px 14px", cursor: "pointer",
+  });
+  const LBL = {
+    fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700,
+    letterSpacing: "1px", color: "rgba(255,255,255,.4)", marginBottom: 4, display: "block",
+  };
+
+  const matchLabel = (m) =>
+    `${m.p1?.name || "TBD"} vs ${m.p2?.name || "TBD"}${m.winner ? " ✓" : ""}`;
+
+  const ParticipantSel = ({ val, setVal, setName }) => (
+    <select value={findIdx(val)} onChange={e => {
+      const idx = Number(e.target.value);
+      const p   = idx >= 0 ? participants[idx] : null;
+      setVal(p);
+      setName(p?.name || "");
+    }} style={{ ...SEL, flex: 1, width: undefined }}>
+      <option value="-1">— Select —</option>
+      {participants.map((p, i) => <option key={i} value={i}>{p.name}</option>)}
+    </select>
+  );
+
+  return createPortal(
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      style={{ position: "fixed", inset: 0, zIndex: 99999, overflowY: "auto",
+        background: "rgba(0,0,0,.84)", backdropFilter: "blur(14px)",
+        display: "flex", alignItems: "flex-start", justifyContent: "center",
+        padding: "24px 16px 48px" }}>
+      <motion.div initial={{ y: 28, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+        style={{ width: "100%", maxWidth: 460, background: "#111",
+          borderRadius: 20, border: "1px solid rgba(255,255,255,.12)", padding: "20px 18px" }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+          <div>
+            <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 18, letterSpacing: "2px", color: "#fff" }}>
+              🚨 Emergency Bracket Editor
+            </div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,.35)", marginTop: 2, fontFamily: "'DM Sans',sans-serif" }}>
+              Manual bracket fixes for live operations.
+            </div>
+          </div>
+          <button onClick={onClose}
+            style={{ background: "none", border: "none", color: "rgba(255,255,255,.5)", fontSize: 20, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>
+            ✕
+          </button>
+        </div>
+
+        {/* Warning */}
+        <div style={{ background: "rgba(255,160,0,.1)", border: "1px solid rgba(255,160,0,.3)",
+          borderRadius: 10, padding: "8px 12px", fontSize: 11,
+          color: "rgba(255,185,0,.9)", marginBottom: 14, fontFamily: "'DM Sans',sans-serif" }}>
+          ⚠ Manual bracket edits can affect future rounds. Use only during live operations.
+        </div>
+
+        {/* Confirmation dialog */}
+        {pending && (
+          <div style={{ background: "rgba(255,60,60,.12)", border: "1px solid rgba(255,60,60,.35)",
+            borderRadius: 10, padding: "10px 12px", marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: "rgba(255,120,120,.95)", marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>
+              ⚠ {pending.message}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setPending(null)} style={mkBtn("rgba(255,255,255,.1)", "#fff")}>Cancel</button>
+              <button onClick={() => { const fn = pending.onConfirm; setPending(null); fn(); }}
+                style={mkBtn("rgba(210,50,50,.85)", "#fff")}>Confirm</button>
+            </div>
+          </div>
+        )}
+
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+          {["edit","add"].map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              style={{ ...mkBtn(tab === t ? N : "rgba(255,255,255,.07)", tab === t ? "#000" : "rgba(255,255,255,.55)"),
+                flex: 1, fontSize: 9, letterSpacing: "1px" }}>
+              {t === "edit" ? "EDIT MATCH" : "ADD MISSING MATCH"}
+            </button>
+          ))}
+        </div>
+
+        {/* EDIT tab */}
+        {tab === "edit" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <span style={LBL}>ROUND</span>
+              <select value={editRound} onChange={e => setEditRound(Number(e.target.value))} style={SEL}>
+                {rounds.map((_, i) => <option key={i} value={i}>{roundLabel(i)}</option>)}
+              </select>
+            </div>
+            <div>
+              <span style={LBL}>MATCH</span>
+              <select value={editMatchId || ""} onChange={e => setEditMatchId(e.target.value)} style={SEL}>
+                {editRoundMatches.map((m, i) => (
+                  <option key={m.id} value={m.id}>{i + 1}. {matchLabel(m)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <span style={LBL}>TEAM 1 (P1)</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <ParticipantSel val={editP1} setVal={setEditP1} setName={setEditP1Name} />
+                <input value={editP1Name} onChange={e => setEditP1Name(e.target.value)}
+                  placeholder="Name override" style={INP} />
+              </div>
+            </div>
+            <div>
+              <span style={LBL}>TEAM 2 (P2)</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <ParticipantSel val={editP2} setVal={setEditP2} setName={setEditP2Name} />
+                <input value={editP2Name} onChange={e => setEditP2Name(e.target.value)}
+                  placeholder="Name override" style={INP} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+              <button onClick={handleSwap} style={mkBtn("rgba(255,255,255,.08)", "#fff")}>↔ Swap</button>
+              <button onClick={handleSaveEdit} disabled={saving}
+                style={{ ...mkBtn(), flex: 1, opacity: saving ? .55 : 1 }}>
+                {saving ? "Saving…" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ADD tab */}
+        {tab === "add" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <span style={LBL}>ROUND</span>
+              <select value={addRound} onChange={e => setAddRound(Number(e.target.value))} style={SEL}>
+                {rounds.map((_, i) => <option key={i} value={i}>{roundLabel(i)}</option>)}
+              </select>
+            </div>
+            <div>
+              <span style={LBL}>TEAM 1 (P1)</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <ParticipantSel val={addP1} setVal={setAddP1} setName={setAddP1Name} />
+                <input value={addP1Name} onChange={e => setAddP1Name(e.target.value)}
+                  placeholder="Name override" style={INP} />
+              </div>
+            </div>
+            <div>
+              <span style={LBL}>TEAM 2 (P2)</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <ParticipantSel val={addP2} setVal={setAddP2} setName={setAddP2Name} />
+                <input value={addP2Name} onChange={e => setAddP2Name(e.target.value)}
+                  placeholder="Name override" style={INP} />
+              </div>
+            </div>
+            <button onClick={handleAddMatch} disabled={saving}
+              style={{ ...mkBtn(), marginTop: 2, opacity: saving ? .55 : 1 }}>
+              {saving ? "Saving…" : `+ Add to ${roundLabel(addRound)}`}
+            </button>
+          </div>
+        )}
+
+      </motion.div>
     </motion.div>,
     document.body
   );
@@ -5476,6 +5791,12 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     await _saveGroupsState(undefined, undefined, knockoutBracket);
   }, [leagueId, groups, groupMatches, feed, rules, _saveGroupsState]);
 
+  const handleEditBracket = useCallback(async (updatedBracket) => {
+    if (!isAdmin || !leagueId) return;
+    console.log("[bracket-editor] saving manual bracket edit");
+    await _saveBracket(updatedBracket);
+  }, [isAdmin, leagueId, _saveBracket]);
+
   const handleBracketResult = useCallback(async ({ match, winner, loser, p1Goals, p2Goals, leg, isLeg1Only }) => {
     if (!bracket || !leagueId) { alert("League ID is missing — cannot save match."); return; }
     setTournamentModal(null);
@@ -5714,6 +6035,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                wildcardRule={rules?.groupSettings?.wildcardRule || "none"}
                canReport={canReportTournamentResults}
                onRegenerateBracket={isAdmin ? handleRegenerateBracket : null}
+               onEditBracket={isAdmin ? handleEditBracket : null}
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament} groupMatches={groupMatches} bracket={bracket}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={()=>{setPlayers([]);setFeed([]);}} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName):prev);}}/>,
@@ -6843,6 +7165,30 @@ function isBracketValid(bracket) {
     }
   }
   return true;
+}
+
+function updateBracketMatchParticipant(bracket, matchId, side, newParticipant) {
+  return {
+    ...bracket,
+    rounds: bracket.rounds.map(round =>
+      round.map(m => m.id !== matchId ? m : { ...m, [side]: newParticipant })
+    ),
+  };
+}
+
+function addBracketMatch(bracket, roundIndex, p1, p2) {
+  const newMatch = {
+    id: `manual-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    round: roundIndex + 1,
+    position: bracket.rounds[roundIndex]?.length ?? 0,
+    p1, p2,
+    winner: null,
+    isBye: false,
+  };
+  return {
+    ...bracket,
+    rounds: bracket.rounds.map((round, i) => i === roundIndex ? [...round, newMatch] : round),
+  };
 }
 
 function generateGroupStage(participants, playersPerGroup, numGroupsOverride) {
