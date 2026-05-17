@@ -4,6 +4,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { supabase, supabaseConfigured } from "./lib/supabase";
 import { parseMG, enrichPlayers, derivePlayerStats, byWins, medal } from "./lib/stats";
 import {
+  buildKnockoutSlots,
+  buildBracketFromSlots,
+  buildSlotResolutionMap,
+  resolveAbstractBracket,
+} from "./lib/knockout.js";
+import {
   Plus, X, Check, ChevronRight, TrendingUp, TrendingDown,
   Minus, Clock, Home, BarChart2, Users, User, Edit2,
   Camera, Settings, RotateCcw, UserPlus, UserMinus,
@@ -620,7 +626,7 @@ function HomeTab({
   bracket=null, onMatchTap=null, onGenerateDraw=null, matchLegs=1,
   groups=[], groupMatches=[], onGroupMatchTap=null, advancingPerGroup=2,
   wildcardCount=0, wildcardRule="none", canReport=false,
-  onRegenerateBracket=null, onEditBracket=null,
+  onRegenerateBracket=null, onEditBracket=null, abstractBracket=null,
 }) {
   const [showAll,setShowAll]               = useState(false);
   const [showDT,setDT]                     = useState(false);
@@ -629,36 +635,16 @@ function HomeTab({
   const mvp    = useMemo(()=>players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:{name:"No Players",wins:0,losses:0},[players]);
   const streak = useMemo(()=>players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:{name:"No Players",bestStreak:0},[players]);
 
-  // TBD bracket — shown before real bracket is generated
+  // TBD bracket — shown before real bracket is generated.
+  // Uses the stored abstractBracket (same slots used for final bracket resolution).
+  // Falls back to computing on the fly for tournaments without a stored abstract bracket.
   const tdbBracket = useMemo(() => {
     if (bracket || !groups.length || tournamentFormat !== "groups_knockout") return null;
-    const ordinals = ["1st","2nd","3rd","4th","5th","6th"];
-    const directSlots = groups.flatMap(g =>
-      Array.from({ length: advancingPerGroup }, (_, rank) => ({
-        id: `tbd_${rank}_${g.name}`,
-        name: `${ordinals[rank] ?? `${rank+1}th`} Group ${g.name}`,
-        isTBD: true,
-      }))
-    );
-    const wcRank = (["1st","2nd","3rd","4th","5th","6th"][advancingPerGroup]) ?? `${advancingPerGroup + 1}th`;
-    const wildcardSlots = wildcardRule === "best_3rd_place" && wildcardCount > 0
-      ? Array.from({ length: wildcardCount }, (_, i) => ({
-          id: `tbd_wc_${i}`,
-          name: `Best ${wcRank}-place #${i + 1}`,
-          isTBD: true,
-        }))
-      : [];
-    const allSlots = [...directSlots, ...wildcardSlots];
-    return (wildcardSlots.length > 0 || groups.length < 2 || groups.length % 2 !== 0)
-      ? buildTbdPreviewBracket(allSlots)
-      : generateCrossoverBracket(groups.map(g =>
-          Array.from({ length: advancingPerGroup }, (_, rank) => ({
-            id: `tbd_${rank}_${g.name}`,
-            name: `${ordinals[rank] ?? `${rank+1}th`} Group ${g.name}`,
-            isTBD: true,
-          }))
-        ));
-  }, [bracket, groups, advancingPerGroup, wildcardCount, wildcardRule, tournamentFormat]);
+    if (abstractBracket) return abstractBracket;
+    // Fallback: compute from groups config (old tournaments without stored abstractBracket)
+    const slots = buildKnockoutSlots(groups, advancingPerGroup, wildcardCount, wildcardRule);
+    return buildBracketFromSlots(slots);
+  }, [bracket, groups, advancingPerGroup, wildcardCount, wildcardRule, tournamentFormat, abstractBracket]);
   const visible = showAll ? feed : feed.slice(0,5);
 
   return (
@@ -5570,9 +5556,15 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     const isGroups = rules?.tournamentFormat === "groups_knockout";
     if (isGroups) {
       const { groups: g, groupMatches: gm } = drawData;
-      const newSettings = { ...(data?.settings || {}), groups: g, groupMatches: gm };
+      // Build and persist the abstract bracket so preview and final share the same slot order
+      const advPerGroup  = rules?.groupSettings?.advancingPerGroup || 2;
+      const wcCount      = rules?.groupSettings?.wildcardCount     || 0;
+      const wcRule       = rules?.groupSettings?.wildcardRule      || "none";
+      const abstractSlots  = buildKnockoutSlots(g, advPerGroup, wcCount, wcRule);
+      const abstractBracket = buildBracketFromSlots(abstractSlots);
+      const newSettings = { ...(data?.settings || {}), groups: g, groupMatches: gm, abstractBracket };
       await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
-      setRules(r => ({ ...r, groups: g, groupMatches: gm }));
+      setRules(r => ({ ...r, groups: g, groupMatches: gm, abstractBracket }));
     } else {
       const newSettings = { ...(data?.settings || {}), bracket: drawData };
       await supabase.from("leagues").update({ settings: newSettings }).eq("id", leagueId);
@@ -5702,6 +5694,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
         console.error("[bracket] directQualifiers had duplicates — removed before bracket generation");
 
       let allQualifiers = directQualifiers;
+      let wildcardStandings = [];
       if (wildcardRule === "best_3rd_place" && wildcardCount > 0) {
         const directIds = new Set(directQualifiers.map(p => p.id).filter(Boolean));
         const thirdPlaces = standingsByGroup
@@ -5709,9 +5702,10 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
           .filter(Boolean)
           .filter(s => !directIds.has(s.participant.id))
           .sort((a, b) => (b.pts - a.pts) || ((b.gf - b.ga) - (a.gf - a.ga)) || (b.gf - a.gf));
+        wildcardStandings = thirdPlaces.slice(0, wildcardCount);
         allQualifiers = dedupeParticipants([
           ...directQualifiers,
-          ...thirdPlaces.slice(0, wildcardCount).map(s => s.participant),
+          ...wildcardStandings.map(s => s.participant),
         ]);
       }
 
@@ -5728,10 +5722,21 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
           "| names:", allQualifiers.map(p => p.name));
         advancingByGroup.forEach((g, i) =>
           console.log(`[bracket] Group ${String.fromCharCode(65+i)}:`, g.map(p => p.name)));
-        const dedupedAdvancing = advancingByGroup.map(g => dedupeParticipants(g));
-        const knockoutBracket = (wildcardCount > 0 || groups.length < 2 || groups.length % 2 !== 0)
-          ? generateKnockoutBracket(allQualifiers)
-          : generateCrossoverBracket(dedupedAdvancing);
+
+        // Resolve the stored abstract bracket (same slot order as preview).
+        // Falls back to fresh generation for old tournaments without abstractBracket.
+        const storedAbstract = rules?.abstractBracket;
+        let knockoutBracket;
+        if (storedAbstract) {
+          const slotMap = buildSlotResolutionMap(groups, standingsByGroup, advancingPerGroup, wildcardStandings, wildcardCount);
+          knockoutBracket = resolveAbstractBracket(storedAbstract, slotMap);
+        } else {
+          const dedupedAdvancing = advancingByGroup.map(g => dedupeParticipants(g));
+          knockoutBracket = (wildcardCount > 0 || groups.length < 2 || groups.length % 2 !== 0)
+            ? generateKnockoutBracket(allQualifiers)
+            : generateCrossoverBracket(dedupedAdvancing);
+        }
+
         console.log("[bracket] R1 matchups:", knockoutBracket?.rounds?.[0]
           ?.filter(m => m.p1 || m.p2)
           .map(m => `${m.p1?.name ?? "BYE"} vs ${m.p2?.name ?? "BYE"}`));
@@ -5760,6 +5765,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     );
     const directQualifiers  = dedupeParticipants(advancingByGroup.flat());
     let allQualifiers = directQualifiers;
+    let wildcardStandings = [];
     if (wildcardRule === "best_3rd_place" && wildcardCount > 0) {
       const directIds = new Set(directQualifiers.map(p => p.id).filter(Boolean));
       const thirdPlaces = standingsByGroup
@@ -5767,19 +5773,30 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
         .filter(Boolean)
         .filter(s => !directIds.has(s.participant.id))
         .sort((a, b) => (b.pts - a.pts) || ((b.gf - b.ga) - (a.gf - a.ga)) || (b.gf - a.gf));
+      wildcardStandings = thirdPlaces.slice(0, wildcardCount);
       allQualifiers = dedupeParticipants([
         ...directQualifiers,
-        ...thirdPlaces.slice(0, wildcardCount).map(s => s.participant),
+        ...wildcardStandings.map(s => s.participant),
       ]);
     }
     if (allQualifiers.length < 2) return;
     console.log("[re-generate] groups:", groups.length,
       "| qualifiers:", allQualifiers.length,
       "| names:", allQualifiers.map(p => p.name));
-    const dedupedAdvancing = advancingByGroup.map(g => dedupeParticipants(g));
-    const knockoutBracket = (wildcardCount > 0 || groups.length < 2 || groups.length % 2 !== 0)
-      ? generateKnockoutBracket(allQualifiers)
-      : generateCrossoverBracket(dedupedAdvancing);
+
+    // Use stored abstract bracket to preserve preview slot order.
+    const storedAbstract = rules?.abstractBracket;
+    let knockoutBracket;
+    if (storedAbstract) {
+      const slotMap = buildSlotResolutionMap(groups, standingsByGroup, advancingPerGroup, wildcardStandings, wildcardCount);
+      knockoutBracket = resolveAbstractBracket(storedAbstract, slotMap);
+    } else {
+      const dedupedAdvancing = advancingByGroup.map(g => dedupeParticipants(g));
+      knockoutBracket = (wildcardCount > 0 || groups.length < 2 || groups.length % 2 !== 0)
+        ? generateKnockoutBracket(allQualifiers)
+        : generateCrossoverBracket(dedupedAdvancing);
+    }
+
     console.log("[re-generate] R1 matchups:", knockoutBracket?.rounds?.[0]
       ?.filter(m => m.p1 || m.p2)
       .map(m => `${m.p1?.name ?? "BYE"} vs ${m.p2?.name ?? "BYE"}`));
@@ -6042,6 +6059,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                canReport={canReportTournamentResults}
                onRegenerateBracket={isAdmin ? handleRegenerateBracket : null}
                onEditBracket={isAdmin ? handleEditBracket : null}
+               abstractBracket={rules?.abstractBracket ?? null}
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament} groupMatches={groupMatches} bracket={bracket}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={handleResetSeason} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName):prev);}}/>,
