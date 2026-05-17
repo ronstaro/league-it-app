@@ -3453,13 +3453,13 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
 const SLOT_H      = 80;  // vertical space per r1 match
 const MATCH_H     = 62;  // actual card height
 
-function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, canReport = false, matchLegs = 1 }) {
+function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, canReport = false, matchLegs = 1, wide = false }) {
   if (!bracket?.rounds?.length) return null;
   const { rounds } = bracket;
   const r1Count    = rounds[0].length;
   const totalH     = r1Count * SLOT_H;
   const ROUND_W    = 155;
-  const ROUND_GAP  = 20;
+  const ROUND_GAP  = wide ? 0 : 20;
 
   const roundLabel = (ri) => {
     const n = rounds.length;
@@ -3475,13 +3475,14 @@ function TournamentBracket({ bracket, onMatchTap = null, isAdmin = false, canRep
     (matchIdx + 0.5) * Math.pow(2, roundIdx) * SLOT_H - MATCH_H / 2;
 
   return (
-    <div style={{ overflowX: "auto", overflowY: "visible", WebkitOverflowScrolling: "touch", paddingBottom: 8 }}>
+    <div style={{ overflowX: wide ? "visible" : "auto", overflowY: "visible", WebkitOverflowScrolling: "touch", paddingBottom: 8, width: wide ? "100%" : undefined }}>
       <div style={{
-        display: "flex", gap: ROUND_GAP, padding: "0 20px 0",
-        minWidth: rounds.length * (ROUND_W + ROUND_GAP) + 40,
+        display: "flex", gap: ROUND_GAP, padding: wide ? "0 8px 0" : "0 20px 0",
+        minWidth: wide ? undefined : rounds.length * (ROUND_W + ROUND_GAP) + 40,
+        width: wide ? "100%" : undefined,
       }}>
         {rounds.map((round, ri) => (
-          <div key={ri} style={{ flex: `0 0 ${ROUND_W}px` }}>
+          <div key={ri} style={wide ? { flex: "1 1 0", minWidth: 0 } : { flex: `0 0 ${ROUND_W}px` }}>
             {/* Round label */}
             <div style={{
               fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700,
@@ -4516,6 +4517,16 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
   const [saving,           setSaving]           = useState(null);
   const [activeCol,        setActiveCol]        = useState("standings");
   const [champCelebration, setChampCelebration] = useState(null);
+  const [expandedGroups,   setExpandedGroups]   = useState(new Set());
+
+  const toggleGroupFixtures = useCallback((groupName) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupName)) next.delete(groupName);
+      else next.add(groupName);
+      return next;
+    });
+  }, []);
 
   // ── Champion detection: watch bracket directly, 500ms debounce, one-shot ref guard ──
   // celebratedRef starts true if the final was already complete when TVDashboard mounted
@@ -4723,6 +4734,35 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
           );
         })}
       </div>
+    );
+  };
+
+  // Toggle button shown between standings card and fixtures panel (collapsible).
+  const renderFixturesToggle = (gs) => {
+    const isOpen  = expandedGroups.has(gs.group.name);
+    const pending = gs.total - gs.played;
+    return (
+      <button
+        onClick={() => toggleGroupFixtures(gs.group.name)}
+        style={{
+          display: "flex", alignItems: "center", gap: 7,
+          width: "100%", background: "rgba(255,255,255,.03)",
+          border: "1px solid rgba(255,255,255,.07)", borderRadius: 9,
+          padding: "7px 14px", marginBottom: 10, cursor: "pointer",
+          fontFamily: "'DM Sans',sans-serif",
+        }}>
+        <span style={{ fontSize: tvF(9), fontWeight: 800, letterSpacing: "1.4px",
+          color: "rgba(255,255,255,.36)", flex: 1, textAlign: "left" }}>
+          FIXTURES
+        </span>
+        <span style={{ fontSize: tvF(9), fontWeight: 600, color: "rgba(255,255,255,.25)",
+          fontFamily: "'JetBrains Mono',monospace" }}>
+          {gs.played}/{gs.total}{pending > 0 ? ` · ${pending} left` : " · done"}
+        </span>
+        <span style={{ fontSize: tvF(10), color: "rgba(255,255,255,.28)", marginLeft: 4, lineHeight: 1 }}>
+          {isOpen ? "▲" : "▼"}
+        </span>
+      </button>
     );
   };
 
@@ -5069,7 +5109,13 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
           <motion.div key="arena-all-groups"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }}
             style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 10 }}>
-            {groupStandings.map((gs, i) => renderStandingCard(gs, i, true))}
+            {groupStandings.map((gs, i) => (
+              <div key={gs.group.name}>
+                {renderStandingCard(gs, i, true)}
+                {renderFixturesToggle(gs)}
+                {expandedGroups.has(gs.group.name) && renderGroupFixturesPanel(gs)}
+              </div>
+            ))}
           </motion.div>
         </>
       )}
@@ -5105,13 +5151,14 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
             background: bracket
               ? `linear-gradient(135deg,rgba(170,255,0,.03),transparent 60%)`
               : `linear-gradient(135deg,rgba(255,255,255,.02),transparent 60%)`,
-            padding: "18px 4px 12px",
+            padding: "18px 8px 12px",
             boxShadow: bracket ? `0 0 60px rgba(170,255,0,.04)` : "none" }}>
             <TournamentBracket
               bracket={projectedOrFinalBracket}
               isAdmin={false}
               onMatchTap={null}
               matchLegs={rules?.matchLegs || 1}
+              wide={true}
             />
           </div>
         </motion.div>
@@ -5292,7 +5339,8 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
           {groupStandings.map((gs, i) => (
             <div key={gs.group.name}>
               {renderStandingCard(gs, i, false)}
-              {renderGroupFixturesPanel(gs)}
+              {renderFixturesToggle(gs)}
+              {expandedGroups.has(gs.group.name) && renderGroupFixturesPanel(gs)}
             </div>
           ))}
         </>
