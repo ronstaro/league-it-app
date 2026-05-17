@@ -4594,8 +4594,8 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
     ...(isGroups && groupStandings.length > 0
       ? [{ id: "all", label: "All Groups" }, ...groupStandings.map(gs => ({ id: gs.group.name, label: `Group ${gs.group.name}` }))]
       : []),
-    ...(projectedOrFinalBracket ? [{ id: "knockout", label: bracket ? "Knockout" : "Projected" }] : []),
-    ...(hasBracketPage ? [{ id: "bracket", label: "Bracket" }] : []),
+    ...(projectedOrFinalBracket ? [{ id: "knockout", label: "Knockout" }] : []),
+    ...(!projectedOrFinalBracket && hasBracketPage ? [{ id: "bracket", label: "Bracket" }] : []),
     ...(arenaChampion  ? [{ id: "champion", label: "Champion" }] : []),
   ];
 
