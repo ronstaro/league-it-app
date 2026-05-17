@@ -79,6 +79,7 @@ function settingsToRules(leagueSport, settings) {
     matchLegs:        s.matchLegs || 1,
     groups:           s.groups || [],
     groupMatches:     s.groupMatches || [],
+    abstractBracket:  s.abstractBracket || null,
   };
 }
 
@@ -4565,12 +4566,18 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
   const projectedOrFinalBracket = bracket || abstractBracket;
 
   // ── Supabase real-time: sync scores from other devices ──────────────────
+  // Secondary subscription scoped to TVDashboard — ensures the TV view stays live
+  // even if the parent subscription misses an event (e.g. reconnect race).
   useEffect(() => {
     if (!leagueId || !onSyncEntry || !supabase) return;
     const ch = supabase.channel(`tv-${leagueId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "matches",
         filter: `league_id=eq.${leagueId}` },
-        p => { if (p.new?.score) onSyncEntry(p.new.score); })
+        p => {
+          if (!p.new?.id) return;
+          // Normalize to feed entry shape matching initial load: { id, ...score_fields }
+          onSyncEntry({ id: p.new.id, ...p.new.score });
+        })
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [leagueId, onSyncEntry]);
@@ -5722,6 +5729,76 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     })();
     return () => { alive = false; };
   }, [leagueId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── SHARED REFETCH: re-pulls league settings + matches from Supabase ────────
+  // Used by realtime fallback (focus/visibility) so all clients stay in sync
+  // even when the realtime socket drops or the app is backgrounded.
+  const refetchLeague = useCallback(async () => {
+    if (!leagueId || !supabase) return;
+    try {
+      const [{ data: leagueRow }, { data: mData }] = await Promise.all([
+        supabase.from("leagues").select("settings, sport").eq("id", leagueId).maybeSingle(),
+        supabase.from("matches").select("*").eq("league_id", leagueId).order("date", { ascending: false }),
+      ]);
+      if (leagueRow?.settings) {
+        const freshRules = settingsToRules(leagueRow.sport, leagueRow.settings);
+        setRules(freshRules);
+        setBracket(freshRules.bracket || null);
+      }
+      if (mData) setFeed(mData.map(m => ({ id: m.id, ...m.score })));
+    } catch (e) { console.error("[refetch] error:", e); }
+  }, [leagueId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── REALTIME SUBSCRIPTIONS ───────────────────────────────────────────────────
+  // Listen to matches and leagues changes for this league so ALL clients
+  // (phone, desktop, TV) receive live updates without manual refresh.
+  useEffect(() => {
+    if (!leagueId || !supabase) return;
+
+    // matches → update feed (group results, bracket results, classic matches)
+    const matchCh = supabase.channel(`league-matches-${leagueId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "matches",
+        filter: `league_id=eq.${leagueId}` },
+        p => {
+          if (!p.new?.id) return;
+          // Normalize to feed entry shape: { id, ...score_fields }
+          const entry = { id: p.new.id, ...p.new.score };
+          setFeed(prev => [entry, ...prev.filter(m => m.id !== entry.id)]);
+        })
+      .subscribe();
+
+    // leagues → update rules + bracket (group closure, bracket generation, settings changes)
+    const leagueCh = supabase.channel(`league-settings-${leagueId}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "leagues",
+        filter: `id=eq.${leagueId}` },
+        p => {
+          if (!p.new?.settings) return;
+          const freshRules = settingsToRules(p.new.sport, p.new.settings);
+          setRules(freshRules);
+          setBracket(freshRules.bracket || null);
+        })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(matchCh);
+      supabase.removeChannel(leagueCh);
+    };
+  }, [leagueId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── FOCUS / VISIBILITY FALLBACK ──────────────────────────────────────────────
+  // If realtime is blocked or the socket drops, refetch on window focus and
+  // when the tab becomes visible again (e.g. user switches back from another app).
+  useEffect(() => {
+    if (!leagueId) return;
+    const onFocus   = () => refetchLeague();
+    const onVisible = () => { if (!document.hidden) refetchLeague(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [leagueId, refetchLeague]);
 
   // ── BRACKET DRAW HANDLERS ─────────────────────────────────────────────────
   const handleShowGenerateDraw = useCallback(() => {
