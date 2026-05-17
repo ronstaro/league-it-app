@@ -4545,10 +4545,13 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
     return () => clearTimeout(tid);
   }, [bracket, players]);
 
-  const completedIds   = useMemo(() => new Set(feed.map(m => m.id)), [feed]);
-  const isGroups       = rules?.tournamentFormat === "groups_knockout";
-  const isTournament   = !!(rules?.tournamentFormat && rules.tournamentFormat !== "classic");
-  const advPerGroup    = rules?.groupSettings?.advancingPerGroup || 2;
+  const completedIds    = useMemo(() => new Set(feed.map(m => m.id)), [feed]);
+  const isGroups        = rules?.tournamentFormat === "groups_knockout";
+  const isTournament    = !!(rules?.tournamentFormat && rules.tournamentFormat !== "classic");
+  const advPerGroup     = rules?.groupSettings?.advancingPerGroup || 2;
+  const abstractBracket = rules?.abstractBracket ?? null;
+  // Show the projected bracket when groups are in-progress; the final bracket once closed.
+  const projectedOrFinalBracket = bracket || abstractBracket;
 
   // ── Supabase real-time: sync scores from other devices ──────────────────
   useEffect(() => {
@@ -4580,6 +4583,7 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
     ...(isGroups && groupStandings.length > 0
       ? [{ id: "all", label: "All Groups" }, ...groupStandings.map(gs => ({ id: gs.group.name, label: `Group ${gs.group.name}` }))]
       : []),
+    ...(projectedOrFinalBracket ? [{ id: "knockout", label: bracket ? "Knockout" : "Projected" }] : []),
     ...(hasBracketPage ? [{ id: "bracket", label: "Bracket" }] : []),
     ...(arenaChampion  ? [{ id: "champion", label: "Champion" }] : []),
   ];
@@ -4715,6 +4719,90 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
               <span style={{ textAlign: "center", fontFamily: "'Bebas Neue',sans-serif", fontSize: ptsFz,
                 color: adv ? gs.gc : "#fff",
                 textShadow: adv ? `0 0 10px ${gs.gc}60` : "none" }}>{row.pts}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // Renders all fixtures for one group — played rows show scores, pending rows show score entry.
+  const renderGroupFixturesPanel = (gs) => {
+    const fixtures = groupMatches.filter(m => m.groupName === gs.group.name);
+    if (!fixtures.length) return null;
+    return (
+      <div style={{ borderRadius: 12, border: "1px solid rgba(255,255,255,.07)",
+        background: "rgba(255,255,255,.02)", marginBottom: 14, overflow: "hidden" }}>
+        <div style={{ padding: "8px 14px", borderBottom: "1px solid rgba(255,255,255,.05)",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          background: `${gs.gc}06` }}>
+          <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(9), fontWeight: 800,
+            letterSpacing: "1.5px", color: "rgba(255,255,255,.32)" }}>
+            GROUP {gs.group.name} FIXTURES
+          </span>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: tvF(9),
+            color: "rgba(255,255,255,.28)" }}>{gs.played}/{gs.total}</span>
+        </div>
+        {fixtures.map(match => {
+          const result  = feed.find(r => r.id === match.id);
+          const isDone  = !!result;
+          const s       = localScores[match.id] || {};
+          const dirty   = !isDone && s.p1 !== undefined && s.p1 !== "" && s.p2 !== undefined && s.p2 !== "";
+          const isSv    = saving === match.id;
+          return (
+            <div key={match.id} style={{ padding: "9px 14px",
+              borderTop: "1px solid rgba(255,255,255,.04)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 5, height: 5, borderRadius: "50%", flexShrink: 0,
+                  background: isDone ? N : "rgba(255,255,255,.18)",
+                  boxShadow: isDone ? `0 0 5px ${N}` : "none" }}/>
+                <span style={{ flex: 1, textAlign: "right", fontFamily: "'DM Sans',sans-serif",
+                  fontSize: tvF(12), fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  color: isDone && result?.winner === match.p1?.name ? "#fff" : "rgba(255,255,255,.55)" }}>
+                  {match.p1?.name}
+                </span>
+                {isDone ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0,
+                    background: "rgba(255,255,255,.06)", borderRadius: 7, padding: "3px 9px", minWidth: 58,
+                    justifyContent: "center" }}>
+                    <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(15), color: N }}>
+                      {result.p1Goals}–{result.p2Goals}
+                    </span>
+                  </div>
+                ) : isAdmin ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                    <input type="number" min="0" max="99" value={s.p1 ?? ""}
+                      onChange={e => handleScoreChange(match.id, "p1", e.target.value)}
+                      style={{ ...inputS, width: 40, height: 34, fontSize: tvF(14) }} placeholder="–"/>
+                    <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: tvF(16),
+                      color: "rgba(255,255,255,.18)" }}>:</span>
+                    <input type="number" min="0" max="99" value={s.p2 ?? ""}
+                      onChange={e => handleScoreChange(match.id, "p2", e.target.value)}
+                      style={{ ...inputS, width: 40, height: 34, fontSize: tvF(14) }} placeholder="–"/>
+                  </div>
+                ) : (
+                  <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: tvF(11),
+                    color: "rgba(255,255,255,.18)", padding: "0 6px", flexShrink: 0 }}>vs</span>
+                )}
+                <span style={{ flex: 1, fontFamily: "'DM Sans',sans-serif", fontSize: tvF(12),
+                  fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  color: isDone && result?.winner === match.p2?.name ? "#fff" : "rgba(255,255,255,.55)" }}>
+                  {match.p2?.name}
+                </span>
+              </div>
+              {dirty && (
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+                  <motion.button whileTap={{ scale: 0.96 }} onClick={() => handleSaveScore(match)}
+                    disabled={isSv}
+                    style={{ background: `linear-gradient(135deg,${N},#7DC900)`, border: "none",
+                      borderRadius: 8, padding: "6px 18px", fontFamily: "'DM Sans',sans-serif",
+                      fontSize: tvF(11), fontWeight: 800, color: "#000",
+                      cursor: isSv ? "not-allowed" : "pointer", opacity: isSv ? 0.7 : 1 }}>
+                    {isSv ? "…" : "✓ Save"}
+                  </motion.button>
+                </div>
+              )}
             </div>
           );
         })}
@@ -4986,17 +5074,47 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
         </>
       )}
 
-      {/* ── ARENA VIEW: single group ── */}
-      {arenaMode && arenaView !== "all" && arenaView !== "bracket" && arenaView !== "champion" && (
+      {/* ── ARENA VIEW: single group (standings + fixtures) ── */}
+      {arenaMode && arenaView !== "all" && arenaView !== "bracket" && arenaView !== "knockout" && arenaView !== "champion" && (
         (() => {
           const gs = groupStandings.find(g => g.group.name === arenaView);
           return gs ? (
             <motion.div key={`arena-group-${arenaView}`}
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.35 }}>
               {renderStandingCard(gs, 0, false)}
+              {renderGroupFixturesPanel(gs)}
             </motion.div>
           ) : null;
         })()
+      )}
+
+      {/* ── ARENA VIEW: projected / final knockout bracket ── */}
+      {arenaMode && arenaView === "knockout" && projectedOrFinalBracket && (
+        <motion.div key="arena-knockout"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
+          <div style={{ ...colHdrS, marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
+            ⚡ {bracket ? "KNOCKOUT BRACKET" : "PROJECTED KNOCKOUT"}
+            {!bracket && (
+              <span style={{ fontSize: tvF(9), fontWeight: 800, color: "rgba(255,255,255,.4)",
+                background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.14)",
+                borderRadius: 5, padding: "1px 7px", fontFamily: "'DM Sans',sans-serif",
+                letterSpacing: "1px" }}>PROJECTED</span>
+            )}
+          </div>
+          <div style={{ borderRadius: 16, border: `1px solid ${bracket ? N + "22" : "rgba(255,255,255,.1)"}`,
+            background: bracket
+              ? `linear-gradient(135deg,rgba(170,255,0,.03),transparent 60%)`
+              : `linear-gradient(135deg,rgba(255,255,255,.02),transparent 60%)`,
+            padding: "18px 4px 12px",
+            boxShadow: bracket ? `0 0 60px rgba(170,255,0,.04)` : "none" }}>
+            <TournamentBracket
+              bracket={projectedOrFinalBracket}
+              isAdmin={false}
+              onMatchTap={null}
+              matchLegs={rules?.matchLegs || 1}
+            />
+          </div>
+        </motion.div>
       )}
 
       {/* ── ARENA VIEW: champion celebration ── */}
@@ -5167,15 +5285,42 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
         </motion.div>
       )}
 
-      {/* ── NORMAL VIEW: stacked group cards ── */}
+      {/* ── NORMAL VIEW: stacked group cards with fixtures ── */}
       {!arenaMode && isGroups && groupStandings.length > 0 && (
         <>
           <div style={colHdrS}>LIVE STANDINGS</div>
-          {groupStandings.map((gs, i) => renderStandingCard(gs, i, false))}
+          {groupStandings.map((gs, i) => (
+            <div key={gs.group.name}>
+              {renderStandingCard(gs, i, false)}
+              {renderGroupFixturesPanel(gs)}
+            </div>
+          ))}
         </>
       )}
 
-      {/* ── NORMAL VIEW: bracket fixtures list ── */}
+      {/* ── NORMAL VIEW: projected knockout (shown when final bracket not yet generated) ── */}
+      {!arenaMode && isGroups && !hasBracketPage && abstractBracket && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ ...colHdrS, display: "flex", alignItems: "center", gap: 10 }}>
+            ⚡ PROJECTED KNOCKOUT
+            <span style={{ fontSize: tvF(8), fontWeight: 800, color: "rgba(255,255,255,.35)",
+              background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.12)",
+              borderRadius: 5, padding: "1px 7px", fontFamily: "'DM Sans',sans-serif",
+              letterSpacing: "1px" }}>PROJECTED</span>
+          </div>
+          <div style={{ borderRadius: 14, border: "1px solid rgba(255,255,255,.1)",
+            background: "rgba(255,255,255,.015)", padding: "14px 4px 8px" }}>
+            <TournamentBracket
+              bracket={abstractBracket}
+              isAdmin={false}
+              onMatchTap={null}
+              matchLegs={1}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── NORMAL VIEW: final knockout bracket ── */}
       {!arenaMode && hasBracketPage && (
         <div style={{ marginTop: isGroups && groupStandings.length > 0 ? 24 : 0 }}>
           <div style={{ ...colHdrS }}>⚡ KNOCKOUT BRACKET</div>
