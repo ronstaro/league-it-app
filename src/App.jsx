@@ -5286,14 +5286,20 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
               <Trophy size={tvF(90)}/>
             </motion.div>
 
-            {/* Winner name — massive */}
-            <div style={{ fontFamily: "'Bebas Neue',sans-serif",
-              fontSize: `clamp(${tvF(58)}px, 10.5vw, ${tvF(108)}px)`,
-              letterSpacing: "2px", color: N,
-              textShadow: `0 0 20px rgba(170,255,0,1), 0 0 50px rgba(170,255,0,.85), 0 0 100px rgba(170,255,0,.55), 0 0 200px rgba(170,255,0,.3)`,
-              lineHeight: 0.95, marginBottom: 10, wordBreak: "break-word",
-              maxWidth: "92%", textAlign: "center" }}>
-              {arenaChampion.name}
+            {/* Winner name — name plate for contrast + readability */}
+            <div style={{ maxWidth: "90%", marginBottom: 10, textAlign: "center",
+              background: "rgba(0,0,0,.52)", backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              borderRadius: 18, padding: "10px 32px",
+              boxShadow: `0 0 0 1px ${N}22, inset 0 1px 0 rgba(255,255,255,.06)` }}>
+              <div style={{ fontFamily: "'Bebas Neue',sans-serif",
+                fontSize: `clamp(${tvF(48)}px, 9vw, ${tvF(96)}px)`,
+                letterSpacing: "2px", color: N,
+                textShadow: `0 0 14px rgba(170,255,0,.9), 0 0 36px rgba(170,255,0,.55), 0 0 80px rgba(170,255,0,.25), 0 2px 8px rgba(0,0,0,.95)`,
+                lineHeight: 1.0,
+                wordBreak: "break-word", overflowWrap: "break-word" }}>
+                {arenaChampion.name}
+              </div>
             </div>
 
             {/* TOURNAMENT CHAMPION label — bright, prominent */}
@@ -5314,21 +5320,31 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
             {/* Score card — bigger, more premium */}
             {arenaFinalMatch?.score && (
               <div style={{ display: "flex", alignItems: "stretch", marginBottom: 18,
+                width: "90%", maxWidth: 700,
                 background: "rgba(255,255,255,.06)", border: `1px solid ${N}50`,
                 borderRadius: 22, overflow: "hidden",
                 boxShadow: `0 0 70px rgba(170,255,0,.13), 0 0 140px rgba(170,255,0,.06), inset 0 1px 0 ${N}35` }}>
-                <div style={{ padding: "18px 30px", display: "flex", alignItems: "center",
-                  minWidth: 120, maxWidth: 230 }}>
-                  <span style={{ fontFamily: "'DM Sans',sans-serif",
-                    fontSize: `clamp(${tvF(12)}px, 2.4vw, ${tvF(18)}px)`, fontWeight: 800,
-                    color: arenaFinalMatch.winner?.id === arenaFinalMatch.p1?.id ? N : "rgba(255,255,255,.28)",
-                    textShadow: arenaFinalMatch.winner?.id === arenaFinalMatch.p1?.id ? `0 0 14px ${N}90` : "none",
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    textAlign: "right", width: "100%" }}>
-                    {arenaFinalMatch.p1?.name}
-                  </span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 18, padding: "18px 34px",
+                {/* P1 name cell */}
+                {(() => {
+                  const isWinner = arenaFinalMatch.winner?.id === arenaFinalMatch.p1?.id ||
+                    (!arenaFinalMatch.winner?.id && arenaFinalMatch.winner?.name === arenaFinalMatch.p1?.name);
+                  return (
+                    <div style={{ flex: 1, minWidth: 0, padding: "16px 20px", display: "flex",
+                      alignItems: "center", justifyContent: "flex-end" }}>
+                      <span style={{ fontFamily: "'DM Sans',sans-serif",
+                        fontSize: `clamp(${tvF(13)}px, 2.6vw, ${tvF(20)}px)`,
+                        fontWeight: isWinner ? 900 : 700, lineHeight: 1.2,
+                        color: isWinner ? "#fff" : "rgba(255,255,255,.42)",
+                        textShadow: isWinner ? `0 0 12px ${N}80, 0 0 28px ${N}40, 0 1px 6px rgba(0,0,0,.9)` : "none",
+                        wordBreak: "break-word", overflowWrap: "break-word",
+                        textAlign: "right" }}>
+                        {arenaFinalMatch.p1?.name}
+                      </span>
+                    </div>
+                  );
+                })()}
+                {/* Score */}
+                <div style={{ display: "flex", alignItems: "center", gap: 18, padding: "16px 28px",
                   borderLeft: `1px solid ${N}25`, borderRight: `1px solid ${N}25`,
                   background: "rgba(170,255,0,.07)", flexShrink: 0 }}>
                   <span style={{ fontFamily: "'Bebas Neue',sans-serif",
@@ -5345,16 +5361,25 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
                     {arenaFinalMatch.score.p2Goals}
                   </span>
                 </div>
-                <div style={{ padding: "18px 30px", display: "flex", alignItems: "center",
-                  minWidth: 120, maxWidth: 230 }}>
-                  <span style={{ fontFamily: "'DM Sans',sans-serif",
-                    fontSize: `clamp(${tvF(12)}px, 2.4vw, ${tvF(18)}px)`, fontWeight: 800,
-                    color: arenaFinalMatch.winner?.id === arenaFinalMatch.p2?.id ? N : "rgba(255,255,255,.28)",
-                    textShadow: arenaFinalMatch.winner?.id === arenaFinalMatch.p2?.id ? `0 0 14px ${N}90` : "none",
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%" }}>
-                    {arenaFinalMatch.p2?.name}
-                  </span>
-                </div>
+                {/* P2 name cell */}
+                {(() => {
+                  const isWinner = arenaFinalMatch.winner?.id === arenaFinalMatch.p2?.id ||
+                    (!arenaFinalMatch.winner?.id && arenaFinalMatch.winner?.name === arenaFinalMatch.p2?.name);
+                  return (
+                    <div style={{ flex: 1, minWidth: 0, padding: "16px 20px", display: "flex",
+                      alignItems: "center", justifyContent: "flex-start" }}>
+                      <span style={{ fontFamily: "'DM Sans',sans-serif",
+                        fontSize: `clamp(${tvF(13)}px, 2.6vw, ${tvF(20)}px)`,
+                        fontWeight: isWinner ? 900 : 700, lineHeight: 1.2,
+                        color: isWinner ? "#fff" : "rgba(255,255,255,.42)",
+                        textShadow: isWinner ? `0 0 12px ${N}80, 0 0 28px ${N}40, 0 1px 6px rgba(0,0,0,.9)` : "none",
+                        wordBreak: "break-word", overflowWrap: "break-word",
+                        textAlign: "left" }}>
+                        {arenaFinalMatch.p2?.name}
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
