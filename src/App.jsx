@@ -2326,9 +2326,14 @@ function JoinCodeCard({ code }) {
 }
 
 // ── Pure helpers for renaming a player across all denormalised rule/bracket data ──
-function renamePlayerInRules(rules, oldName, newName) {
+function renamePlayerInRules(rules, oldName, newName, playerId = null) {
   if (!rules) return rules;
-  const renP = p => (p?.name === oldName ? { ...p, name: newName } : p);
+  // Prefer ID-based match when both sides have an id; fall back to name for old data.
+  const renP = p => {
+    if (!p) return p;
+    if (playerId && p.id) return p.id === playerId ? { ...p, name: newName } : p;
+    return p.name === oldName ? { ...p, name: newName } : p;
+  };
   return {
     ...rules,
     participants: rules.participants?.map(renP),
@@ -2336,9 +2341,13 @@ function renamePlayerInRules(rules, oldName, newName) {
     groupMatches: rules.groupMatches?.map(m => ({ ...m, p1: renP(m.p1), p2: renP(m.p2) })),
   };
 }
-function renamePlayerInBracket(bracket, oldName, newName) {
+function renamePlayerInBracket(bracket, oldName, newName, playerId = null) {
   if (!bracket) return bracket;
-  const renP = p => (p?.name === oldName ? { ...p, name: newName } : p);
+  const renP = p => {
+    if (!p) return p;
+    if (playerId && p.id) return p.id === playerId ? { ...p, name: newName } : p;
+    return p.name === oldName ? { ...p, name: newName } : p;
+  };
   return {
     ...bracket,
     rounds: bracket.rounds?.map(round =>
@@ -2405,8 +2414,29 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
     rules?.tournamentFormat && rules.tournamentFormat !== "classic" && rules?.groups?.length
   );
 
-  // Rename tool player list: players table → rules.participants → groups (flattened, de-duped)
+  // Rename tool player list.
+  // For tournaments: always source from the authoritative tournament participant data
+  // (rules.participants or groups). The players table may contain users who joined via
+  // the share link and are NOT tournament entities — never use it for tournament rename.
+  // For classic leagues: the players table IS the participant list.
   const editablePlayers = (() => {
+    const isTournament = rules?.tournamentFormat && rules.tournamentFormat !== "classic";
+    if (isTournament) {
+      if (rules?.participants?.length) return rules.participants;
+      if (rules?.groups?.length) {
+        const seen = new Set();
+        const list = [];
+        for (const g of rules.groups) {
+          for (const p of (g.participants || [])) {
+            const key = p.id || p.name?.trim().toLowerCase();
+            if (key && !seen.has(key)) { seen.add(key); list.push(p); }
+          }
+        }
+        return list;
+      }
+      return [];
+    }
+    // Classic league: players table → rules fallbacks
     if (players.length > 0) return players;
     if (rules?.participants?.length) return rules.participants;
     if (rules?.groups?.length) {
@@ -2446,12 +2476,13 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
         const { error: pErr } = await supabase.from("players").update({ name: newName }).eq("id", renamingPlayer.id);
         if (pErr) throw pErr;
       }
-      const oldName = renamingPlayer.name;
-      const updRules = renamePlayerInRules(rules, oldName, newName);
+      const oldName  = renamingPlayer.name;
+      const playerId = renamingPlayer.id || null;
+      const updRules = renamePlayerInRules(rules, oldName, newName, playerId);
       if (leagueId) {
         const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).single();
         const base = data?.settings || {};
-        const updBracket = renamePlayerInBracket(bracket ?? base.bracket ?? null, oldName, newName);
+        const updBracket = renamePlayerInBracket(bracket ?? base.bracket ?? null, oldName, newName, playerId);
         const newSettings = {
           ...base,
           participants: updRules.participants,
@@ -6332,7 +6363,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                abstractBracket={rules?.abstractBracket ?? null}
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament} groupMatches={groupMatches} bracket={bracket}/>,
-    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={handleResetSeason} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName):prev);}}/>,
+    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={handleResetSeason} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName,playerId):prev);}}/>,
     profile: isAdmin && !myPlayer
       ? <AdminDashboard players={enrichedPlayers} feed={feed} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches}/>
       : <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate}/>,
