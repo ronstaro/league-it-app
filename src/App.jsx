@@ -5710,7 +5710,7 @@ function BottomNav({active, onChange}) {
 }
 
 /* ── ROOT ── */
-function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, initialRules = null, leagueId = null, leagueName = "MY LEAGUE", user = null, onBack = null, ownerId = null, onDeleteLeague = null, profile = null, onProfileUpdate = null, squadPhotoUrl = null, onSquadPhotoUpdate = null, onAvatarUpdate = null, joinCode = null }) {
+function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, initialRules = null, leagueId = null, leagueName = "MY LEAGUE", user = null, onBack = null, ownerId = null, onDeleteLeague = null, profile = null, onProfileUpdate = null, squadPhotoUrl = null, onSquadPhotoUpdate = null, onAvatarUpdate = null, joinCode = null, guestSession = null }) {
   const [activeTab,  setActiveTab]  = useState("home");
   const [showTVDash, setShowTVDash] = useState(false);
   const [players,    setPlayers]    = useState(initialPlayers);
@@ -5735,9 +5735,8 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
 
   const isTournament = rules?.tournamentFormat && rules.tournamentFormat !== "classic";
   const isAdmin      = !!(user?.id && ownerId && user.id === ownerId);
-  // Any logged-in user inside a tournament may report/edit match results.
-  // This is deliberately broader than isAdmin for the pilot.
-  const canReportTournamentResults = isTournament && !!(user?.id);
+  // Any logged-in user OR guest inside a tournament may report/edit match results.
+  const canReportTournamentResults = isTournament && (!!(user?.id) || !!(guestSession?.participantId));
   const groups       = useMemo(() => rules?.groups       || [], [rules]);
   const groupMatches = useMemo(() => rules?.groupMatches || [], [rules]);
 
@@ -6444,6 +6443,27 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
             </div>
           </motion.header>
 
+          {/* GUEST BANNER */}
+          {guestSession && (
+            <div style={{
+              background: "rgba(170,255,0,0.08)",
+              borderBottom: "1px solid rgba(170,255,0,0.18)",
+              padding: "7px 20px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+            }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="8" r="4" stroke="rgba(170,255,0,.8)" strokeWidth="1.8"/>
+                <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke="rgba(170,255,0,.8)" strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+              <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, fontWeight: 700, color: "rgba(170,255,0,.8)", letterSpacing: "0.5px" }}>
+                PLAYING AS: {guestSession.name.toUpperCase()}
+              </span>
+            </div>
+          )}
+
           {/* CONTENT */}
           <div className="flex-1 overflow-y-auto pb-24" style={{WebkitOverflowScrolling:"touch"}}>
             <AnimatePresence mode="wait">
@@ -6835,7 +6855,7 @@ function StepHeading({ line1, line2, sub }) {
 // ─────────────────────────────────────────────
 // STEP 0 — LANDING
 // ─────────────────────────────────────────────
-function StepLanding({ onNext, onSignIn = null, hasPendingJoin = false }) {
+function StepLanding({ onNext, onSignIn = null, hasPendingJoin = false, onGuestSignIn = null }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen px-6 text-center relative z-10">
       <motion.div
@@ -6967,6 +6987,31 @@ function StepLanding({ onNext, onSignIn = null, hasPendingJoin = false }) {
               {hasPendingJoin ? "Join League & Get Started" : "Continue with Google"}
             </span>
           </motion.button>
+
+          {hasPendingJoin && onGuestSignIn && (
+            <motion.button
+              onClick={onGuestSignIn}
+              whileHover={{ scale: 1.018, y: -2 }}
+              whileTap={{ scale: 0.97 }}
+              className="relative w-full overflow-hidden rounded-2xl py-[15px] font-black text-base tracking-wide mt-3"
+              style={{
+                fontFamily: "'DM Sans', sans-serif",
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.14)",
+                color: "rgba(255,255,255,0.88)",
+                cursor: "pointer",
+                fontSize: 15,
+              }}
+            >
+              <span className="flex items-center justify-center gap-2.5">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                  <circle cx="12" cy="8" r="4" stroke="rgba(255,255,255,.7)" strokeWidth="1.8"/>
+                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke="rgba(255,255,255,.7)" strokeWidth="1.8" strokeLinecap="round"/>
+                </svg>
+                Continue as Player
+              </span>
+            </motion.button>
+          )}
 
           <p
             style={{
@@ -10530,7 +10575,7 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
 // ─────────────────────────────────────────────
 // LEAGUEITONBOARDING
 // ─────────────────────────────────────────────
-function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, user = null, onSignIn = null, hasPendingJoin = false }) {
+function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, user = null, onSignIn = null, hasPendingJoin = false, onGuestSignIn = null }) {
   const [step, setStep] = useState(initialStep);
   const [dir,  setDir]  = useState(1);
 
@@ -10585,7 +10630,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const rulesProps = { format, setFormat, points, setPoints, customRules, setCustomRules };
 
   const screens = [
-    <StepLanding key="landing" onNext={goNext} onSignIn={onSignIn} hasPendingJoin={hasPendingJoin} />,
+    <StepLanding key="landing" onNext={goNext} onSignIn={onSignIn} hasPendingJoin={hasPendingJoin} onGuestSignIn={onGuestSignIn} />,
     <StepSport   key="sport"   {...sportProps} onNext={goNext} />,
     <StepTournamentFormat
       key="tournament-format"
@@ -11320,6 +11365,84 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
 }
 
 // ─────────────────────────────────────────────
+// GUEST PLAYER PICKER
+// ─────────────────────────────────────────────
+function GuestPlayerPicker({ league, onSelect, onCancel }) {
+  const settings = league?.settings || {};
+  const isTournament = settings.tournamentFormat && settings.tournamentFormat !== "classic";
+
+  const participants = useMemo(() => {
+    if (!isTournament) return [];
+    if (settings.participants?.length) return settings.participants;
+    if (settings.groups?.length) {
+      const seen = new Set();
+      const list = [];
+      for (const g of settings.groups) {
+        for (const p of (g.participants || [])) {
+          if (!seen.has(p.id)) { seen.add(p.id); list.push(p); }
+        }
+      }
+      return list;
+    }
+    return [];
+  }, [isTournament, settings]);
+
+  return (
+    <div style={{ background: "#0A0A0A", minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 20px" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;600;700;800&display=swap');*,*::before,*::after{box-sizing:border-box;}`}</style>
+      <GridBg/><GlowBlobs/>
+      <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 380, display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 13, letterSpacing: "4px", color: "rgba(170,255,0,.6)", marginBottom: 6 }}>
+          {(league?.name || "LEAGUE").toUpperCase()}
+        </div>
+        <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 34, letterSpacing: "3px", color: "#fff", marginBottom: 6 }}>
+          WHO ARE YOU?
+        </div>
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, color: "rgba(255,255,255,.45)", marginBottom: 32, textAlign: "center" }}>
+          Select your name to report results
+        </div>
+
+        {participants.length === 0 ? (
+          <div style={{ color: "rgba(255,255,255,.4)", fontFamily: "'DM Sans',sans-serif", fontSize: 14, textAlign: "center", marginBottom: 24 }}>
+            No participants found in this tournament.
+          </div>
+        ) : (
+          <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+            {participants.map(p => (
+              <button key={p.id} onClick={() => onSelect(p)}
+                style={{
+                  width: "100%", padding: "15px 20px",
+                  background: "rgba(255,255,255,.05)",
+                  border: "1px solid rgba(255,255,255,.1)",
+                  borderRadius: 16, cursor: "pointer",
+                  fontFamily: "'DM Sans',sans-serif", fontSize: 16, fontWeight: 700,
+                  color: "#fff", textAlign: "left",
+                  transition: "background .15s, border-color .15s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = "rgba(170,255,0,.1)"; e.currentTarget.style.borderColor = "rgba(170,255,0,.35)"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,.05)"; e.currentTarget.style.borderColor = "rgba(255,255,255,.1)"; }}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <button onClick={onCancel}
+          style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 600,
+            color: "rgba(255,255,255,.32)", padding: "8px 16px",
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // ROOT
 // ─────────────────────────────────────────────
 export default function Root() {
@@ -11332,6 +11455,8 @@ export default function Root() {
   const [pendingJoinCode,  setPendingJoinCode]  = useState(null);
   const [lobbyData,        setLobbyData]        = useState(null);   // { leagueId, joinCode, leagueName, ownerId }
   const [joinFlowData,     setJoinFlowData]     = useState(null);   // { leagueId, leagueName, isSeeded, defaultNickname }
+  const [guestSession,     setGuestSession]     = useState(null);   // { participantId, name, leagueId, createdAt }
+  const [guestJoinData,    setGuestJoinData]    = useState(null);   // { leagueId, leagueName, league }
 
   // Tracks current phase synchronously so async callbacks (onAuthStateChange) can
   // read it without stale-closure issues — avoids kicking user out on TOKEN_REFRESHED.
@@ -11512,6 +11637,24 @@ export default function Root() {
     }
   }, [user]);
 
+  const handleGuestSignIn = useCallback(async () => {
+    if (!supabase) return;
+    try {
+      await supabase.auth.signInAnonymously();
+      // onAuthStateChange fires next with is_anonymous=true + pending_join_code in localStorage
+    } catch (e) {
+      console.error("[guest] signInAnonymously failed:", e);
+    }
+  }, []);
+
+  const handleEnterLeagueAsGuest = useCallback(async (league, participant) => {
+    const session = { participantId: participant.id, name: participant.name, leagueId: league.id, createdAt: Date.now() };
+    localStorage.setItem(`league_guest_${league.id}`, JSON.stringify(session));
+    setGuestSession(session);
+    setGuestJoinData(null);
+    await handleEnterLeague(league);
+  }, [handleEnterLeague]);
+
   // ── Process pending join after enter is available ─────────────────────────
   useEffect(() => {
     if (!pendingJoinId || !user) return;
@@ -11552,6 +11695,20 @@ export default function Root() {
         }
         if (!league || league.settings?.lobbyState === "locked") { setPendingJoinCode(null); return; }
 
+        // Anonymous guest in a tournament → show participant picker instead of join flow
+        if (user.is_anonymous) {
+          const isTournament = league.settings?.tournamentFormat && league.settings.tournamentFormat !== "classic";
+          if (isTournament) {
+            setGuestJoinData({ leagueId: league.id, leagueName: league.name, league });
+            setPendingJoinCode(null);
+            setPhase("guest_select");
+            return;
+          }
+          // Classic league — guests cannot join classic leagues
+          setPendingJoinCode(null);
+          return;
+        }
+
         // Already a member? — just enter
         const { data: existing } = await supabase.from("players").select("id")
           .eq("league_id", league.id).eq("user_id", user.id).maybeSingle();
@@ -11579,9 +11736,30 @@ export default function Root() {
   // Fires when phase reaches "hub" and leagues have loaded. If the user manually
   // navigated back to hub (handleBack), the savedId is cleared so this is a no-op.
   useEffect(() => {
-    if (phase !== "hub" || !user || leagues.length === 0) return;
+    if (phase !== "hub" || !user) return;
     const savedId = localStorage.getItem("league_it_active_id");
     if (!savedId) return;
+
+    // Anonymous guest — restore from localStorage guest session without needing leagues array
+    if (user.is_anonymous) {
+      try {
+        const gs = JSON.parse(localStorage.getItem(`league_guest_${savedId}`) || "null");
+        if (gs?.participantId) {
+          setGuestSession(gs);
+          supabase.from("leagues").select("*").eq("id", savedId).maybeSingle()
+            .then(({ data: league }) => {
+              if (league) handleEnterLeague(league);
+              else localStorage.removeItem("league_it_active_id");
+            })
+            .catch(() => {});
+          return;
+        }
+      } catch { /* ignore */ }
+      localStorage.removeItem("league_it_active_id");
+      return;
+    }
+
+    if (leagues.length === 0) return;
     const league = leagues.find(l => l.id === savedId);
     if (!league) { localStorage.removeItem("league_it_active_id"); return; }
     handleEnterLeague(league);
@@ -11661,6 +11839,7 @@ export default function Root() {
 
   const handleBack = useCallback(() => {
     setActiveData(null);
+    setGuestSession(null);
     setPhase("hub");
     localStorage.removeItem("league_it_active_id");
     if (user) loadLeagues(user.id);
@@ -11753,6 +11932,17 @@ export default function Root() {
     </div>
   );
 
+  if (phase === "guest_select" && guestJoinData) return (
+    <GuestPlayerPicker
+      league={guestJoinData.league}
+      onSelect={(participant) => handleEnterLeagueAsGuest(guestJoinData.league, participant)}
+      onCancel={() => {
+        setGuestJoinData(null);
+        setPhase("login");
+        supabase.auth.signOut();
+      }}
+    />
+  );
   if (phase === "app" && activeData) return (
     <LeagueItApp
       initialPlayers={activeData.initialPlayers}
@@ -11770,6 +11960,7 @@ export default function Root() {
       onSquadPhotoUpdate={handleUpdateSquadPhoto}
       onAvatarUpdate={handleUpdateAvatar}
       joinCode={activeData.joinCode}
+      guestSession={guestSession}
     />
   );
   if (phase === "lobby" && lobbyData) return (
@@ -11818,6 +12009,7 @@ export default function Root() {
         sessionStorage.setItem("league_it_intent", "create");
         supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
       }}
+      onGuestSignIn={handleGuestSignIn}
       onFinish={() => {}}
     />
   );
