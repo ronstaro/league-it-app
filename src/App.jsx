@@ -3151,7 +3151,7 @@ function styleTitle(wins,comebacks,winRate,totalPlayed) {
   return               {title:"The Challenger",          icon:"🔰", color:"rgba(255,255,255,.5)"};
 }
 
-function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,onAvatarUpdate=null}) {
+function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,onAvatarUpdate=null,rules=null,bracket=null,groups=[],groupMatches=[],leagueId=null,guestSession=null}) {
   const enriched  = useMemo(()=>enrichPlayers(players,feed),[players,feed]);
   const me        = players.find(p=>p.isMe);
   const meE       = enriched.find(p=>p.isMe);
@@ -3205,6 +3205,348 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
   const mgChampion = useMemo(()=>[...enriched].sort((a,b)=>b.gamesWon-a.gamesWon)[0],[enriched]);
   const clutchLeader = useMemo(()=>[...players].sort((a,b)=>(b.clutchWins||0)-(a.clutchWins||0))[0],[players]);
   const streakLeader = useMemo(()=>[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0],[players]);
+
+  // ── TOURNAMENT FOLLOW FEATURE ──────────────────────────────────────────────
+  const isTournament = !!(rules?.tournamentFormat && rules.tournamentFormat !== "classic");
+
+  const tournamentParticipants = useMemo(() => {
+    if (!isTournament) return [];
+    if (rules?.participants?.length) return rules.participants;
+    const allGroups = rules?.groups?.length ? rules.groups : (groups || []);
+    if (allGroups.length) {
+      const seen = new Set();
+      const list = [];
+      for (const g of allGroups) {
+        for (const p of (g.participants || [])) {
+          const key = p.id || p.name?.trim().toLowerCase();
+          if (key && !seen.has(key)) { seen.add(key); list.push(p); }
+        }
+      }
+      return list;
+    }
+    return [];
+  }, [isTournament, rules, groups]);
+
+  const [followedParticipant, setFollowedParticipant] = useState(() => {
+    if (!leagueId) return null;
+    try {
+      const stored = JSON.parse(localStorage.getItem(`league_follow_${leagueId}`) || "null");
+      if (stored?.participantId) return stored;
+    } catch { /* ignore */ }
+    return null;
+  });
+  const [showPicker, setShowPicker] = useState(false);
+
+  // Default to guestSession if no follow saved yet
+  useEffect(() => {
+    if (!isTournament || followedParticipant || !guestSession?.participantId) return;
+    const gs = { participantId: guestSession.participantId, name: guestSession.name, savedAt: Date.now() };
+    setFollowedParticipant(gs);
+    if (leagueId) localStorage.setItem(`league_follow_${leagueId}`, JSON.stringify(gs));
+  }, [isTournament, guestSession]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Validate stored participant still exists
+  useEffect(() => {
+    if (!followedParticipant || !tournamentParticipants.length) return;
+    const exists = tournamentParticipants.some(
+      p => p.id === followedParticipant.participantId || p.name === followedParticipant.name
+    );
+    if (!exists) {
+      setFollowedParticipant(null);
+      if (leagueId) localStorage.removeItem(`league_follow_${leagueId}`);
+    }
+  }, [tournamentParticipants]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selectParticipant = useCallback((p) => {
+    const session = { participantId: p.id, name: p.name, savedAt: Date.now() };
+    setFollowedParticipant(session);
+    setShowPicker(false);
+    if (leagueId) localStorage.setItem(`league_follow_${leagueId}`, JSON.stringify(session));
+  }, [leagueId]);
+
+  const myTournamentGroup = useMemo(() => {
+    if (!followedParticipant || !groups?.length) return null;
+    const { participantId, name } = followedParticipant;
+    return groups.find(g => g.participants?.some(p => p.id === participantId || p.name === name)) || null;
+  }, [followedParticipant, groups]);
+
+  const myTournamentGroupStandings = useMemo(() => {
+    if (!myTournamentGroup) return [];
+    return computeGroupStandings(myTournamentGroup.participants, myTournamentGroup.name, groupMatches, feed);
+  }, [myTournamentGroup, groupMatches, feed]);
+
+  const myTournamentStandingRow = useMemo(() => {
+    if (!myTournamentGroupStandings.length || !followedParticipant) return null;
+    const { participantId, name } = followedParticipant;
+    return myTournamentGroupStandings.find(r => r.participant?.id === participantId || r.participant?.name === name) || null;
+  }, [myTournamentGroupStandings, followedParticipant]);
+
+  const myTournamentGroupRank = useMemo(() => {
+    if (!myTournamentStandingRow) return null;
+    return myTournamentGroupStandings.indexOf(myTournamentStandingRow) + 1;
+  }, [myTournamentGroupStandings, myTournamentStandingRow]);
+
+  const myGroupMatchList = useMemo(() => {
+    if (!followedParticipant || !groupMatches?.length) return [];
+    const { participantId, name } = followedParticipant;
+    return groupMatches
+      .filter(m => m.p1?.id === participantId || m.p2?.id === participantId || m.p1?.name === name || m.p2?.name === name)
+      .map(m => {
+        const result = feed.find(f => f.id === m.id);
+        const isP1 = m.p1?.id === participantId || m.p1?.name === name;
+        const opponent = isP1 ? m.p2 : m.p1;
+        let myGoals = null, oppGoals = null, outcome = null;
+        if (result) {
+          myGoals  = isP1 ? result.p1Goals  : result.p2Goals;
+          oppGoals = isP1 ? result.p2Goals : result.p1Goals;
+          if (result.isDraw) outcome = "D";
+          else outcome = myGoals > oppGoals ? "W" : "L";
+        }
+        return { ...m, opponent, result, myGoals, oppGoals, outcome, played: !!result };
+      });
+  }, [followedParticipant, groupMatches, feed]);
+
+  const myBracketMatchList = useMemo(() => {
+    if (!followedParticipant || !bracket?.rounds?.length) return [];
+    const { participantId, name } = followedParticipant;
+    const totalRounds = bracket.rounds.length;
+    const matches = [];
+    for (let ri = 0; ri < bracket.rounds.length; ri++) {
+      for (const m of bracket.rounds[ri]) {
+        if (m.isBye) continue;
+        const isP1 = m.p1?.id === participantId || m.p1?.name === name;
+        const isP2 = m.p2?.id === participantId || m.p2?.name === name;
+        if (!isP1 && !isP2) continue;
+        const opponent = isP1 ? m.p2 : m.p1;
+        const roundNum = ri + 1;
+        const roundLabel = roundNum === totalRounds ? "Final"
+          : roundNum === totalRounds - 1 && totalRounds > 2 ? "Semi-Final"
+          : roundNum === totalRounds - 2 && totalRounds > 3 ? "Quarter-Final"
+          : `Round ${roundNum}`;
+        const won  = !!(m.winner && (m.winner.id === participantId || m.winner.name === name));
+        const lost = !!(m.winner && !won);
+        matches.push({ ...m, isP1, opponent, won, lost, played: !!m.winner, roundLabel, roundNum });
+      }
+    }
+    return matches;
+  }, [followedParticipant, bracket]);
+
+  const knockoutStatus = useMemo(() => {
+    if (!myBracketMatchList.length) return null;
+    const totalRounds = bracket?.rounds?.length || 0;
+    const last = myBracketMatchList[myBracketMatchList.length - 1];
+    if (last.played && last.won && last.roundNum === totalRounds) return "champion";
+    if (last.played && last.lost) return "eliminated";
+    if (!last.played) return last.opponent?.name ? "upcoming" : "waiting";
+    return null;
+  }, [myBracketMatchList, bracket]);
+
+  const projectedSlotName = useMemo(() => {
+    if (!myTournamentGroup || bracket || !rules?.abstractBracket || !myTournamentStandingRow || !myTournamentGroupRank) return null;
+    const ords = ["1st","2nd","3rd","4th","5th","6th","7th","8th"];
+    const ord = ords[myTournamentGroupRank - 1] || `${myTournamentGroupRank}th`;
+    return `${ord} Group ${myTournamentGroup.name}`;
+  }, [myTournamentGroup, bracket, rules, myTournamentStandingRow, myTournamentGroupRank]);
+
+  // Tournament mode: return early with tournament UI
+  if (isTournament) {
+    const ordLabel = (r) => ["1st","2nd","3rd","4th","5th","6th","7th","8th"][r-1] || `${r}th`;
+    const cardStyle = { background:"rgba(255,255,255,.04)", borderRadius:16, border:"1px solid rgba(255,255,255,.08)", padding:"16px", marginTop:12, marginLeft:20, marginRight:20 };
+    const labelStyle = { fontSize:10, fontWeight:800, letterSpacing:"2px", color:"rgba(255,255,255,.35)", fontFamily:"'DM Sans',sans-serif", marginBottom:12 };
+    const matchCardBase = { background:"rgba(255,255,255,.04)", borderRadius:12, padding:"12px 14px", display:"flex", alignItems:"center", justifyContent:"space-between" };
+
+    if (!followedParticipant || showPicker) {
+      return (
+        <div style={{ paddingBottom:24 }}>
+          <div style={{ padding:"24px 20px 0" }}>
+            <div style={{ fontSize:10, fontWeight:800, letterSpacing:"2px", color:"rgba(255,255,255,.35)", fontFamily:"'DM Sans',sans-serif", marginBottom:8 }}>MY TOURNAMENT</div>
+            <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:26, color:"#fff", letterSpacing:"2px", marginBottom:4, lineHeight:1 }}>
+              {showPicker ? "Switch Participant" : "Who are you following?"}
+            </div>
+            <div style={{ fontSize:12, color:"rgba(255,255,255,.4)", fontFamily:"'DM Sans',sans-serif", marginBottom:24, lineHeight:1.5 }}>
+              {showPicker ? "Pick a different participant to follow." : "Select a participant/team to see their personal dashboard."}
+            </div>
+            {showPicker && (
+              <button onClick={() => setShowPicker(false)}
+                style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, fontWeight:700, color:"rgba(255,255,255,.45)", background:"none", border:"none", cursor:"pointer", padding:"0 0 16px", display:"flex", alignItems:"center", gap:6 }}>
+                ← Back
+              </button>
+            )}
+            {tournamentParticipants.length === 0 ? (
+              <div style={{ padding:"32px 0", textAlign:"center", color:"rgba(255,255,255,.3)", fontFamily:"'DM Sans',sans-serif", fontSize:13 }}>
+                No participants found
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {tournamentParticipants.map(p => (
+                  <button key={p.id || p.name} onClick={() => selectParticipant(p)}
+                    style={{ width:"100%", padding:"14px 16px", background:"rgba(255,255,255,.05)", border:"1px solid rgba(255,255,255,.1)", borderRadius:14, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", fontSize:15, fontWeight:700, color:"#fff", textAlign:"left", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                    <span>{p.name}</span>
+                    <span style={{ fontSize:14, color:"rgba(255,255,255,.3)" }}>›</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Dashboard
+    return (
+      <div style={{ paddingBottom:32 }}>
+        {/* Header */}
+        <div style={{ padding:"20px 20px 16px", borderBottom:"1px solid rgba(255,255,255,.07)", background:"linear-gradient(180deg,rgba(170,255,0,.06) 0%,transparent 100%)" }}>
+          <div style={{ fontSize:10, fontWeight:800, letterSpacing:"2px", color:"rgba(255,255,255,.35)", fontFamily:"'DM Sans',sans-serif", marginBottom:4 }}>FOLLOWING</div>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
+            <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:28, letterSpacing:"2px", color:N, lineHeight:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+              {followedParticipant.name}
+            </div>
+            <button onClick={() => setShowPicker(true)}
+              style={{ flexShrink:0, fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:700, color:"rgba(255,255,255,.55)", background:"rgba(255,255,255,.07)", border:"1px solid rgba(255,255,255,.12)", borderRadius:12, padding:"6px 14px", cursor:"pointer", whiteSpace:"nowrap" }}>
+              Switch
+            </button>
+          </div>
+        </div>
+
+        {/* Group Status */}
+        {myTournamentGroup && myTournamentStandingRow && (
+          <div style={cardStyle}>
+            <div style={labelStyle}>GROUP STATUS</div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end", marginBottom:14 }}>
+              <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(255,255,255,.6)", fontWeight:600 }}>
+                Group {myTournamentGroup.name}
+              </div>
+              <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:24, letterSpacing:"1px", color: myTournamentGroupRank === 1 ? N : "#fff", lineHeight:1 }}>
+                {myTournamentGroupRank === 1 ? "🥇" : myTournamentGroupRank === 2 ? "🥈" : myTournamentGroupRank === 3 ? "🥉" : ""} {ordLabel(myTournamentGroupRank)}
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:6 }}>
+              {[
+                { l:"PTS", v: myTournamentStandingRow.pts },
+                { l:"W",   v: myTournamentStandingRow.won },
+                { l:"D",   v: myTournamentStandingRow.drawn },
+                { l:"L",   v: myTournamentStandingRow.lost },
+                { l:"GF",  v: myTournamentStandingRow.gf },
+                { l:"GA",  v: myTournamentStandingRow.ga },
+                { l:"GD",  v: myTournamentStandingRow.gf - myTournamentStandingRow.ga },
+              ].map(({ l, v }) => (
+                <div key={l} style={{ flex:1, background:"rgba(0,0,0,.25)", borderRadius:8, padding:"8px 2px", textAlign:"center" }}>
+                  <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:15, color: l==="PTS" ? N : v > 0 && (l==="W") ? N : l==="L" && v > 0 ? "#FF3355" : "#fff", letterSpacing:"0.5px", lineHeight:1.1 }}>
+                    {v >= 0 ? v : v}
+                  </div>
+                  <div style={{ fontSize:7, fontWeight:800, letterSpacing:"1px", color:"rgba(255,255,255,.3)", fontFamily:"'DM Sans',sans-serif", marginTop:2 }}>{l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Knockout Status */}
+        {(knockoutStatus || projectedSlotName) && (
+          <div style={cardStyle}>
+            <div style={labelStyle}>KNOCKOUT</div>
+            {knockoutStatus === "champion" && (
+              <div style={{ textAlign:"center", padding:"8px 0" }}>
+                <div style={{ fontSize:36, marginBottom:8 }}>🏆</div>
+                <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:28, color:N, letterSpacing:"3px" }}>CHAMPION!</div>
+              </div>
+            )}
+            {knockoutStatus === "eliminated" && (() => {
+              const last = myBracketMatchList[myBracketMatchList.length - 1];
+              return (
+                <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                  <div style={{ fontSize:24 }}>❌</div>
+                  <div>
+                    <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(255,255,255,.4)", marginBottom:2, fontWeight:600 }}>Eliminated in</div>
+                    <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:20, color:"rgba(255,255,255,.7)", letterSpacing:"1px" }}>{last.roundLabel.toUpperCase()}</div>
+                    {last.opponent?.name && <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(255,255,255,.35)", marginTop:2 }}>Lost to {last.opponent.name}</div>}
+                  </div>
+                </div>
+              );
+            })()}
+            {(knockoutStatus === "upcoming" || knockoutStatus === "waiting") && (() => {
+              const next = myBracketMatchList[myBracketMatchList.length - 1];
+              return (
+                <div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(255,255,255,.4)", marginBottom:4, fontWeight:600 }}>NEXT MATCH</div>
+                  <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:20, color:N, letterSpacing:"1px", marginBottom:4 }}>{next.roundLabel.toUpperCase()}</div>
+                  {next.opponent?.name
+                    ? <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"rgba(255,255,255,.6)", fontWeight:600 }}>vs {next.opponent.name}</div>
+                    : <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:12, color:"rgba(255,255,255,.3)" }}>Opponent TBD</div>
+                  }
+                </div>
+              );
+            })()}
+            {!knockoutStatus && projectedSlotName && (
+              <div>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(255,255,255,.4)", marginBottom:4, fontWeight:600 }}>PROJECTED SLOT</div>
+                <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, color:"rgba(255,255,255,.7)", letterSpacing:"1px" }}>{projectedSlotName}</div>
+                <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(255,255,255,.3)", marginTop:4, lineHeight:1.4 }}>Based on current standings — may change as matches are played.</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* My Matches */}
+        {(myGroupMatchList.length > 0 || myBracketMatchList.length > 0) && (
+          <div style={{ marginTop:12, marginLeft:20, marginRight:20 }}>
+            <div style={labelStyle}>MY MATCHES</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {myGroupMatchList.map(m => (
+                <div key={m.id} style={{ ...matchCardBase, border:`1px solid ${m.played ? (m.outcome==="W"?"rgba(170,255,0,.2)":m.outcome==="D"?"rgba(255,184,48,.15)":"rgba(255,51,85,.15)") : "rgba(255,255,255,.07)"}` }}>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontSize:9, fontWeight:800, letterSpacing:"1px", color:"rgba(255,255,255,.3)", fontFamily:"'DM Sans',sans-serif", marginBottom:3 }}>GROUP {m.groupName}</div>
+                    <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:700, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      vs {m.opponent?.name || "TBD"}
+                    </div>
+                  </div>
+                  <div style={{ textAlign:"right", flexShrink:0, marginLeft:12 }}>
+                    {m.played ? (
+                      <>
+                        <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, letterSpacing:"1px", color: m.outcome==="W"?N:m.outcome==="D"?"#FFB830":"#FF3355", lineHeight:1 }}>{m.outcome}</div>
+                        <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(255,255,255,.4)", marginTop:2 }}>{m.myGoals}–{m.oppGoals}</div>
+                      </>
+                    ) : (
+                      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(255,255,255,.28)", fontWeight:600 }}>Pending</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {myBracketMatchList.map((m, i) => (
+                <div key={`brk-${i}`} style={{ ...matchCardBase, border:`1px solid ${m.played ? (m.won?"rgba(170,255,0,.25)":"rgba(255,51,85,.2)") : "rgba(255,255,255,.07)"}` }}>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontSize:9, fontWeight:800, letterSpacing:"1px", color:"rgba(255,255,255,.3)", fontFamily:"'DM Sans',sans-serif", marginBottom:3 }}>{m.roundLabel.toUpperCase()}</div>
+                    <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, fontWeight:700, color:"#fff", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      vs {m.opponent?.name || (m.played ? "—" : "TBD")}
+                    </div>
+                  </div>
+                  <div style={{ textAlign:"right", flexShrink:0, marginLeft:12 }}>
+                    {m.played ? (
+                      <>
+                        <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:18, letterSpacing:"1px", color:m.won?N:"#FF3355", lineHeight:1 }}>{m.won?"W":"L"}</div>
+                        {m.sets?.[0] && <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(255,255,255,.4)", marginTop:2 }}>{m.sets[0]}</div>}
+                      </>
+                    ) : (
+                      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, color:"rgba(255,255,255,.28)", fontWeight:600 }}>
+                        {m.opponent?.name ? "Upcoming" : "TBD"}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {myGroupMatchList.length === 0 && myBracketMatchList.length === 0 && (
+          <div style={{ padding:"32px 20px", textAlign:"center", color:"rgba(255,255,255,.3)", fontFamily:"'DM Sans',sans-serif", fontSize:13 }}>
+            No matches scheduled yet
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // Admin who hasn't joined as a player — show nothing (caller renders AdminDashboard instead)
   if (!me) return (
@@ -6390,7 +6732,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={handleResetSeason} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName,playerId):prev);}}/>,
     profile: isAdmin && !myPlayer
       ? <AdminDashboard players={enrichedPlayers} feed={feed} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches}/>
-      : <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate}/>,
+      : <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches} leagueId={leagueId} guestSession={guestSession}/>,
   };
 
   return (
