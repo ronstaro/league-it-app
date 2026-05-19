@@ -6730,9 +6730,15 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament} groupMatches={groupMatches} bracket={bracket}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={handleResetSeason} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName,playerId):prev);}}/>,
-    profile: isAdmin && !myPlayer
-      ? <AdminDashboard players={enrichedPlayers} feed={feed} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches}/>
-      : <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches} leagueId={leagueId} guestSession={guestSession}/>,
+    profile: isTournament
+      ? <>
+          {isAdmin && !myPlayer && <AdminDashboard players={enrichedPlayers} feed={feed} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches}/>}
+          <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches} leagueId={leagueId} guestSession={guestSession}/>
+        </>
+      : (isAdmin && !myPlayer
+          ? <AdminDashboard players={enrichedPlayers} feed={feed} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches}/>
+          : <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate}/>
+        ),
   };
 
   return (
