@@ -2892,6 +2892,79 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
         </div>
       )}
 
+      {/* Schedule — classic + scheduled mode only */}
+      {rules?.tournamentFormat === "classic" && rules?.leagueMode === "scheduled" && (
+        <div style={{ marginBottom: 24 }}>
+          <ST>📅 League Schedule</ST>
+          {rules?.lobbyState !== "locked" ? (
+            <div style={{
+              borderRadius: 18, padding: "16px",
+              background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)",
+              fontFamily: "'DM Sans',sans-serif", fontSize: 13, color: "rgba(255,255,255,.38)",
+              textAlign: "center",
+            }}>
+              Schedule will be generated after registration closes
+            </div>
+          ) : (rules?.rounds?.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {rules.rounds.map(round => (
+                <div key={round.roundNumber} style={{
+                  borderRadius: 18, padding: "14px 16px",
+                  background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)",
+                }}>
+                  <div style={{
+                    fontFamily: "'Bebas Neue',sans-serif", fontSize: 13, letterSpacing: "1.2px",
+                    color: N, marginBottom: 10,
+                  }}>
+                    Round {round.roundNumber}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    {round.matches.map(match => {
+                      const nameA = match.participantA != null
+                        ? (players.find(p => p.id === match.participantA)?.name ?? String(match.participantA))
+                        : "BYE";
+                      const nameB = match.participantB != null
+                        ? (players.find(p => p.id === match.participantB)?.name ?? String(match.participantB))
+                        : "BYE";
+                      return (
+                        <div key={match.id} style={{
+                          display: "flex", alignItems: "center", gap: 8,
+                          fontFamily: "'DM Sans',sans-serif", fontSize: 13,
+                        }}>
+                          <span style={{
+                            flex: 1, textAlign: "right", fontWeight: 600,
+                            color: match.participantA != null ? "#fff" : "rgba(255,255,255,.3)",
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }}>{nameA}</span>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, letterSpacing: "0.5px",
+                            color: "rgba(255,255,255,.25)", flexShrink: 0,
+                          }}>VS</span>
+                          <span style={{
+                            flex: 1, fontWeight: 600,
+                            color: match.participantB != null ? "#fff" : "rgba(255,255,255,.3)",
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }}>{nameB}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{
+              borderRadius: 18, padding: "16px",
+              background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.08)",
+              fontFamily: "'DM Sans',sans-serif", fontSize: 13, color: "rgba(255,255,255,.38)",
+              textAlign: "center",
+            }}>
+              No schedule available
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Generate Draw — admin + tournament only + no bracket yet */}
       {isAdmin && rules?.tournamentFormat && rules.tournamentFormat !== "classic" && !bracket && onGenerateDraw && (
         <div style={{ marginBottom: 24 }}>
