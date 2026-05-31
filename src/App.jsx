@@ -7147,7 +7147,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
         </>
       : (isAdmin && !myPlayer
           ? <AdminDashboard players={enrichedPlayers} feed={feed} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches}/>
-          : <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate}/>
+          : <ProfileTab players={enrichedPlayers} feed={feed} user={user} profile={profile} onProfileUpdate={async (n)=>{ await onProfileUpdate?.(n); const ini=n.trim().split(/\s+/).map(w=>w[0].toUpperCase()).slice(0,2).join(""); setPlayers(prev=>prev.map(p=>p.isMe?{...p,name:n.trim(),initials:ini}:p)); }} onAvatarUpdate={onAvatarUpdate} rules={rules} leagueId={leagueId} guestSession={guestSession}/>
         ),
   };
 
@@ -12542,7 +12542,6 @@ export default function Root() {
           }
         } else {
           setUser(null); setLeagues([]); setActiveData(null); setProfile(null);
-          localStorage.removeItem("league_it_active_id");
           setPhase("login");
         }
       } catch {
@@ -12578,6 +12577,27 @@ export default function Root() {
     }
   }, [user]);
 
+  const restoreGuestSession = useCallback(async () => {
+    const savedId = localStorage.getItem("league_it_active_id");
+    if (!savedId) return;
+    try {
+      const gs = JSON.parse(localStorage.getItem(`league_guest_${savedId}`) || "null");
+      if (gs?.participantId && gs?.leagueId === savedId) {
+        setGuestSession(gs);
+        const { data: league } = await supabase.from("leagues").select("*").eq("id", savedId).maybeSingle();
+        if (league) { await handleEnterLeague(league); return; }
+        localStorage.removeItem(`league_guest_${savedId}`);
+        setGuestSession(null);
+      }
+    } catch { /* ignore */ }
+    localStorage.removeItem("league_it_active_id");
+  }, [handleEnterLeague]);
+
+  useEffect(() => {
+    if (phase !== "login" || user) return;
+    restoreGuestSession();
+  }, [phase, user, restoreGuestSession]);
+
   const handleGuestSignIn = useCallback(async () => {
     const code = localStorage.getItem("pending_join_code");
     if (!code || !supabase) return;
@@ -12608,6 +12628,7 @@ export default function Root() {
   const handleEnterLeagueAsGuest = useCallback(async (league, participant) => {
     const session = { participantId: participant.id, name: participant.name, leagueId: league.id, createdAt: Date.now() };
     localStorage.setItem(`league_guest_${league.id}`, JSON.stringify(session));
+    localStorage.setItem(`league_profile_${league.id}`, String(participant.id));
     setGuestSession(session);
     setGuestJoinData(null);
     await handleEnterLeague(league);
@@ -12797,12 +12818,21 @@ export default function Root() {
   const handleSignOut = useCallback(() => supabase.auth.signOut(), []);
 
   const handleBack = useCallback(() => {
+    const guestLeagueId = guestSession?.leagueId ?? activeData?.leagueId;
+    if (guestLeagueId) {
+      localStorage.removeItem(`league_guest_${guestLeagueId}`);
+      localStorage.removeItem(`league_profile_${guestLeagueId}`);
+    }
     setActiveData(null);
     setGuestSession(null);
-    setPhase("hub");
     localStorage.removeItem("league_it_active_id");
-    if (user) loadLeagues(user.id);
-  }, [user, loadLeagues]);
+    if (user) {
+      loadLeagues(user.id);
+      setPhase("hub");
+    } else {
+      setPhase("login");
+    }
+  }, [user, loadLeagues, guestSession, activeData]);
 
   const handleWizardFinish = useCallback(async ({ leagueName, sport, tournamentFormat, leagueMode, participants, reportingMode, groupSettings, matchLegs, format, points, customSportName, customSportEmoji, customRules, leagueCode, isLiveLobby }) => {
     if (!user) throw new Error("Not logged in");
