@@ -9,7 +9,7 @@ import {
   buildSlotResolutionMap,
   resolveAbstractBracket,
 } from "./lib/knockout.js";
-import { aggregateFlexibleLeaderboard, generateRoundRobin } from "./lib/leagueMode.js";
+import { aggregateFlexibleLeaderboard, generateRoundRobin, aggregateStructuredLeaderboard } from "./lib/leagueMode.js";
 import {
   Plus, X, Check, ChevronRight, TrendingUp, TrendingDown,
   Minus, Clock, Home, BarChart2, Users, User, Edit2,
@@ -633,6 +633,7 @@ function HomeTab({
   groups=[], groupMatches=[], onGroupMatchTap=null, advancingPerGroup=2,
   wildcardCount=0, wildcardRule="none", canReport=false,
   onRegenerateBracket=null, onEditBracket=null, abstractBracket=null,
+  rounds=null, onScheduledMatchTap=null,
 }) {
   const [showAll,setShowAll]               = useState(false);
   const [showDT,setDT]                     = useState(false);
@@ -652,6 +653,13 @@ function HomeTab({
   const classicLeaderboard = useMemo(() =>
     !isTournament ? aggregateFlexibleLeaderboard(players, adaptedMatches) : [],
     [players, adaptedMatches, isTournament]
+  );
+
+  const scheduledLeaderboard = useMemo(() =>
+    (!isTournament && leagueMode === "scheduled")
+      ? aggregateStructuredLeaderboard(players, rounds || [])
+      : [],
+    [isTournament, leagueMode, players, rounds]
   );
 
   const [selectedParticipantId, setSelectedParticipantId] = useState(null);
@@ -812,13 +820,91 @@ function HomeTab({
         </div>
       )}
 
-      {/* ── CLASSIC: standings table ── */}
-      {!isTournament && (
+      {/* ── CLASSIC FLEXIBLE: standings table ── */}
+      {!isTournament && leagueMode !== "scheduled" && (
         <>
           <ST>📊 Standings</ST>
           <StandingsTable players={players} feed={feed}/>
         </>
       )}
+
+      {/* ── CLASSIC SCHEDULED: round-based leaderboard + fixtures ── */}
+      {!isTournament && leagueMode === "scheduled" && (() => {
+        const COL = "26px 1fr 30px 26px 26px 26px 34px";
+        return (
+          <>
+            <ST>📊 Standings</ST>
+            <div className="rounded-[22px] overflow-hidden mb-6" style={{ border: "1px solid rgba(255,255,255,.07)" }}>
+              <div className="grid px-3 py-2.5 gap-1"
+                style={{ gridTemplateColumns: COL, background: "rgba(255,255,255,.04)", borderBottom: "1px solid rgba(255,255,255,.07)" }}>
+                {["#","PLAYER","MP","W","D","L","PTS"].map((h, i) => (
+                  <span key={h} style={{ fontSize: 8, fontWeight: 800, letterSpacing: "1px", color: "rgba(255,255,255,.28)", textAlign: i > 1 ? "center" : "left", fontFamily: "'DM Sans',sans-serif" }}>{h}</span>
+                ))}
+              </div>
+              {scheduledLeaderboard.length === 0 ? (
+                <div style={{ padding: "20px 16px", textAlign: "center", fontFamily: "'DM Sans',sans-serif", fontSize: 13, color: "rgba(255,255,255,.28)" }}>
+                  No results yet
+                </div>
+              ) : scheduledLeaderboard.map((row, i) => {
+                const md = medal(i + 1);
+                return (
+                  <div key={row.id} className="grid px-3 py-3 items-center gap-1"
+                    style={{ gridTemplateColumns: COL, borderBottom: i < scheduledLeaderboard.length - 1 ? "1px solid rgba(255,255,255,.05)" : "none" }}>
+                    <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: md ? 15 : 19, color: md ? md.c : "rgba(255,255,255,.25)", lineHeight: 1 }}>{md ? md.e : i + 1}</div>
+                    <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.name}</div>
+                    {[row.played, row.wins, row.draws, row.losses, row.points].map((v, j) => (
+                      <div key={j} style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, fontWeight: 700, color: "rgba(255,255,255,.7)", textAlign: "center" }}>{v}</div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+
+            {(rounds || []).length > 0 && (
+              <>
+                <ST>📅 Schedule</ST>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+                  {rounds.map(round => {
+                    const doneCount = round.matches.filter(m => m.status === "completed").length;
+                    return (
+                      <div key={round.roundNumber} style={{ borderRadius: 14, border: "1px solid rgba(255,255,255,.07)", background: "rgba(255,255,255,.02)", overflow: "hidden" }}>
+                        <div style={{ padding: "8px 14px", borderBottom: "1px solid rgba(255,255,255,.05)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 13, letterSpacing: "1.5px", color: N }}>Round {round.roundNumber}</span>
+                          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: "rgba(255,255,255,.28)" }}>{doneCount}/{round.matches.length}</span>
+                        </div>
+                        {round.matches.map(match => {
+                          const nameA = match.participantA != null ? (players.find(p => p.id === match.participantA)?.name ?? "?") : "BYE";
+                          const nameB = match.participantB != null ? (players.find(p => p.id === match.participantB)?.name ?? "?") : "BYE";
+                          const isDone = match.status === "completed";
+                          const isBye = match.participantA == null || match.participantB == null;
+                          const canTap = !isBye && !!onScheduledMatchTap;
+                          return (
+                            <div key={match.id}
+                              onClick={() => canTap && onScheduledMatchTap(match)}
+                              style={{ padding: "9px 14px", borderTop: "1px solid rgba(255,255,255,.04)", display: "flex", alignItems: "center", gap: 8, cursor: canTap ? "pointer" : "default" }}>
+                              <div style={{ width: 5, height: 5, borderRadius: "50%", flexShrink: 0, background: isDone ? N : "rgba(255,255,255,.18)", boxShadow: isDone ? `0 0 5px ${N}` : "none" }}/>
+                              <span style={{ flex: 1, textAlign: "right", fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: isDone && match.scoreA > match.scoreB ? 800 : 600, color: isBye ? "rgba(255,255,255,.3)" : "rgba(255,255,255,.78)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nameA}</span>
+                              {isDone ? (
+                                <div style={{ display: "flex", alignItems: "center", flexShrink: 0, background: "rgba(255,255,255,.06)", borderRadius: 7, padding: "3px 9px", minWidth: 52, justifyContent: "center" }}>
+                                  <span style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 15, color: N }}>{match.scoreA}–{match.scoreB}</span>
+                                </div>
+                              ) : (
+                                <span style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: "0.5px", color: "rgba(255,255,255,.2)", padding: "0 4px", flexShrink: 0 }}>{isBye ? "BYE" : "VS"}</span>
+                              )}
+                              <span style={{ flex: 1, fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: isDone && match.scoreB > match.scoreA ? 800 : 600, color: isBye ? "rgba(255,255,255,.3)" : "rgba(255,255,255,.78)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nameB}</span>
+                              {canTap && <Edit2 size={12} style={{ color: isDone ? `${N}88` : "rgba(255,255,255,.25)", flexShrink: 0 }}/>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </>
+        );
+      })()}
 
       {/* ── KNOCKOUT: full bracket ── */}
       {isTournament && tournamentFormat === "knockout" && (
@@ -6319,7 +6405,9 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   const [pendingGroups,       setPendingGroups]       = useState(null);
   const [pendingGroupMatches, setPendingGroupMatches] = useState(null);
   // Unified tournament match modal — holds { match, type: "bracket"|"group", contextLabel }
-  const [tournamentModal, setTournamentModal] = useState(null);
+  const [tournamentModal,      setTournamentModal]      = useState(null);
+  // Scheduled classic match modal — holds { match, nameA, nameB }
+  const [scheduledMatchModal,  setScheduledMatchModal]  = useState(null);
 
   const isTournament = rules?.tournamentFormat && rules.tournamentFormat !== "classic";
   const isAdmin      = !!(user?.id && ownerId && user.id === ownerId);
@@ -6479,6 +6567,58 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
       setRules(prev => ({ ...prev, lobbyState: "locked" }));
     }
   }, [leagueId, players, rules.leagueMode, setRules]);
+
+  const handleScheduledMatchResult = useCallback(async ({ matchId, scoreA, scoreB }) => {
+    if (!leagueId || !rules?.rounds) return;
+    const updatedRounds = rules.rounds.map(round => ({
+      ...round,
+      matches: round.matches.map(m =>
+        m.id === matchId ? { ...m, scoreA, scoreB, status: "completed" } : m
+      ),
+    }));
+    const match = rules.rounds.flatMap(r => r.matches).find(m => m.id === matchId);
+    if (!match) return;
+    const { data: lg } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
+    const base = lg?.settings || {};
+    const { error: settingsErr } = await supabase.from("leagues").update({ settings: { ...base, rounds: updatedRounds } }).eq("id", leagueId);
+    if (settingsErr) throw new Error(settingsErr.message);
+    setRules(prev => ({ ...prev, rounds: updatedRounds }));
+    const ts       = nowTs();
+    const playerA  = players.find(p => p.id === match.participantA);
+    const playerB  = players.find(p => p.id === match.participantB);
+    const isDraw   = scoreA === scoreB;
+    const winnerP  = !isDraw ? (scoreA > scoreB ? playerA : playerB) : null;
+    const loserP   = !isDraw ? (scoreA > scoreB ? playerB : playerA) : null;
+    const entry = {
+      id:        matchId,
+      winner:    winnerP?.name ?? null,
+      winnerIds: winnerP ? [winnerP.id] : [],
+      loser:     loserP?.name  ?? null,
+      loserIds:  loserP  ? [loserP.id]  : [],
+      sets:      [`${scoreA}–${scoreB}`],
+      sport:     rules?.sportEmoji || "🏆",
+      dateStr:   ts.dateStr, timeStr: ts.timeStr,
+      xp: 80, isComeback: false,
+      p1Name:    playerA?.name ?? null,
+      p2Name:    playerB?.name ?? null,
+      p1Goals:   scoreA,
+      p2Goals:   scoreB,
+      scoreA, scoreB, isDraw,
+    };
+    setFeed(prev => [entry, ...prev.filter(m => m.id !== matchId)]);
+    const { error: matchErr } = await supabase.from("matches").upsert({
+      id:        matchId,
+      league_id: leagueId,
+      winner_id: winnerP?.id ?? null,
+      loser_id:  loserP?.id  ?? null,
+      score:     entry,
+      date:      new Date().toISOString(),
+    });
+    if (matchErr) {
+      console.error("[scheduledMatch] upsert failed", matchErr);
+      throw new Error(matchErr.message);
+    }
+  }, [leagueId, rules, players]);
 
   const handleConfirmDraw = useCallback(async (drawData) => {
     if (!leagueId) return;
@@ -6991,6 +7131,12 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                onRegenerateBracket={isAdmin ? handleRegenerateBracket : null}
                onEditBracket={isAdmin ? handleEditBracket : null}
                abstractBracket={rules?.abstractBracket ?? null}
+               rounds={rules?.rounds ?? null}
+               onScheduledMatchTap={(isAdmin || !!user?.id || !!guestSession?.participantId) ? (match) => {
+                 const nameA = players.find(p => p.id === match.participantA)?.name ?? "?";
+                 const nameB = players.find(p => p.id === match.participantB)?.name ?? "?";
+                 setScheduledMatchModal({ match, nameA, nameB });
+               } : null}
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament} groupMatches={groupMatches} bracket={bracket}/>,
     league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={handleResetSeason} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName,playerId):prev);}} onCloseRegistration={handleCloseRegistration}/>,
@@ -7092,8 +7238,8 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
             </AnimatePresence>
           </div>
 
-          {/* FAB — hidden in tournament mode (all fixtures are pre-generated) */}
-          {activeTab==="home"&&!isTournament&&(
+          {/* FAB — hidden in tournament mode and scheduled classic (fixtures drive reporting) */}
+          {activeTab==="home"&&!isTournament&&rules?.leagueMode!=="scheduled"&&(
             <div className="fixed z-30" style={{bottom:80,left:"50%",transform:"translateX(-50%)",width:"calc(100% - 40px)",maxWidth:390}}>
               <motion.button onClick={()=>{setEditMatch(null);setShowLog(true);}}
                 whileHover={{scale:1.03,y:-3}} whileTap={{scale:.96}}
@@ -7164,6 +7310,17 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
             onGroupResult={handleGroupResult}
             onBracketResult={handleBracketResult}
             onClose={() => setTournamentModal(null)}
+          />
+        )}
+
+        {scheduledMatchModal && (
+          <ScheduledMatchModal
+            key="scheduled-match"
+            match={scheduledMatchModal.match}
+            nameA={scheduledMatchModal.nameA}
+            nameB={scheduledMatchModal.nameB}
+            onSave={handleScheduledMatchResult}
+            onClose={() => setScheduledMatchModal(null)}
           />
         )}
 
@@ -11260,6 +11417,97 @@ function LobbyScreen({ leagueId, joinCode, leagueName, user, ownerId, onClose })
         </div>
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// SCHEDULED MATCH MODAL
+// ─────────────────────────────────────────────
+function ScheduledMatchModal({ match, nameA, nameB, onSave, onClose }) {
+  const [scoreA, setScoreA] = useState(match.status === "completed" ? String(match.scoreA) : "");
+  const [scoreB, setScoreB] = useState(match.status === "completed" ? String(match.scoreB) : "");
+  const [saving, setSaving] = useState(false);
+  const [err,    setErr]    = useState("");
+
+  const handleSave = async () => {
+    const sA = Number(scoreA), sB = Number(scoreB);
+    if (scoreA === "" || scoreB === "" || !Number.isInteger(sA) || !Number.isInteger(sB) || sA < 0 || sB < 0) {
+      setErr("Enter valid whole-number scores"); return;
+    }
+    setSaving(true);
+    setErr("");
+    try {
+      await onSave({ matchId: match.id, scoreA: sA, scoreB: sB });
+      onClose();
+    } catch (e) {
+      setErr(e.message || "Failed to save");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,.78)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: "0 20px" }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <motion.div initial={{ scale: .92, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: .92, y: 20 }}
+        style={{ background: "#111", border: "1px solid rgba(255,255,255,.12)",
+          borderRadius: 24, padding: "28px 24px", width: "100%", maxWidth: 340 }}>
+        <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 22, letterSpacing: "2px",
+          color: "#fff", textAlign: "center", marginBottom: 4 }}>
+          {match.status === "completed" ? "Edit Result" : "Log Result"}
+        </div>
+        <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "rgba(255,255,255,.35)",
+          textAlign: "center", marginBottom: 24 }}>
+          Enter final scores
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 20 }}>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700, color: "#fff",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%", textAlign: "center" }}>
+              {nameA}
+            </div>
+            <input autoFocus type="number" min="0" max="999" value={scoreA}
+              onChange={e => setScoreA(e.target.value)}
+              style={{ width: 68, height: 56, borderRadius: 14,
+                border: `1.5px solid rgba(170,255,0,.35)`, background: "rgba(170,255,0,.07)",
+                color: N, textAlign: "center", fontFamily: "'JetBrains Mono',monospace",
+                fontSize: 24, fontWeight: 700, outline: "none" }}/>
+          </div>
+          <div style={{ fontFamily: "'Bebas Neue',sans-serif", fontSize: 26,
+            color: "rgba(255,255,255,.2)", flexShrink: 0 }}>:</div>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+            <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 700, color: "#fff",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%", textAlign: "center" }}>
+              {nameB}
+            </div>
+            <input type="number" min="0" max="999" value={scoreB}
+              onChange={e => setScoreB(e.target.value)}
+              style={{ width: 68, height: 56, borderRadius: 14,
+                border: `1.5px solid rgba(170,255,0,.35)`, background: "rgba(170,255,0,.07)",
+                color: N, textAlign: "center", fontFamily: "'JetBrains Mono',monospace",
+                fontSize: 24, fontWeight: 700, outline: "none" }}/>
+          </div>
+        </div>
+        {err && (
+          <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 12, color: "#FF6B6B",
+            textAlign: "center", marginBottom: 12 }}>{err}</div>
+        )}
+        <motion.button whileTap={{ scale: .97 }} onClick={handleSave} disabled={saving}
+          style={{ width: "100%", borderRadius: 16, padding: "14px", border: "none",
+            background: saving ? "rgba(255,255,255,.08)" : `linear-gradient(135deg,${N},#7DC900)`,
+            color: saving ? "rgba(255,255,255,.3)" : "#000",
+            fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 800,
+            cursor: saving ? "not-allowed" : "pointer", marginBottom: 10 }}>
+          {saving ? "Saving…" : "Save Result"}
+        </motion.button>
+        <button onClick={onClose}
+          style={{ width: "100%", background: "none", border: "none", cursor: "pointer",
+            fontFamily: "'DM Sans',sans-serif", fontSize: 13, color: "rgba(255,255,255,.32)", padding: "8px" }}>
+          Cancel
+        </button>
+      </motion.div>
+    </motion.div>
   );
 }
 
