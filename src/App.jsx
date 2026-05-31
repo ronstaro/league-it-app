@@ -12060,12 +12060,12 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
 // ─────────────────────────────────────────────
 // GUEST PLAYER PICKER
 // ─────────────────────────────────────────────
-function GuestPlayerPicker({ league, onSelect, onCancel }) {
+function GuestPlayerPicker({ league, classicPlayers = [], onSelect, onCancel }) {
   const settings = league?.settings || {};
   const isTournament = settings.tournamentFormat && settings.tournamentFormat !== "classic";
 
   const participants = useMemo(() => {
-    if (!isTournament) return [];
+    if (!isTournament) return classicPlayers;
     if (settings.participants?.length) return settings.participants;
     if (settings.groups?.length) {
       const seen = new Set();
@@ -12078,7 +12078,7 @@ function GuestPlayerPicker({ league, onSelect, onCancel }) {
       return list;
     }
     return [];
-  }, [isTournament, settings]);
+  }, [isTournament, settings, classicPlayers]);
 
   return (
     <div style={{ background: "#0A0A0A", minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "32px 20px" }}>
@@ -12331,12 +12331,29 @@ export default function Root() {
   }, [user]);
 
   const handleGuestSignIn = useCallback(async () => {
-    if (!supabase) return;
+    const code = localStorage.getItem("pending_join_code");
+    if (!code || !supabase) return;
     try {
-      await supabase.auth.signInAnonymously();
-      // onAuthStateChange fires next with is_anonymous=true + pending_join_code in localStorage
+      let { data: league } = await supabase.from("leagues").select("*").eq("join_code", code).maybeSingle();
+      if (!league) {
+        const { data: all } = await supabase.from("leagues").select("*");
+        league = all?.find(l => l.settings?.lobbyPin === code || l.settings?.leagueCode === code) || null;
+      }
+      if (!league) return;
+      if (league.settings?.lobbyState === "locked") return;
+      localStorage.removeItem("pending_join_code");
+      const isTournament = league.settings?.tournamentFormat && league.settings.tournamentFormat !== "classic";
+      if (isTournament) {
+        setGuestJoinData({ leagueId: league.id, leagueName: league.name, league });
+        setPhase("guest_select");
+      } else {
+        const { data: rows } = await supabase.from("players").select("id,name").eq("league_id", league.id);
+        const classicPlayers = (rows || []).map(r => ({ id: r.id, name: r.name }));
+        setGuestJoinData({ leagueId: league.id, leagueName: league.name, league, classicPlayers });
+        setPhase("guest_select");
+      }
     } catch (e) {
-      console.error("[guest] signInAnonymously failed:", e);
+      console.error("[guest] join failed:", e);
     }
   }, []);
 
@@ -12629,11 +12646,11 @@ export default function Root() {
   if (phase === "guest_select" && guestJoinData) return (
     <GuestPlayerPicker
       league={guestJoinData.league}
+      classicPlayers={guestJoinData.classicPlayers || []}
       onSelect={(participant) => handleEnterLeagueAsGuest(guestJoinData.league, participant)}
       onCancel={() => {
         setGuestJoinData(null);
         setPhase("login");
-        supabase.auth.signOut();
       }}
     />
   );
