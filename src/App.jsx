@@ -9,7 +9,7 @@ import {
   buildSlotResolutionMap,
   resolveAbstractBracket,
 } from "./lib/knockout.js";
-import { aggregateFlexibleLeaderboard } from "./lib/leagueMode.js";
+import { aggregateFlexibleLeaderboard, generateRoundRobin } from "./lib/leagueMode.js";
 import {
   Plus, X, Check, ChevronRight, TrendingUp, TrendingDown,
   Minus, Clock, Home, BarChart2, Users, User, Edit2,
@@ -82,6 +82,8 @@ function settingsToRules(leagueSport, settings) {
     groupMatches:     s.groupMatches || [],
     abstractBracket:  s.abstractBracket || null,
     leagueMode:       s.leagueMode || "scheduled",
+    lobbyState:       s.lobbyState || null,
+    rounds:           s.rounds || null,
   };
 }
 
@@ -2459,7 +2461,7 @@ function renamePlayerInBracket(bracket, oldName, newName, playerId = null) {
   };
 }
 
-function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlayer,onRemovePlayer,onJoinAsPlayer,leagueId,ownerId,user,onDeleteLeague,squadPhotoUrl=null,onSquadPhotoUpdate=null,joinCode=null,bracket=null,onGenerateDraw=null,onRenamePlayer=null}) {
+function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlayer,onRemovePlayer,onJoinAsPlayer,leagueId,ownerId,user,onDeleteLeague,squadPhotoUrl=null,onSquadPhotoUpdate=null,joinCode=null,bracket=null,onGenerateDraw=null,onRenamePlayer=null,onCloseRegistration=null}) {
   const [editing,          setEditing]          = useState(false);
   const [draft,            setDraft]            = useState(rules);
   const [confirm,          setConfirm]          = useState(false);
@@ -2475,6 +2477,8 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
   const [groupSaving,      setGroupSaving]      = useState(false);
   const [groupSaveErr,     setGroupSaveErr]     = useState("");
   const [groupConfirm,     setGroupConfirm]     = useState(false);
+  const [closingReg,       setClosingReg]       = useState(false);
+  const [closeRegErr,      setCloseRegErr]      = useState("");
 
   // Admin = strict match only — user must be the league owner.
   // No fallback: if ownerId is null this league pre-dates the owner_id column and
@@ -2796,6 +2800,72 @@ function LeagueTab({players,feed=[],rules,onRulesUpdate,onResetSeason,onAddPlaye
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Close Registration — classic league admin only */}
+      {isAdmin && rules?.tournamentFormat === "classic" && onCloseRegistration && (
+        <div style={{ marginBottom: 20 }}>
+          {rules?.lobbyState === "locked" ? (
+            <div className="rounded-[18px] px-4 py-4 flex items-center gap-3"
+              style={{ background: "rgba(255,255,255,.04)", border: "1.5px solid rgba(255,255,255,.12)" }}>
+              <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0"
+                style={{ background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.15)" }}>
+                <Users size={18} color="rgba(255,255,255,.5)" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 800, color: "rgba(255,255,255,.7)", lineHeight: 1 }}>
+                  Registration Closed
+                </div>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.35)", marginTop: 3 }}>
+                  {players.length} participant{players.length !== 1 ? "s" : ""} locked in
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-[18px] px-4 py-4 flex items-center gap-3"
+              style={{ background: "rgba(255,165,0,.06)", border: "1.5px solid rgba(255,165,0,.3)" }}>
+              <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0"
+                style={{ background: "rgba(255,165,0,.12)", border: "1px solid rgba(255,165,0,.25)" }}>
+                <Users size={18} color="#FFA500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 800, color: "#FFA500", lineHeight: 1 }}>
+                  Registration Open
+                </div>
+                <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "rgba(255,255,255,.38)", marginTop: 3 }}>
+                  {players.length} participant{players.length !== 1 ? "s" : ""} · close to lock the roster
+                </div>
+                {closeRegErr ? (
+                  <div style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 11, color: "#FF6B6B", marginTop: 4 }}>{closeRegErr}</div>
+                ) : null}
+              </div>
+              <button
+                disabled={closingReg || (rules?.leagueMode === "scheduled" && players.length < 2)}
+                onClick={async () => {
+                  setCloseRegErr("");
+                  setClosingReg(true);
+                  try { await onCloseRegistration(); }
+                  catch (e) { setCloseRegErr(e.message || "Failed to close registration"); }
+                  finally { setClosingReg(false); }
+                }}
+                className="rounded-[12px] px-3 py-2 text-xs font-black flex-shrink-0"
+                style={{
+                  background: closingReg || (rules?.leagueMode === "scheduled" && players.length < 2)
+                    ? "rgba(255,255,255,.08)"
+                    : "linear-gradient(135deg,#FFA500,#E08A00)",
+                  color: closingReg || (rules?.leagueMode === "scheduled" && players.length < 2)
+                    ? "rgba(255,255,255,.3)"
+                    : "#000",
+                  fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.3px",
+                  cursor: closingReg || (rules?.leagueMode === "scheduled" && players.length < 2) ? "not-allowed" : "pointer",
+                  border: "none",
+                }}
+              >
+                {closingReg ? "Closing…" : "Close"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Join as Player — shown to admin if they're not yet in the standings */}
       {isAdmin && !players.some(p => p.isMe) && (
@@ -6320,6 +6390,23 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     setShowDrawReveal(true);
   }, [rules]);
 
+  const handleCloseRegistration = useCallback(async () => {
+    if (!leagueId) return;
+    if (rules.leagueMode === "scheduled" && players.length < 2) {
+      throw new Error("Need at least 2 players to generate schedule");
+    }
+    const { data: lg } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
+    const base = lg?.settings || {};
+    if (rules.leagueMode === "scheduled") {
+      const rounds = generateRoundRobin(players);
+      await supabase.from("leagues").update({ settings: { ...base, lobbyState: "locked", rounds } }).eq("id", leagueId);
+      setRules(prev => ({ ...prev, lobbyState: "locked", rounds }));
+    } else {
+      await supabase.from("leagues").update({ settings: { ...base, lobbyState: "locked" } }).eq("id", leagueId);
+      setRules(prev => ({ ...prev, lobbyState: "locked" }));
+    }
+  }, [leagueId, players, rules.leagueMode, setRules]);
+
   const handleConfirmDraw = useCallback(async (drawData) => {
     if (!leagueId) return;
     const { data } = await supabase.from("leagues").select("settings").eq("id", leagueId).maybeSingle();
@@ -6833,7 +6920,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                abstractBracket={rules?.abstractBracket ?? null}
              />,
     stats:   <StatsTab   players={enrichedPlayers} feed={feed} isTournament={isTournament} groupMatches={groupMatches} bracket={bracket}/>,
-    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={handleResetSeason} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName,playerId):prev);}}/>,
+    league:  <LeagueTab  players={enrichedPlayers} feed={feed} rules={rules} onRulesUpdate={setRules} onResetSeason={handleResetSeason} onAddPlayer={handleAddPlayer} onRemovePlayer={handleRemovePlayer} onJoinAsPlayer={handleJoinAsPlayer} leagueId={leagueId} ownerId={ownerId} user={user} onDeleteLeague={onDeleteLeague} squadPhotoUrl={squadPhotoUrl} onSquadPhotoUpdate={onSquadPhotoUpdate} joinCode={joinCode} bracket={bracket} onGenerateDraw={handleShowGenerateDraw} onRenamePlayer={(playerId,oldName,newName)=>{setPlayers(prev=>prev.map(p=>p.id===playerId?{...p,name:newName}:p));setBracket(prev=>prev?renamePlayerInBracket(prev,oldName,newName,playerId):prev);}} onCloseRegistration={handleCloseRegistration}/>,
     profile: isTournament
       ? <>
           {isAdmin && !myPlayer && <AdminDashboard players={enrichedPlayers} feed={feed} rules={rules} bracket={bracket} groups={groups} groupMatches={groupMatches}/>}
