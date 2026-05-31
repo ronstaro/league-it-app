@@ -9,6 +9,7 @@ import {
   buildSlotResolutionMap,
   resolveAbstractBracket,
 } from "./lib/knockout.js";
+import { aggregateFlexibleLeaderboard } from "./lib/leagueMode.js";
 import {
   Plus, X, Check, ChevronRight, TrendingUp, TrendingDown,
   Minus, Clock, Home, BarChart2, Users, User, Edit2,
@@ -80,6 +81,7 @@ function settingsToRules(leagueSport, settings) {
     groups:           s.groups || [],
     groupMatches:     s.groupMatches || [],
     abstractBracket:  s.abstractBracket || null,
+    leagueMode:       s.leagueMode || "scheduled",
   };
 }
 
@@ -624,6 +626,7 @@ function _DrawEmptyState({ isAdmin, onGenerateDraw }) {
 function HomeTab({
   players, feed, onEditFeed, onDeleteFeed, isAdmin=false, myPlayerId=null,
   isTournament=false, tournamentFormat="classic",
+  leagueId=null, leagueMode="scheduled",
   bracket=null, onMatchTap=null, onGenerateDraw=null, matchLegs=1,
   groups=[], groupMatches=[], onGroupMatchTap=null, advancingPerGroup=2,
   wildcardCount=0, wildcardRule="none", canReport=false,
@@ -635,6 +638,41 @@ function HomeTab({
   const [showBracketEditor,setBracketEditor]= useState(false);
   const mvp    = useMemo(()=>players.length>0?[...players].sort((a,b)=>b.wins-a.wins)[0]:{name:"No Players",wins:0,losses:0},[players]);
   const streak = useMemo(()=>players.length>0?[...players].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]:{name:"No Players",bestStreak:0},[players]);
+
+  // ── My League Profile ────────────────────────────────────────────────────
+  const adaptedMatches = useMemo(() =>
+    feed
+      .filter(m => m.winnerIds?.length === 1 && m.loserIds?.length === 1)
+      .map(m => ({ id: m.id, participantA: m.winnerIds[0], participantB: m.loserIds[0], scoreA: 1, scoreB: 0, status: "completed" })),
+    [feed]
+  );
+
+  const classicLeaderboard = useMemo(() =>
+    !isTournament ? aggregateFlexibleLeaderboard(players, adaptedMatches) : [],
+    [players, adaptedMatches, isTournament]
+  );
+
+  const [selectedParticipantId, setSelectedParticipantId] = useState(null);
+
+  useEffect(() => {
+    if (!leagueId || !players.length) return;
+    const stored = localStorage.getItem(`league_profile_${leagueId}`);
+    if (!stored) return;
+    if (players.some(p => p.id === stored)) {
+      setSelectedParticipantId(prev => prev === stored ? prev : stored);
+    } else {
+      setSelectedParticipantId(null);
+      localStorage.removeItem(`league_profile_${leagueId}`);
+    }
+  }, [leagueId, players]);
+
+  const handleSelectParticipant = (id) => {
+    setSelectedParticipantId(id || null);
+    if (leagueId) {
+      if (id) localStorage.setItem(`league_profile_${leagueId}`, id);
+      else localStorage.removeItem(`league_profile_${leagueId}`);
+    }
+  };
 
   // TBD bracket — shown before real bracket is generated.
   // Uses the stored abstractBracket (same slots used for final bracket resolution).
@@ -915,6 +953,71 @@ function HomeTab({
           )}
         </>
       )}
+
+      {/* My League Profile — classic only */}
+      {!isTournament && (() => {
+        const profileRow  = selectedParticipantId ? classicLeaderboard.find(p => p.id === selectedParticipantId) : null;
+        const profileRank = selectedParticipantId ? classicLeaderboard.findIndex(p => p.id === selectedParticipantId) + 1 : null;
+        return (
+          <div style={{ marginTop: 24, marginBottom: 8 }}>
+            <div style={{ fontSize:10, fontWeight:700, letterSpacing:"2px", color:"rgba(255,255,255,.28)", fontFamily:"'DM Sans',sans-serif", marginBottom:10 }}>
+              MY LEAGUE PROFILE
+            </div>
+            <select
+              value={selectedParticipantId || ""}
+              onChange={e => handleSelectParticipant(e.target.value || null)}
+              style={{
+                width:"100%", padding:"12px 16px", borderRadius:14, cursor:"pointer",
+                background:"rgba(255,255,255,0.05)", border:"1.5px solid rgba(255,255,255,0.1)",
+                color: selectedParticipantId ? "#fff" : "rgba(255,255,255,0.35)",
+                fontFamily:"'DM Sans',sans-serif", fontSize:14, fontWeight:600,
+                appearance:"none", outline:"none", marginBottom:12,
+              }}
+            >
+              <option value="">Select your name…</option>
+              {players.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+
+            {profileRow && (
+              <div style={{ borderRadius:20, padding:"18px 20px", background:"rgba(170,255,0,0.05)", border:"1.5px solid rgba(170,255,0,0.15)" }}>
+                <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:14 }}>
+                  <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:22, color:"#fff", letterSpacing:"1px" }}>
+                    {profileRow.name}
+                  </div>
+                  <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:11, fontWeight:800, color:"rgba(170,255,0,0.7)", letterSpacing:"1px" }}>
+                    RANK #{profileRank}
+                  </div>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:8 }}>
+                  {[
+                    { label:"PLAYED", value: profileRow.played },
+                    { label:"WINS",   value: profileRow.wins   },
+                    { label:"LOSSES", value: profileRow.losses },
+                  ].map(({ label, value }) => (
+                    <div key={label} style={{ textAlign:"center", borderRadius:12, padding:"10px 4px", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.07)" }}>
+                      <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:24, color:"#fff", lineHeight:1 }}>{value}</div>
+                      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, fontWeight:700, letterSpacing:"1.5px", color:"rgba(255,255,255,0.35)", marginTop:3 }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8 }}>
+                  {[
+                    { label:"DRAWS",  value: profileRow.draws  },
+                    { label:"POINTS", value: profileRow.points },
+                  ].map(({ label, value }) => (
+                    <div key={label} style={{ textAlign:"center", borderRadius:12, padding:"10px 4px", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.07)" }}>
+                      <div style={{ fontFamily:"'Bebas Neue',sans-serif", fontSize:24, color:"#fff", lineHeight:1 }}>{value}</div>
+                      <div style={{ fontFamily:"'DM Sans',sans-serif", fontSize:9, fontWeight:700, letterSpacing:"1.5px", color:"rgba(255,255,255,0.35)", marginTop:3 }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -6716,6 +6819,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                onEditFeed={handleEdit} onDeleteFeed={handleDeleteMatch}
                isAdmin={isAdmin} myPlayerId={myPlayer?.id || null}
                isTournament={isTournament} tournamentFormat={rules?.tournamentFormat || "classic"}
+               leagueId={leagueId} leagueMode={rules?.leagueMode || "scheduled"}
                bracket={bracket} onMatchTap={m => setTournamentModal({ match: m, type: "bracket", contextLabel: _bracketRoundLabel(bracket, m) })}
                onGenerateDraw={handleShowGenerateDraw} matchLegs={rules?.matchLegs || 1}
                groups={groups} groupMatches={groupMatches}
@@ -6768,7 +6872,14 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                 )}
                 <div className="min-w-0">
                   <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,letterSpacing:"3px",color:N,textShadow:"0 0 20px rgba(170,255,0,.4)",lineHeight:1}}>LEAGUE-IT</div>
-                  <div style={{fontSize:9,color:"#C1FF00",fontFamily:"'DM Sans',sans-serif",letterSpacing:"2px",fontWeight:800,marginTop:2,textShadow:"0 0 10px rgba(193,255,0,.4)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{leagueName}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginTop:2,minWidth:0}}>
+                    <div style={{fontSize:9,color:"#C1FF00",fontFamily:"'DM Sans',sans-serif",letterSpacing:"2px",fontWeight:800,textShadow:"0 0 10px rgba(193,255,0,.4)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{leagueName}</div>
+                    {!isTournament && (
+                      <div style={{flexShrink:0,fontSize:8,fontWeight:800,fontFamily:"'DM Sans',sans-serif",letterSpacing:"0.5px",color:"rgba(170,255,0,0.7)",background:"rgba(170,255,0,0.08)",border:"1px solid rgba(170,255,0,0.2)",borderRadius:4,padding:"1px 5px",whiteSpace:"nowrap"}}>
+                        {rules?.leagueMode === "flexible" ? "FLEXIBLE" : "SCHEDULED"}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
@@ -7307,7 +7418,7 @@ function StepLanding({ onNext, onSignIn = null, hasPendingJoin = false, onGuestS
         {/* CTA */}
         <motion.div variants={fadeUp} className="w-full">
           <motion.button
-            onClick={onSignIn || onNext}
+            onClick={hasPendingJoin ? onGuestSignIn : (onSignIn || onNext)}
             whileHover={{ scale: 1.018, y: -2 }}
             whileTap={{ scale: 0.97 }}
             className="relative w-full overflow-hidden rounded-2xl py-[17px] font-black text-base tracking-wide"
@@ -7325,20 +7436,21 @@ function StepLanding({ onNext, onSignIn = null, hasPendingJoin = false, onGuestS
               style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.16), transparent 55%)" }}
             />
             <span className="relative flex items-center justify-center gap-2.5">
-              {/* Google "G" logo */}
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-                <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#000" fillOpacity=".55"/>
-                <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#000" fillOpacity=".55"/>
-                <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#000" fillOpacity=".55"/>
-                <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#000" fillOpacity=".55"/>
-              </svg>
-              {hasPendingJoin ? "Join League & Get Started" : "Continue with Google"}
+              {!hasPendingJoin && (
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                  <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#000" fillOpacity=".55"/>
+                  <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#000" fillOpacity=".55"/>
+                  <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#000" fillOpacity=".55"/>
+                  <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#000" fillOpacity=".55"/>
+                </svg>
+              )}
+              {hasPendingJoin ? "Enter League as Guest →" : "Continue with Google"}
             </span>
           </motion.button>
 
-          {hasPendingJoin && onGuestSignIn && (
+          {hasPendingJoin && onSignIn && (
             <motion.button
-              onClick={onGuestSignIn}
+              onClick={onSignIn}
               whileHover={{ scale: 1.018, y: -2 }}
               whileTap={{ scale: 0.97 }}
               className="relative w-full overflow-hidden rounded-2xl py-[15px] font-black text-base tracking-wide mt-3"
@@ -7352,11 +7464,13 @@ function StepLanding({ onNext, onSignIn = null, hasPendingJoin = false, onGuestS
               }}
             >
               <span className="flex items-center justify-center gap-2.5">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-                  <circle cx="12" cy="8" r="4" stroke="rgba(255,255,255,.7)" strokeWidth="1.8"/>
-                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke="rgba(255,255,255,.7)" strokeWidth="1.8" strokeLinecap="round"/>
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                  <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#000" fillOpacity=".55"/>
+                  <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#000" fillOpacity=".55"/>
+                  <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#000" fillOpacity=".55"/>
+                  <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#000" fillOpacity=".55"/>
                 </svg>
-                Continue as Player
+                Continue with Google
               </span>
             </motion.button>
           )}
@@ -8319,8 +8433,14 @@ function StepFormatAdvisor({ participants, groupSettings, setGroupSettings, onNe
   );
 }
 
-function StepTournamentFormat({ tournamentFormat, setTournamentFormat, groupSettings, setGroupSettings, onNext }) {
+function StepTournamentFormat({ tournamentFormat, setTournamentFormat, groupSettings, setGroupSettings, leagueMode, setLeagueMode, onNext }) {
   const isGroupsKnockout = tournamentFormat === "groups_knockout";
+  const isClassic        = tournamentFormat === "classic";
+
+  const LEAGUE_MODES = [
+    { id: "scheduled", label: "Scheduled League", sub: "Generate rounds automatically. Best when everyone should play everyone." },
+    { id: "flexible",  label: "Flexible League",  sub: "No fixed schedule. Players report matches as they happen." },
+  ];
 
   const ctaLabel = tournamentFormat === "knockout" || tournamentFormat === "groups_knockout"
     ? "Add Participants →"
@@ -8394,6 +8514,69 @@ function StepTournamentFormat({ tournamentFormat, setTournamentFormat, groupSett
               );
             })}
           </div>
+
+          {/* League Mode — only for Classic */}
+          <AnimatePresence>
+            {isClassic && (
+              <motion.div
+                key="league-mode"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={{ duration: 0.22 }}
+                style={{ marginTop: 20 }}
+              >
+                <div style={{
+                  fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 700,
+                  color: "rgba(255,255,255,0.45)", marginBottom: 12, letterSpacing: "0.5px",
+                }}>
+                  LEAGUE MODE
+                </div>
+                <div className="flex flex-col gap-2">
+                  {LEAGUE_MODES.map(lm => {
+                    const sel = leagueMode === lm.id;
+                    return (
+                      <button
+                        key={lm.id}
+                        onClick={() => setLeagueMode(lm.id)}
+                        style={{
+                          width: "100%", padding: "14px 16px", borderRadius: 16, cursor: "pointer",
+                          display: "flex", alignItems: "center", gap: 12, textAlign: "left",
+                          background: sel ? "rgba(170,255,0,0.07)" : "rgba(255,255,255,0.03)",
+                          border: sel ? `1.5px solid ${NEON}` : "1.5px solid rgba(255,255,255,0.07)",
+                          transition: "all 0.18s ease",
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            fontFamily: "'DM Sans',sans-serif", fontSize: 14, fontWeight: 700,
+                            color: sel ? NEON : "#fff", lineHeight: 1, marginBottom: 4,
+                          }}>
+                            {lm.label}
+                          </div>
+                          <div style={{
+                            fontFamily: "'DM Sans',sans-serif", fontSize: 12,
+                            color: "rgba(255,255,255,0.38)", lineHeight: 1.5,
+                          }}>
+                            {lm.sub}
+                          </div>
+                        </div>
+                        <div style={{
+                          width: 20, height: 20, borderRadius: "50%", flexShrink: 0,
+                          border: sel ? `2px solid ${NEON}` : "2px solid rgba(255,255,255,0.15)",
+                          background: sel ? NEON : "transparent",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          transition: "all 0.18s ease",
+                        }}>
+                          {sel && <Check size={10} strokeWidth={3} color="#000" />}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Group Settings — only for Groups + Knockout */}
           <AnimatePresence>
@@ -10936,6 +11119,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
   const [reportingMode,     setReportingMode]     = useState("admin");
   const [groupSettings,     setGroupSettings]     = useState({ playersPerGroup: 4, advancingPerGroup: 2 });
   const [matchLegs,         setMatchLegs]         = useState(1);
+  const [leagueMode,        setLeagueMode]        = useState("scheduled");
   const [format,            setFormat]            = useState("single");
   const [points,            setPoints]            = useState(21);
   const [customRules,       setCustomRules]       = useState("");
@@ -10966,13 +11150,13 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
     setSaving(true);
     setCreateErr("");
     try {
-      await onFinish({ leagueName, adminName, sport, tournamentFormat, participants, reportingMode, groupSettings, matchLegs, format, points, customSportName, customSportEmoji, customRules, leagueCode, isLiveLobby });
+      await onFinish({ leagueName, adminName, sport, tournamentFormat, leagueMode, participants, reportingMode, groupSettings, matchLegs, format, points, customSportName, customSportEmoji, customRules, leagueCode, isLiveLobby });
     } catch (e) {
       console.error(e);
       setCreateErr("Something went wrong. Please try again.");
       setSaving(false);
     }
-  }, [saving, onFinish, leagueName, adminName, sport, tournamentFormat, participants, format, points, customSportName, customSportEmoji, customRules, leagueCode, isLiveLobby, groupSettings, matchLegs, reportingMode]);
+  }, [saving, onFinish, leagueName, adminName, sport, tournamentFormat, leagueMode, participants, format, points, customSportName, customSportEmoji, customRules, leagueCode, isLiveLobby, groupSettings, matchLegs, reportingMode]);
 
   const sportProps = { sport, setSport, customSportName, setCustomSportName, customSportEmoji, setCustomSportEmoji };
   const rulesProps = { format, setFormat, points, setPoints, customRules, setCustomRules };
@@ -10984,6 +11168,7 @@ function LeagueItOnboarding({ onFinish, initialStep = 0, onBackToHub = null, use
       key="tournament-format"
       tournamentFormat={tournamentFormat} setTournamentFormat={setTournamentFormat}
       groupSettings={groupSettings} setGroupSettings={setGroupSettings}
+      leagueMode={leagueMode} setLeagueMode={setLeagueMode}
       onNext={goNext}
     />,
     // Non-classic: participants + (groups_knockout: format advisor) + reporting mode before rules
@@ -12052,8 +12237,9 @@ export default function Root() {
             setPhase("guest_select");
             return;
           }
-          // Classic league — guests cannot join classic leagues
+          // Classic league — enter directly as guest with placeholder identity
           setPendingJoinCode(null);
+          await handleEnterLeagueAsGuest(league, { id: user.id, name: "Guest" });
           return;
         }
 
@@ -12193,7 +12379,7 @@ export default function Root() {
     if (user) loadLeagues(user.id);
   }, [user, loadLeagues]);
 
-  const handleWizardFinish = useCallback(async ({ leagueName, sport, tournamentFormat, participants, reportingMode, groupSettings, matchLegs, format, points, customSportName, customSportEmoji, customRules, leagueCode, isLiveLobby }) => {
+  const handleWizardFinish = useCallback(async ({ leagueName, sport, tournamentFormat, leagueMode, participants, reportingMode, groupSettings, matchLegs, format, points, customSportName, customSportEmoji, customRules, leagueCode, isLiveLobby }) => {
     if (!user) throw new Error("Not logged in");
 
     const name        = leagueName?.trim() || "My League";
@@ -12205,7 +12391,7 @@ export default function Root() {
     const leagueId = crypto.randomUUID();
     const code      = leagueCode || generateCode();
     const lobbyPin  = isLiveLobby ? generateNumericPin() : null;
-    const baseSettings = { leagueCode: code, tournamentFormat: tournamentFormat || "classic", participants: participants || [], reportingMode: reportingMode || "admin", groupSettings: groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 }, matchLegs: matchLegs || 1, format, points, customRules, sportEmoji, ...(lobbyPin ? { lobbyPin } : {}) };
+    const baseSettings = { leagueCode: code, tournamentFormat: tournamentFormat || "classic", leagueMode: leagueMode || "scheduled", participants: participants || [], reportingMode: reportingMode || "admin", groupSettings: groupSettings || { playersPerGroup: 4, advancingPerGroup: 2 }, matchLegs: matchLegs || 1, format, points, customRules, sportEmoji, ...(lobbyPin ? { lobbyPin } : {}) };
 
     // ── Step 1: League insert — only step allowed to throw (league not yet created) ──
     const { error: leagueErr } = await supabase.from("leagues").insert({
