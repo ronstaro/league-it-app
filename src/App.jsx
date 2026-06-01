@@ -12675,7 +12675,20 @@ export default function Root() {
           const { data: all } = await supabase.from("leagues").select("*");
           league = all?.find(l => l.settings?.lobbyPin === code || l.settings?.leagueCode === code) || null;
         }
-        if (!league || league.settings?.lobbyState === "locked") { setPendingJoinCode(null); return; }
+        if (!league) { setPendingJoinCode(null); return; }
+
+        // Locked league — allow existing members to enter, block new joins
+        if (league.settings?.lobbyState === "locked") {
+          const { data: existingMember } = await supabase.from("players").select("id")
+            .eq("league_id", league.id).eq("user_id", user.id).maybeSingle();
+          if (existingMember) {
+            setPendingJoinCode(null);
+            await handleEnterLeague(league);
+            return;
+          }
+          setPendingJoinCode(null);
+          return;
+        }
 
         // Anonymous guest in a tournament → show participant picker instead of join flow
         if (user.is_anonymous) {
