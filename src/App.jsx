@@ -3485,9 +3485,12 @@ function styleTitle(wins,comebacks,winRate,totalPlayed) {
 
 function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,onAvatarUpdate=null,rules=null,bracket=null,groups=[],groupMatches=[],leagueId=null,guestSession=null}) {
   const enriched  = useMemo(()=>enrichPlayers(players,feed),[players,feed]);
-  const me        = players.find(p=>p.isMe);
-  const meE       = enriched.find(p=>p.isMe);
-  const displayName = profile?.display_name || user?.user_metadata?.full_name || me?.name || "Player";
+  const guestPid  = guestSession?.participantId ?? null;
+  const guestPlayer  = guestPid ? players.find(p=>p.id===guestPid) : null;
+  const guestPlayerE = guestPid ? enriched.find(p=>p.id===guestPid) : null;
+  const me        = guestPlayer ?? players.find(p=>p.isMe);
+  const meE       = guestPlayerE ?? enriched.find(p=>p.isMe);
+  const displayName = guestSession ? (me?.name || guestSession.name || "Player") : (profile?.display_name || user?.user_metadata?.full_name || me?.name || "Player");
   const wr        = pct(me?.wins ?? 0, me?.losses ?? 0);
   const [editName, setEditName] = useState(false);
   const [draftName,setDraftName] = useState(displayName);
@@ -3890,7 +3893,7 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
   );
 
   const avatarUrl = profile?.avatar_url || user?.user_metadata?.avatar_url || null;
-  const myRank    = rows.findIndex(p=>p.isMe)+1;
+  const myRank    = me ? rows.findIndex(p=>p.id===me.id)+1 : 0;
   const isMVP      = mvpPlayer.id===me.id;
   const isMGChamp  = mgChampion.id===me.id;
   const isClutchLeader = clutchLeader.id===me.id;
