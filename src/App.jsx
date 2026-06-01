@@ -3491,7 +3491,7 @@ function ProfileTab({players,feed,user=null,profile=null,onProfileUpdate=null,on
   const me        = guestPlayer ?? players.find(p=>p.isMe);
   const meE       = guestPlayerE ?? enriched.find(p=>p.isMe);
   const displayName = guestSession ? (me?.name || guestSession.name || "Player") : (profile?.display_name || user?.user_metadata?.full_name || me?.name || "Player");
-  const wr        = pct(me?.wins ?? 0, me?.losses ?? 0);
+  const wr        = useMemo(()=>pct(me?.wins??0,me?.losses??0),[me?.wins,me?.losses]);
   const [editName, setEditName] = useState(false);
   const [draftName,setDraftName] = useState(displayName);
   const rows      = useMemo(()=>byWins(players),[players]);
@@ -6393,7 +6393,8 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   const [players,    setPlayers]    = useState(initialPlayers);
   const [feed,       setFeed]       = useState(initialFeed);
   const [rules,    setRules]     = useState(initialRules || INIT_RULES);
-  const rulesRef = useRef(initialRules || INIT_RULES);
+  const rulesRef             = useRef(initialRules || INIT_RULES);
+  const lastFocusRefetchRef  = useRef(0);
   useEffect(() => { rulesRef.current = rules; }, [rules]);
   const [showLog,         setShowLog]         = useState(false);
   const [editMatch,       setEditMatch]       = useState(null);
@@ -6524,8 +6525,14 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   // when the tab becomes visible again (e.g. user switches back from another app).
   useEffect(() => {
     if (!leagueId) return;
-    const onFocus   = () => refetchLeague();
-    const onVisible = () => { if (!document.hidden) refetchLeague(); };
+    const guardedRefetch = () => {
+      const now = Date.now();
+      if (now - lastFocusRefetchRef.current < 30_000) return;
+      lastFocusRefetchRef.current = now;
+      refetchLeague();
+    };
+    const onFocus   = () => guardedRefetch();
+    const onVisible = () => { if (!document.hidden) guardedRefetch(); };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -12518,6 +12525,9 @@ export default function Root() {
           // ~every hour while the user is active; we must not navigate them away.
           const currentPhase = phaseRef.current;
           const isActiveSession = currentPhase === "app" || currentPhase === "lobby" || currentPhase === "join_flow";
+          // TOKEN_REFRESHED during an active session: skip the data reload entirely.
+          // The user is already inside a league with fresh data; no navigation will happen anyway.
+          if (event === "TOKEN_REFRESHED" && isActiveSession) return;
           // Each loader has its own try-catch — Promise.all will not hang even if one fails.
           // Do NOT call setLeagues([]) on error — preserve existing state on network blips.
           await Promise.all([
