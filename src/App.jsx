@@ -81,7 +81,7 @@ function settingsToRules(leagueSport, settings) {
     groups:           s.groups || [],
     groupMatches:     s.groupMatches || [],
     abstractBracket:  s.abstractBracket || null,
-    leagueMode:       s.leagueMode || "scheduled",
+    leagueMode:       s.leagueMode || (Array.isArray(s.rounds) && s.rounds.length > 0 ? "scheduled" : "flexible"),
     lobbyState:       s.lobbyState || null,
     rounds:           s.rounds || null,
   };
