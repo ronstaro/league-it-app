@@ -11825,7 +11825,8 @@ function SetSparkline({ sets, isWin }) {
 
 const PWA_BANNER_KEY = "league_it_pwa_dismissed";
 function isMobileBrowser() {
-  return typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
+  return (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0)
+    || (typeof window !== "undefined" && window.innerWidth <= 768);
 }
 function isStandalonePWA() {
   return !!(window.matchMedia?.("(display-mode: standalone)").matches || window.navigator?.standalone);
