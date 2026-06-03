@@ -11823,21 +11823,6 @@ function SetSparkline({ sets, isWin }) {
 // LEAGUE HUB  (clean)
 // ─────────────────────────────────────────────
 
-const PWA_BANNER_KEY = "league_it_pwa_dismissed";
-function isMobileBrowser() {
-  return (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0)
-    || (typeof window !== "undefined" && window.innerWidth <= 768);
-}
-function isStandalonePWA() {
-  return !!(window.matchMedia?.("(display-mode: standalone)").matches || window.navigator?.standalone);
-}
-function isPWABannerDismissed() {
-  try {
-    const ts = Number(localStorage.getItem(PWA_BANNER_KEY) || "0");
-    return ts > 0 && Date.now() - ts < 3 * 24 * 60 * 60 * 1000;
-  } catch { return false; }
-}
-
 function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }) {
   const [showJoin,      setShowJoin]      = useState(false);
   const [joinCode,      setJoinCode]      = useState("");
@@ -11848,24 +11833,7 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
   const [leagueRanks,   setLeagueRanks]   = useState({});
   const [hubStats,      setHubStats]      = useState(null);
   const [ovr,           setOvr]           = useState(null);
-  const [showInstallBanner, setShowInstallBanner] = useState(false);
-  const [showInstallSheet,  setShowInstallSheet]  = useState(false);
 
-  useEffect(() => {
-    const updateInstallBannerVisibility = () => {
-      setShowInstallBanner(isMobileBrowser() && !isStandalonePWA() && !isPWABannerDismissed());
-    };
-    updateInstallBannerVisibility();
-    window.addEventListener("resize", updateInstallBannerVisibility);
-    return () => window.removeEventListener("resize", updateInstallBannerVisibility);
-  }, []);
-
-  const isIOS = /iphone|ipad|ipod/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
-
-  const dismissBanner = () => {
-    setShowInstallBanner(false);
-    try { localStorage.setItem(PWA_BANNER_KEY, String(Date.now())); } catch { /* ignore */ }
-  };
 
   const displayName  = user?.user_metadata?.full_name || user?.email || "Player";
   const firstName    = (displayName.split(" ")[0] || "").slice(0, 14);
@@ -12106,39 +12074,6 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
               </motion.button>
             </div>
 
-            {/* ── PWA INSTALL BANNER ──────────────────────────── */}
-            {showInstallBanner && (
-              <div style={{borderRadius:18,padding:"14px 16px",marginBottom:16,
-                background:"rgba(170,255,0,.06)",border:"1.5px solid rgba(170,255,0,.22)",
-                display:"flex",alignItems:"flex-start",gap:12}}>
-                <div style={{fontSize:22,flexShrink:0,marginTop:1}}>📲</div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div dir="rtl" style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,
-                    color:"#fff",lineHeight:1.2,marginBottom:2}}>
-                    שמרו את League-It למסך הבית
-                  </div>
-                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,
-                    color:"rgba(255,255,255,.45)",lineHeight:1.4,marginBottom:10}}>
-                    Quick access to your leagues, result reporting and live standings.
-                  </div>
-                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                    <button onClick={()=>setShowInstallSheet(true)}
-                      style={{padding:"7px 14px",borderRadius:10,fontSize:12,fontWeight:700,cursor:"pointer",
-                        background:`linear-gradient(135deg,${N},#7DC900)`,border:"none",color:"#000",
-                        fontFamily:"'DM Sans',sans-serif"}}>
-                      איך עושים את זה?
-                    </button>
-                    <button onClick={dismissBanner}
-                      style={{padding:"7px 12px",borderRadius:10,fontSize:12,fontWeight:600,cursor:"pointer",
-                        background:"rgba(255,255,255,.07)",border:"1px solid rgba(255,255,255,.14)",
-                        color:"rgba(255,255,255,.5)",fontFamily:"'DM Sans',sans-serif"}}>
-                      אחר כך
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* ── MY LEAGUES ──────────────────────────────────── */}
             <div style={{fontSize:11,fontWeight:700,letterSpacing:"2px",color:"rgba(255,255,255,.3)",
               fontFamily:"'DM Sans',sans-serif",marginBottom:12}}>MY LEAGUES</div>
@@ -12378,85 +12313,6 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
         )}
       </AnimatePresence>
 
-      {/* ── PWA INSTALL SHEET ───────────────────────────── */}
-      {showInstallSheet && (
-        <div onClick={e=>{if(e.target===e.currentTarget)setShowInstallSheet(false)}}
-          style={{position:"fixed",inset:0,zIndex:100,background:"rgba(0,0,0,.65)",
-            display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
-          <motion.div initial={{y:80,opacity:0}} animate={{y:0,opacity:1}}
-            transition={{type:"spring",stiffness:340,damping:28}}
-            style={{width:"100%",maxWidth:430,borderRadius:"24px 24px 0 0",padding:"24px 20px 36px",
-              background:"#141414",border:"1px solid rgba(255,255,255,.1)"}}>
-            <div style={{width:36,height:4,borderRadius:2,background:"rgba(255,255,255,.2)",
-              margin:"0 auto 20px"}}/>
-            <div dir="rtl" style={{fontFamily:"'DM Sans',sans-serif",fontSize:20,fontWeight:800,
-              color:"#fff",marginBottom:4}}>
-              איך מוסיפים לייג-איט למסך הבית?
-            </div>
-            <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"rgba(255,255,255,.4)",
-              marginBottom:20}}>
-              How to add League-It to your Home Screen
-            </div>
-
-            {isIOS ? (
-              <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                {[
-                  { n:1, he:"פתחו את הדף בדפדפן Safari", en:"Open this page in Safari" },
-                  { n:2, he:"לחצו על כפתור השיתוף 📤 (בתחתית המסך)", en:"Tap the Share button 📤 at the bottom" },
-                  { n:3, he:"גללו מטה ובחרו 'הוסף למסך הבית'", en:"Scroll down and tap 'Add to Home Screen'" },
-                  { n:4, he:"אשרו בלחיצה על 'הוסף'", en:"Confirm by tapping 'Add'" },
-                ].map(s => (
-                  <div key={s.n} style={{display:"flex",alignItems:"flex-start",gap:12}}>
-                    <div style={{width:26,height:26,borderRadius:8,flexShrink:0,
-                      background:`${N}18`,border:`1px solid ${N}44`,
-                      display:"flex",alignItems:"center",justifyContent:"center",
-                      fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:800,color:N}}>
-                      {s.n}
-                    </div>
-                    <div>
-                      <div dir="rtl" style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,
-                        fontWeight:700,color:"#fff",lineHeight:1.3}}>{s.he}</div>
-                      <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,
-                        color:"rgba(255,255,255,.4)",lineHeight:1.3}}>{s.en}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                {[
-                  { n:1, he:"לחצו על תפריט Chrome ⋮ (שלושה נקודות בפינה הימנית)", en:"Tap Chrome's menu ⋮ (top-right corner)" },
-                  { n:2, he:"בחרו 'הוסף למסך הבית'", en:"Select 'Add to Home Screen'" },
-                  { n:3, he:"אשרו בלחיצה על 'הוסף'", en:"Confirm by tapping 'Add'" },
-                ].map(s => (
-                  <div key={s.n} style={{display:"flex",alignItems:"flex-start",gap:12}}>
-                    <div style={{width:26,height:26,borderRadius:8,flexShrink:0,
-                      background:`${N}18`,border:`1px solid ${N}44`,
-                      display:"flex",alignItems:"center",justifyContent:"center",
-                      fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:800,color:N}}>
-                      {s.n}
-                    </div>
-                    <div>
-                      <div dir="rtl" style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,
-                        fontWeight:700,color:"#fff",lineHeight:1.3}}>{s.he}</div>
-                      <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,
-                        color:"rgba(255,255,255,.4)",lineHeight:1.3}}>{s.en}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <button onClick={()=>setShowInstallSheet(false)}
-              style={{width:"100%",marginTop:24,padding:"13px",borderRadius:16,fontSize:14,
-                fontWeight:700,cursor:"pointer",background:"rgba(255,255,255,.08)",
-                border:"1px solid rgba(255,255,255,.14)",color:"rgba(255,255,255,.7)",
-                fontFamily:"'DM Sans',sans-serif"}}>
-              סגור / Close
-            </button>
-          </motion.div>
-        </div>
-      )}
     </>
   );
 }
