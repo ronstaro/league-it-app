@@ -11848,10 +11848,17 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
   const [leagueRanks,   setLeagueRanks]   = useState({});
   const [hubStats,      setHubStats]      = useState(null);
   const [ovr,           setOvr]           = useState(null);
-  const [showInstallBanner, setShowInstallBanner] = useState(
-    () => isMobileBrowser() && !isStandalonePWA() && !isPWABannerDismissed()
-  );
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [showInstallSheet,  setShowInstallSheet]  = useState(false);
+
+  useEffect(() => {
+    const updateInstallBannerVisibility = () => {
+      setShowInstallBanner(isMobileBrowser() && !isStandalonePWA() && !isPWABannerDismissed());
+    };
+    updateInstallBannerVisibility();
+    window.addEventListener("resize", updateInstallBannerVisibility);
+    return () => window.removeEventListener("resize", updateInstallBannerVisibility);
+  }, []);
 
   const isIOS = /iphone|ipad|ipod/i.test(typeof navigator !== "undefined" ? navigator.userAgent : "");
 
