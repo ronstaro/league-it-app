@@ -1,6 +1,9 @@
 node_modules
 dist
 
+# Claude Code local working directory
+.claude/
+
 # Environment files — never commit secrets
 .env
 .env.*
