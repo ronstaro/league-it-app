@@ -15,7 +15,7 @@ import {
   Minus, Clock, Home, BarChart2, Users, User, Edit2,
   Camera, Settings, RotateCcw, UserPlus, UserMinus,
   ChevronLeft, Trophy, Layers, Target, Hash, Copy,
-  MessageCircle, LayoutDashboard, Crown, Sparkles, ArrowRight, Trash2,
+  MessageCircle, LayoutDashboard, Crown, Sparkles, ArrowRight, Trash2, RefreshCw,
 } from "lucide-react";
 
 
@@ -5214,7 +5214,7 @@ const CHAMPION_SPARKLES = [
 ];
 
 function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
-  leagueId, leagueName, isAdmin, onClose, onGroupResult, onSyncEntry, onBracketMatchTap }) {
+  leagueId, leagueName, isAdmin, onClose, onGroupResult, onSyncEntry, onDeleteEntry, onBracketMatchTap }) {
 
   const TV = 1.2;
   const tvF = n => Math.round(n * TV);
@@ -5282,13 +5282,17 @@ function TVDashboard({ players, feed, rules, bracket, groups, groupMatches,
       .on("postgres_changes", { event: "*", schema: "public", table: "matches",
         filter: `league_id=eq.${leagueId}` },
         p => {
+          if (p.eventType === "DELETE") {
+            if (p.old?.id) onDeleteEntry?.(p.old.id);
+            return;
+          }
           if (!p.new?.id) return;
           // Normalize to feed entry shape matching initial load: { id, ...score_fields }
           onSyncEntry({ id: p.new.id, ...p.new.score });
         })
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [leagueId, onSyncEntry]);
+  }, [leagueId, onSyncEntry, onDeleteEntry]);
 
   // ── Derived data ─────────────────────────────────────────────────────────
   const groupStandings = useMemo(() =>
@@ -6395,6 +6399,8 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
   const [rules,    setRules]     = useState(initialRules || INIT_RULES);
   const rulesRef             = useRef(initialRules || INIT_RULES);
   const lastFocusRefetchRef  = useRef(0);
+  const [isRefreshing,       setIsRefreshing]       = useState(false);
+  const [showRefreshSuccess, setShowRefreshSuccess] = useState(false);
   useEffect(() => { rulesRef.current = rules; }, [rules]);
   const [showLog,         setShowLog]         = useState(false);
   const [editMatch,       setEditMatch]       = useState(null);
@@ -6465,15 +6471,17 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
     return () => { alive = false; };
   }, [leagueId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── SHARED REFETCH: re-pulls league settings + matches from Supabase ────────
-  // Used by realtime fallback (focus/visibility) so all clients stay in sync
-  // even when the realtime socket drops or the app is backgrounded.
+  // ── SHARED REFETCH: re-pulls league settings + matches + players from Supabase ─
+  // Used by the manual refresh button and the focus/visibility fallback so all
+  // clients stay in sync even when the realtime socket drops or the app is backgrounded.
   const refetchLeague = useCallback(async () => {
     if (!leagueId || !supabase) return;
+    setIsRefreshing(true);
     try {
-      const [{ data: leagueRow }, { data: mData }] = await Promise.all([
+      const [{ data: leagueRow }, { data: mData }, { data: pData }] = await Promise.all([
         supabase.from("leagues").select("settings, sport").eq("id", leagueId).maybeSingle(),
         supabase.from("matches").select("*").eq("league_id", leagueId).order("date", { ascending: false }),
+        supabase.from("players").select("*").eq("league_id", leagueId),
       ]);
       if (leagueRow?.settings) {
         const freshRules = settingsToRules(leagueRow.sport, leagueRow.settings);
@@ -6481,22 +6489,33 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
         setBracket(freshRules.bracket || null);
       }
       if (mData) setFeed(mData.map(m => ({ id: m.id, ...m.score })));
+      if (pData) setPlayers(pData.map(r => rowToPlayer(r, user?.id)));
+      setShowRefreshSuccess(true);
+      setTimeout(() => setShowRefreshSuccess(false), 2500);
     } catch (e) { console.error("[refetch] error:", e); }
+    finally { setIsRefreshing(false); }
   }, [leagueId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── REALTIME SUBSCRIPTIONS ───────────────────────────────────────────────────
-  // Listen to matches and leagues changes for this league so ALL clients
-  // (phone, desktop, TV) receive live updates without manual refresh.
+  // Three channels keep all clients (phone, desktop, TV) in sync live:
+  //   matchCh   — match INSERT/UPDATE/DELETE → feed → standings/stats recalculate
+  //   leagueCh  — leagues UPDATE → rules, bracket
+  //   playersCh — players INSERT/UPDATE/DELETE → player list (joins, renames, removals)
   useEffect(() => {
     if (!leagueId || !supabase) return;
 
-    // matches → update feed (group results, bracket results, classic matches)
+    // matches → update feed for all viewers; handles INSERT, UPDATE, and DELETE
     const matchCh = supabase.channel(`league-matches-${leagueId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "matches",
         filter: `league_id=eq.${leagueId}` },
         p => {
+          if (p.eventType === "DELETE") {
+            // p.new is empty on DELETE — use p.old.id to remove from feed
+            if (p.old?.id) setFeed(prev => prev.filter(m => m.id !== p.old.id));
+            return;
+          }
           if (!p.new?.id) return;
-          // Normalize to feed entry shape: { id, ...score_fields }
+          // INSERT or UPDATE: normalize to feed entry shape and upsert at top
           const entry = { id: p.new.id, ...p.new.score };
           setFeed(prev => [entry, ...prev.filter(m => m.id !== entry.id)]);
         })
@@ -6514,9 +6533,27 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
         })
       .subscribe();
 
+    // players → sync player list changes live (new joins, renames, removals)
+    // Stats (wins/losses/streak) derive from feed via derivePlayerStats — no DB read needed for those.
+    const playersCh = supabase.channel(`league-players-${leagueId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "players",
+        filter: `league_id=eq.${leagueId}` },
+        p => {
+          if (p.eventType === "INSERT") {
+            const newP = rowToPlayer(p.new, user?.id);
+            setPlayers(prev => prev.some(x => x.id === p.new.id) ? prev : [...prev, newP]);
+          } else if (p.eventType === "DELETE") {
+            if (p.old?.id) setPlayers(prev => prev.filter(x => x.id !== p.old.id));
+          } else if (p.eventType === "UPDATE") {
+            setPlayers(prev => prev.map(x => x.id === p.new.id ? { ...x, ...rowToPlayer(p.new, user?.id) } : x));
+          }
+        })
+      .subscribe();
+
     return () => {
       supabase.removeChannel(matchCh);
       supabase.removeChannel(leagueCh);
+      supabase.removeChannel(playersCh);
     };
   }, [leagueId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -7199,6 +7236,18 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => refetchLeague()}
+                  title={showRefreshSuccess ? "Updated!" : "Refresh"}
+                  disabled={isRefreshing}
+                  className="flex items-center justify-center w-8 h-8 rounded-full"
+                  style={{ background: "rgba(255,255,255,.07)", border: `1px solid ${showRefreshSuccess ? N + "55" : "rgba(255,255,255,.12)"}`, transition: "border-color .3s" }}>
+                  <RefreshCw
+                    size={14}
+                    className={isRefreshing ? "animate-spin" : ""}
+                    style={{ color: showRefreshSuccess ? N : "rgba(255,255,255,.45)", transition: "color .3s" }}
+                  />
+                </button>
                 {isAdmin && (
                   <button onClick={() => setShowTVDash(true)}
                     title="TV Dashboard"
@@ -7287,6 +7336,7 @@ function LeagueItApp({ initialPlayers = INIT_PLAYERS, initialFeed = INIT_FEED, i
             onClose={() => setShowTVDash(false)}
             onGroupResult={handleGroupResult}
             onSyncEntry={entry => setFeed(prev => [entry, ...prev.filter(m => m.id !== entry.id)])}
+            onDeleteEntry={id => setFeed(prev => prev.filter(m => m.id !== id))}
             onBracketMatchTap={m => setTournamentModal({ match: m, type: "bracket", contextLabel: _bracketRoundLabel(bracket, m) })}
           />
         )}
