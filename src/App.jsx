@@ -11873,7 +11873,7 @@ function SetSparkline({ sets, isWin }) {
 // LEAGUE HUB  (clean)
 // ─────────────────────────────────────────────
 
-function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }) {
+function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut, isSuperAdmin, onOpenFounder }) {
   const [showJoin,      setShowJoin]      = useState(false);
   const [joinCode,      setJoinCode]      = useState("");
   const [joinErr,       setJoinErr]       = useState("");
@@ -12122,6 +12122,27 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
                 </div>
                 <ChevronRight size={18} style={{color:"rgba(59,142,255,.5)",flexShrink:0}}/>
               </motion.button>
+
+              {isSuperAdmin && (
+                <motion.button whileHover={{scale:1.015,y:-1}} whileTap={{scale:.98}}
+                  onClick={onOpenFounder}
+                  style={{width:"100%",padding:"15px 18px",borderRadius:20,cursor:"pointer",
+                    display:"flex",alignItems:"center",gap:14,
+                    background:"rgba(255,51,85,.07)",border:"1.5px solid rgba(255,51,85,.35)",
+                    boxShadow:"0 4px 20px rgba(255,51,85,.08)"}}>
+                  <div style={{width:40,height:40,borderRadius:14,display:"flex",alignItems:"center",
+                    justifyContent:"center",background:"rgba(255,51,85,.15)",flexShrink:0}}>
+                    <Crown size={20} style={{color:"#FF3355"}}/>
+                  </div>
+                  <div className="flex-1 text-left">
+                    <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:700,
+                      color:"#FF3355",lineHeight:1}}>Founder Panel</div>
+                    <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,
+                      color:"rgba(255,255,255,.35)",marginTop:3}}>Super admin controls</div>
+                  </div>
+                  <ChevronRight size={18} style={{color:"rgba(255,51,85,.5)",flexShrink:0}}/>
+                </motion.button>
+              )}
             </div>
 
             {/* ── MY LEAGUES ──────────────────────────────────── */}
@@ -12368,6 +12389,339 @@ function LeagueHub({ user, leagues, onEnter, onCreateWizard, onJoin, onSignOut }
 }
 
 // ─────────────────────────────────────────────
+// FOUNDER PANEL — super admin only
+// All permissions enforced server-side via is_super_admin() + RLS.
+// ─────────────────────────────────────────────
+function FounderPanel({ user, onBack }) {
+  const [tab,            setTab]            = useState("leagues");
+  const [allLeagues,     setAllLeagues]     = useState([]);
+  const [moderation,     setModeration]     = useState({});
+  const [auditLog,       setAuditLog]       = useState([]);
+  const [loading,        setLoading]        = useState(true);
+  const [err,            setErr]            = useState("");
+  const [actionLeagueId, setActionLeagueId] = useState(null);
+  const [actionStatus,   setActionStatus]   = useState(null);
+  const [reason,         setReason]         = useState("");
+  const [saving,         setSaving]         = useState(false);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setErr("");
+    try {
+      const [
+        { data: lgs,  error: lgErr  },
+        { data: mods, error: modErr },
+        { data: logs, error: logErr },
+      ] = await Promise.all([
+        supabase.from("leagues").select("id,name,sport,owner_id,created_at")
+          .order("created_at", { ascending: false }),
+        supabase.from("league_moderation").select("league_id,status,reason,updated_at"),
+        supabase.from("admin_audit_log").select("*")
+          .order("created_at", { ascending: false }).limit(100),
+      ]);
+      if (lgErr)  throw lgErr;
+      if (modErr) throw modErr;
+      if (logErr) throw logErr;
+      setAllLeagues(lgs || []);
+      const map = {};
+      for (const m of (mods || [])) map[m.league_id] = m;
+      setModeration(map);
+      setAuditLog(logs || []);
+    } catch (e) {
+      setErr(e?.message || "Failed to load data");
+    } finally {
+      setLoading(false);
+    }
+  }, []); // supabase is a module-level constant
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handleModerate = async () => {
+    if (!actionLeagueId || !actionStatus) return;
+    setSaving(true);
+    setErr("");
+    try {
+      const { error } = await supabase.rpc("moderate_league", {
+        p_league_id: actionLeagueId,
+        p_status:    actionStatus,
+        p_reason:    reason.trim() || null,
+      });
+      if (error) throw error;
+      setActionLeagueId(null);
+      setActionStatus(null);
+      setReason("");
+      await loadData();
+    } catch (e) {
+      setErr(e?.message || "Action failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const statusOf   = (id) => moderation[id]?.status || "active";
+  const closeModal = () => {
+    if (saving) return;
+    setActionLeagueId(null);
+    setActionStatus(null);
+    setReason("");
+    setErr("");
+  };
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700;800&display=swap');
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+        html,body{height:100%;background:#0A0A0A;}
+        ::-webkit-scrollbar{display:none;}
+      `}</style>
+      <div style={{minHeight:"100vh",background:BG,color:"#fff",display:"flex",
+        justifyContent:"center",position:"relative",overflow:"hidden"}}>
+        <GridBg/><GlowBlobs/>
+        <div style={{width:"100%",maxWidth:430,minHeight:"100vh",display:"flex",
+          flexDirection:"column",position:"relative",zIndex:1}}>
+
+          {/* ── Header ─────────────────────────────────────── */}
+          <div style={{padding:"20px 20px 0",display:"flex",alignItems:"center",
+            gap:12,flexShrink:0}}>
+            <button onClick={onBack}
+              style={{display:"flex",alignItems:"center",justifyContent:"center",
+                width:36,height:36,borderRadius:12,background:"rgba(255,255,255,.06)",
+                border:"1px solid rgba(255,255,255,.1)",cursor:"pointer",flexShrink:0}}>
+              <ChevronLeft size={18} style={{color:"rgba(255,255,255,.6)"}}/>
+            </button>
+            <div style={{flex:1}}>
+              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,
+                letterSpacing:"4px",color:"#FF3355"}}>FOUNDER PANEL</div>
+              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,
+                color:"rgba(255,255,255,.3)",marginTop:1}}>{user?.email}</div>
+            </div>
+            <Crown size={20} style={{color:"#FF3355",opacity:.6,flexShrink:0}}/>
+          </div>
+
+          {/* ── Tabs ───────────────────────────────────────── */}
+          <div style={{display:"flex",gap:8,padding:"16px 20px 0",flexShrink:0}}>
+            {[["leagues","All Leagues"],["audit","Audit Log"]].map(([key,label]) => (
+              <button key={key} onClick={()=>setTab(key)}
+                style={{flex:1,padding:"8px 0",borderRadius:12,cursor:"pointer",
+                  fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:700,
+                  letterSpacing:"1px",textTransform:"uppercase",border:"1.5px solid",
+                  background: tab===key ? "rgba(255,51,85,.12)" : "rgba(255,255,255,.04)",
+                  borderColor: tab===key ? "rgba(255,51,85,.4)" : "rgba(255,255,255,.08)",
+                  color: tab===key ? "#FF3355" : "rgba(255,255,255,.3)"}}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Content ────────────────────────────────────── */}
+          <div style={{flex:1,overflowY:"auto",padding:"16px 20px 36px"}}>
+
+            {err && !actionLeagueId && (
+              <div style={{borderRadius:12,padding:"10px 14px",marginBottom:12,
+                background:"rgba(255,51,85,.1)",border:"1px solid rgba(255,51,85,.3)",
+                fontFamily:"'DM Sans',sans-serif",fontSize:12,color:"#FF3355"}}>
+                {err}
+              </div>
+            )}
+
+            {loading ? (
+              <div style={{display:"flex",justifyContent:"center",paddingTop:48}}>
+                <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,
+                  color:"rgba(255,255,255,.3)"}}>Loading…</div>
+              </div>
+            ) : tab === "leagues" ? (
+              <>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:"2px",
+                  color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",
+                  marginBottom:12}}>ALL LEAGUES ({allLeagues.length})</div>
+                {allLeagues.length === 0 && (
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,
+                    color:"rgba(255,255,255,.3)",textAlign:"center",paddingTop:32}}>
+                    No leagues found
+                  </div>
+                )}
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {allLeagues.map(lg => {
+                    const st     = statusOf(lg.id);
+                    const hidden = st === "hidden";
+                    const bdrClr = hidden ? "rgba(255,184,48,.25)" : "rgba(255,255,255,.08)";
+                    const bgClr  = hidden ? "rgba(255,184,48,.05)" : "rgba(255,255,255,.04)";
+                    const stClr  = hidden ? "#FFB830" : N;
+                    return (
+                      <div key={lg.id} style={{borderRadius:16,padding:"12px 14px",
+                        background:bgClr,border:`1.5px solid ${bdrClr}`}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,
+                              fontWeight:700,color:"#fff",whiteSpace:"nowrap",
+                              overflow:"hidden",textOverflow:"ellipsis"}}>
+                              {lg.name || "Unnamed"}
+                            </div>
+                            <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,
+                              color:"rgba(255,255,255,.35)",marginTop:2}}>
+                              {lg.sport || "—"} · owner: {(lg.owner_id||"").slice(0,8)}…
+                            </div>
+                            {lg.created_at && (
+                              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,
+                                color:"rgba(255,255,255,.2)",marginTop:1}}>
+                                {new Date(lg.created_at).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{display:"flex",flexDirection:"column",
+                            alignItems:"flex-end",gap:6,flexShrink:0}}>
+                            <span style={{fontSize:10,fontWeight:700,
+                              fontFamily:"'DM Sans',sans-serif",letterSpacing:"0.5px",
+                              color:stClr,background:`${stClr}18`,
+                              border:`1px solid ${stClr}44`,
+                              borderRadius:8,padding:"2px 8px"}}>
+                              {st.toUpperCase()}
+                            </span>
+                            <button
+                              onClick={()=>{
+                                setActionLeagueId(lg.id);
+                                setActionStatus(hidden ? "active" : "hidden");
+                                setReason("");
+                                setErr("");
+                              }}
+                              style={{fontSize:11,fontWeight:600,padding:"4px 10px",
+                                borderRadius:10,cursor:"pointer",
+                                fontFamily:"'DM Sans',sans-serif",
+                                background: hidden ? `${N}14` : "rgba(255,184,48,.1)",
+                                border: hidden ? `1px solid ${N}44`
+                                              : "1px solid rgba(255,184,48,.4)",
+                                color: hidden ? N : "#FFB830"}}>
+                              {hidden ? "Unhide" : "Hide"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:"2px",
+                  color:"rgba(255,255,255,.3)",fontFamily:"'DM Sans',sans-serif",
+                  marginBottom:12}}>AUDIT LOG ({auditLog.length})</div>
+                {auditLog.length === 0 && (
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:13,
+                    color:"rgba(255,255,255,.3)",textAlign:"center",paddingTop:32}}>
+                    No actions logged yet
+                  </div>
+                )}
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {auditLog.map(log => {
+                    const ac = log.action === "hidden" ? "#FFB830" : N;
+                    return (
+                      <div key={log.id} style={{borderRadius:14,padding:"10px 14px",
+                        background:"rgba(255,255,255,.04)",
+                        border:"1px solid rgba(255,255,255,.07)"}}>
+                        <div style={{display:"flex",alignItems:"center",
+                          justifyContent:"space-between",marginBottom:3}}>
+                          <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,
+                            fontWeight:700,color:ac,textTransform:"uppercase",
+                            letterSpacing:"0.5px"}}>{log.action}</span>
+                          <span style={{fontFamily:"'DM Sans',sans-serif",fontSize:10,
+                            color:"rgba(255,255,255,.25)"}}>
+                            {new Date(log.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                        <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,
+                          color:"rgba(255,255,255,.4)"}}>
+                          {log.target_type} · {(log.target_id||"").slice(0,8)}…
+                        </div>
+                        {log.reason && (
+                          <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:11,
+                            color:"rgba(255,255,255,.28)",marginTop:3,fontStyle:"italic"}}>
+                            &ldquo;{log.reason}&rdquo;
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Action confirmation modal ────────────────────── */}
+      <AnimatePresence>
+        {actionLeagueId && (
+          <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+            style={{position:"fixed",inset:0,zIndex:50,display:"flex",
+              alignItems:"flex-end",justifyContent:"center",
+              background:"rgba(0,0,0,.8)",backdropFilter:"blur(8px)"}}
+            onClick={e=>{if(e.target===e.currentTarget) closeModal();}}>
+            <motion.div initial={{y:"100%"}} animate={{y:0}} exit={{y:"100%"}}
+              transition={{type:"spring",damping:28,stiffness:300}}
+              style={{width:"100%",maxWidth:430,background:"#0D0F12",
+                borderRadius:"24px 24px 0 0",
+                border:"1.5px solid rgba(255,51,85,.2)",borderBottom:"none",
+                boxShadow:"0 -12px 48px rgba(255,51,85,.08)",
+                padding:"20px 24px 36px"}}>
+              <div style={{display:"flex",justifyContent:"center",marginBottom:16}}>
+                <div style={{width:36,height:4,borderRadius:2,
+                  background:"rgba(255,255,255,.15)"}}/>
+              </div>
+              <div style={{fontFamily:"'Bebas Neue',sans-serif",fontSize:22,
+                letterSpacing:"3px",marginBottom:6,
+                color: actionStatus==="hidden" ? "#FFB830" : N}}>
+                {actionStatus==="hidden" ? "HIDE LEAGUE" : "UNHIDE LEAGUE"}
+              </div>
+              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,
+                color:"rgba(255,255,255,.35)",marginBottom:16}}>
+                ID: {(actionLeagueId||"").slice(0,8)}…
+              </div>
+              <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,
+                color:"rgba(255,255,255,.35)",marginBottom:6}}>
+                Reason <span style={{color:"rgba(255,255,255,.2)"}}>(optional)</span>
+              </div>
+              <input value={reason} onChange={e=>setReason(e.target.value)}
+                placeholder="e.g. Violates community guidelines"
+                maxLength={200}
+                style={{width:"100%",borderRadius:12,padding:"12px 14px",
+                  marginBottom:14,outline:"none",
+                  fontFamily:"'DM Sans',sans-serif",fontSize:13,
+                  background:"rgba(255,255,255,.05)",
+                  border:"1.5px solid rgba(255,255,255,.12)",
+                  color:"#fff",caretColor:N}}/>
+              {err && (
+                <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:12,
+                  color:"#FF3355",marginBottom:10}}>{err}</div>
+              )}
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={closeModal} disabled={saving}
+                  style={{flex:1,padding:"13px 0",borderRadius:14,
+                    cursor:saving?"not-allowed":"pointer",
+                    fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:700,
+                    background:"rgba(255,255,255,.06)",
+                    border:"1px solid rgba(255,255,255,.12)",
+                    color:"rgba(255,255,255,.45)"}}>Cancel</button>
+                <button onClick={handleModerate} disabled={saving}
+                  style={{flex:2,padding:"13px 0",borderRadius:14,
+                    cursor:saving?"not-allowed":"pointer",
+                    fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,
+                    border:"none",color:"#000",opacity:saving?0.6:1,
+                    background: actionStatus==="hidden"
+                      ? "linear-gradient(135deg,#FFB830,#E08A00)"
+                      : `linear-gradient(135deg,${N},#7DC900)`}}>
+                  {saving ? "Saving…" : "Confirm"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────
 // GUEST PLAYER PICKER
 // ─────────────────────────────────────────────
 function GuestPlayerPicker({ league, classicPlayers = [], onSelect, onCancel }) {
@@ -12460,6 +12814,7 @@ export default function Root() {
   const [joinFlowData,     setJoinFlowData]     = useState(null);   // { leagueId, leagueName, isSeeded, defaultNickname }
   const [guestSession,     setGuestSession]     = useState(null);   // { participantId, name, leagueId, createdAt }
   const [guestJoinData,    setGuestJoinData]    = useState(null);   // { leagueId, leagueName, league }
+  const [isSuperAdmin,     setIsSuperAdmin]     = useState(false);
 
   // Tracks current phase synchronously so async callbacks (onAuthStateChange) can
   // read it without stale-closure issues — avoids kicking user out on TOKEN_REFRESHED.
@@ -12588,6 +12943,12 @@ export default function Root() {
           ]);
           // Silent re-auth while user is inside a league/lobby — refresh data but don't navigate
           if (isActiveSession) return;
+          try {
+            const { data: isSA } = await supabase.rpc("is_super_admin");
+            setIsSuperAdmin(!!isSA);
+          } catch {
+            setIsSuperAdmin(false);
+          }
           const joinCode = localStorage.getItem("pending_join_code");
           const joinId   = sessionStorage.getItem("league_it_join_id");
           const intent   = sessionStorage.getItem("league_it_intent");
@@ -12606,7 +12967,7 @@ export default function Root() {
             setPhase("hub");
           }
         } else {
-          setUser(null); setLeagues([]); setActiveData(null); setProfile(null);
+          setUser(null); setLeagues([]); setActiveData(null); setProfile(null); setIsSuperAdmin(false);
           setPhase("login");
         }
       } catch {
@@ -13058,6 +13419,9 @@ export default function Root() {
       onBackToHub={() => setPhase("hub")}
     />
   );
+  if (phase === "founder") return (
+    <FounderPanel user={user} onBack={() => setPhase("hub")} />
+  );
   if (phase === "hub") return (
     <LeagueHub
       user={user}
@@ -13066,6 +13430,8 @@ export default function Root() {
       onCreateWizard={() => setPhase("wizard")}
       onJoin={handleJoinLeague}
       onSignOut={handleSignOut}
+      isSuperAdmin={isSuperAdmin}
+      onOpenFounder={() => setPhase("founder")}
     />
   );
   return (
