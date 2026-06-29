@@ -12943,12 +12943,6 @@ export default function Root() {
           ]);
           // Silent re-auth while user is inside a league/lobby — refresh data but don't navigate
           if (isActiveSession) return;
-          try {
-            const { data: isSA } = await supabase.rpc("is_super_admin");
-            setIsSuperAdmin(!!isSA);
-          } catch {
-            setIsSuperAdmin(false);
-          }
           const joinCode = localStorage.getItem("pending_join_code");
           const joinId   = sessionStorage.getItem("league_it_join_id");
           const intent   = sessionStorage.getItem("league_it_intent");
@@ -12966,6 +12960,11 @@ export default function Root() {
           } else {
             setPhase("hub");
           }
+          // Non-blocking: super-admin check runs after navigation so it never delays the hub.
+          // Founder Panel may appear a moment later; that is acceptable.
+          withTimeout(supabase.rpc("is_super_admin"), 5000)
+            .then(({ data: isSA }) => setIsSuperAdmin(!!isSA))
+            .catch(() => setIsSuperAdmin(false));
         } else {
           setUser(null); setLeagues([]); setActiveData(null); setProfile(null); setIsSuperAdmin(false);
           setPhase("login");
@@ -13151,38 +13150,28 @@ export default function Root() {
     })();
   }, [pendingJoinCode, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-restore the last active league after a page reload or PWA cold-start.
-  // Fires when phase reaches "hub" and leagues have loaded. If the user manually
-  // navigated back to hub (handleBack), the savedId is cleared so this is a no-op.
+  // Restore anonymous guest session on hub entry — authenticated users always land on hub
+  // and must tap a league explicitly. Only anonymous (Supabase anon-auth) users auto-restore.
   useEffect(() => {
-    if (phase !== "hub" || !user) return;
+    if (phase !== "hub" || !user || !user.is_anonymous) return;
     const savedId = localStorage.getItem("league_it_active_id");
     if (!savedId) return;
 
-    // Anonymous guest — restore from localStorage guest session without needing leagues array
-    if (user.is_anonymous) {
-      try {
-        const gs = JSON.parse(localStorage.getItem(`league_guest_${savedId}`) || "null");
-        if (gs?.participantId) {
-          setGuestSession(gs);
-          supabase.from("leagues").select("*").eq("id", savedId).maybeSingle()
-            .then(({ data: league }) => {
-              if (league) handleEnterLeague(league);
-              else localStorage.removeItem("league_it_active_id");
-            })
-            .catch(() => {});
-          return;
-        }
-      } catch { /* ignore */ }
-      localStorage.removeItem("league_it_active_id");
-      return;
-    }
-
-    if (leagues.length === 0) return;
-    const league = leagues.find(l => l.id === savedId);
-    if (!league) { localStorage.removeItem("league_it_active_id"); return; }
-    handleEnterLeague(league);
-  }, [phase, leagues]); // eslint-disable-line react-hooks/exhaustive-deps
+    try {
+      const gs = JSON.parse(localStorage.getItem(`league_guest_${savedId}`) || "null");
+      if (gs?.participantId) {
+        setGuestSession(gs);
+        supabase.from("leagues").select("*").eq("id", savedId).maybeSingle()
+          .then(({ data: league }) => {
+            if (league) handleEnterLeague(league);
+            else localStorage.removeItem("league_it_active_id");
+          })
+          .catch(() => {});
+        return;
+      }
+    } catch { /* ignore */ }
+    localStorage.removeItem("league_it_active_id");
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleJoinLeague = useCallback(async (code) => {
     if (!user) return { error: "Not logged in" };
